@@ -27,10 +27,19 @@ url: str = os.environ.get("SUPABASE_URL")
 key: str = os.environ.get("SUPABASE_KEY")
 token: str = os.environ.get("TELEGRAM_TOKEN")
 
-# --- ⚠️ KONFIGURASI ID ---
-ADMIN_ID = 7530512170          
+# --- ⚠️ PERBAIKAN PENTING DI SINI ---
+# Kita ambil ADMIN_ID dari file .env agar tidak salah sasaran
+# Pastikan di file .env Bapak ada baris: ADMIN_ID=1234567890
+try:
+    ADMIN_ID = int(os.environ.get("ADMIN_ID"))
+except:
+    # Jika tidak ada di .env, gunakan fallback (GANTI ANGKA INI DENGAN ID TELEGRAM BAPAK JIKA MANUAL)
+    print("⚠️ WARNING: ADMIN_ID tidak ditemukan di .env, menggunakan ID default.")
+    ADMIN_ID = 7530512170 
+
 LOG_GROUP_ID = -1003627047676  
 
+# Cek Koneksi
 if not url or not key or not token:
     print("❌ ERROR: Cek file .env Anda.")
     exit()
@@ -67,21 +76,16 @@ def update_quota_usage(user_id, current_quota):
     except: pass
 
 # ==============================================================================
-#                        ADMIN: UPLOAD FILE (SAFE MODE)
+#                        ADMIN: UPLOAD FILE
 # ==============================================================================
 
 async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    
-    # TOLAK JIKA BUKAN ADMIN
     if user_id != ADMIN_ID:
-        return await update.message.reply_text(
-            "⛔ **AKSES DITOLAK**\nFitur upload otomatis hanya untuk Admin.\nSilakan kirim file ke WhatsApp Admin untuk divalidasi."
-        )
+        return await update.message.reply_text("⛔ **AKSES DITOLAK**\nKhusus Admin.")
 
     document = update.message.document
     file_name = document.file_name
-    
     status_msg = await update.message.reply_text("⏳ **Menganalisa file...**")
     start_time = time.time()
 
@@ -100,9 +104,6 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
             return await status_msg.edit_text("❌ Format salah. Gunakan .csv atau .xlsx")
         
         df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
-        if 'nopol' not in df.columns:
-            return await status_msg.edit_text("❌ Gagal: Tidak ada kolom 'nopol'.")
-
         df['nopol'] = df['nopol'].astype(str).str.replace(' ', '').str.upper()
         df = df.replace({np.nan: None})
         
@@ -112,7 +113,6 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         total_rows = len(final_data)
         success_count = 0
         fail_count = 0
-
         await status_msg.edit_text(f"📥 **Memproses {total_rows} data...**")
 
         BATCH_SIZE = 1000
@@ -124,13 +124,11 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
             except: fail_count += len(batch)
 
         duration = round(time.time() - start_time, 2)
-        
         report = (
-            f"✅ **DATABASE DIPERBARUI (ADMIN)**\n━━━━━━━━━━━━━━━━━━\n"
+            f"✅ **DATABASE DIPERBARUI**\n━━━━━━━━━━━━━━━━━━\n"
             f"📄 **File:** `{file_name}`\n📊 **Total:** {total_rows}\n"
             f"✅ **Sukses:** {success_count}\n❌ **Gagal:** {fail_count}\n"
-            f"⏱ **Waktu:** {duration} detik\n━━━━━━━━━━━━━━━━━━\n"
-            f"📅 _Update: {datetime.now().strftime('%d/%m/%Y %H:%M')}_"
+            f"⏱ **Waktu:** {duration}s"
         )
         await status_msg.edit_text(report, parse_mode='Markdown')
 
@@ -220,13 +218,20 @@ async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, veh
     except: pass
 
 # ==============================================================================
-#                        USER: REGISTRASI (FIXED LOGIC)
+#                        USER: REGISTRASI (FIXED & DEBUGGING)
 # ==============================================================================
 
 async def register_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Cek dulu apakah user sudah ada
-    if get_user(update.effective_user.id): 
-        return await update.message.reply_text("✅ Anda sudah terdaftar.")
+    user = get_user(update.effective_user.id)
+    if user:
+        # Jika status pending, informasikan
+        if user['status'] == 'pending':
+            return await update.message.reply_text("⏳ Pendaftaran Anda masih **MENUNGGU VERIFIKASI** Admin.")
+        elif user['status'] == 'active':
+            return await update.message.reply_text("✅ Anda sudah terdaftar dan **AKTIF**.")
+        else:
+            return await update.message.reply_text("⛔ Pendaftaran Anda sebelumnya **DITOLAK**.")
+            
     await update.message.reply_text("📝 **PENDAFTARAN MITRA**\n\n1️⃣ Masukkan **NAMA LENGKAP**:")
     return R_NAMA
 
@@ -275,11 +280,13 @@ async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # 1. Simpan ke Database
         supabase.table('users').insert(data).execute()
+        logging.info(f"New User Inserted: {data['user_id']}")
         
         # 2. Balas ke User
-        await update.message.reply_text("✅ **Data Terkirim!**\nMohon tunggu verifikasi Admin dalam 1x24 jam.", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text("✅ **Data Terkirim!**\nMohon tunggu verifikasi Admin.", reply_markup=ReplyKeyboardRemove())
         
-        # 3. Notifikasi ke Admin (Dengan Proteksi Error)
+        # 3. Notifikasi ke Admin (Dengan Logging Error yang jelas)
+        logging.info(f"Sending notif to ADMIN_ID: {ADMIN_ID}")
         kb = [[InlineKeyboardButton("✅ Approve", callback_data=f"appu_{data['user_id']}"), InlineKeyboardButton("❌ Reject", callback_data=f"reju_{data['user_id']}")]]
         await context.bot.send_message(
             chat_id=ADMIN_ID, 
@@ -287,11 +294,12 @@ async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(kb)
         )
     except Exception as e:
-        # Jika gagal (misal sudah terdaftar tapi stuck), log error
-        logging.error(f"Reg Error: {e}")
-        await update.message.reply_text("⚠️ **Info:** Data Anda mungkin sudah ada di sistem. Silakan hubungi Admin jika akun belum aktif.", reply_markup=ReplyKeyboardRemove())
-        
-        # Tetap coba notif admin manual jika insert gagal tapi user butuh bantuan (Optional, di sini kita skip agar tidak spam error)
+        logging.error(f"REGISTRATION ERROR: {e}")
+        # Kemungkinan error: User sudah ada (Duplicate) atau Gagal kirim pesan ke Admin
+        if "duplicate key" in str(e).lower():
+            await update.message.reply_text("⚠️ Data Anda sudah masuk sebelumnya. Mohon tunggu verifikasi Admin.", reply_markup=ReplyKeyboardRemove())
+        else:
+            await update.message.reply_text("⚠️ Terjadi kesalahan sistem. Hubungi Admin.", reply_markup=ReplyKeyboardRemove())
         
     return ConversationHandler.END
 
@@ -464,5 +472,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - FIXED REGISTRATION")
+    print("✅ ONEASPAL BOT ONLINE - FIXED NOTIF")
     app.run_polling()
