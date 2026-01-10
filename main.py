@@ -31,7 +31,6 @@ token: str = os.environ.get("TELEGRAM_TOKEN")
 ADMIN_ID = 7530512170          
 LOG_GROUP_ID = -1003627047676  
 
-# Cek Koneksi
 if not url or not key or not token:
     print("❌ ERROR: Cek file .env Anda.")
     exit()
@@ -68,13 +67,18 @@ def update_quota_usage(user_id, current_quota):
     except: pass
 
 # ==============================================================================
-#                        ADMIN: UPLOAD FILE (DETAIL)
+#                        ADMIN: UPLOAD FILE (SAFE MODE)
 # ==============================================================================
 
 async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id != ADMIN_ID: return
     
+    # TOLAK JIKA BUKAN ADMIN
+    if user_id != ADMIN_ID:
+        return await update.message.reply_text(
+            "⛔ **AKSES DITOLAK**\nFitur upload otomatis hanya untuk Admin.\nSilakan kirim file ke WhatsApp Admin untuk divalidasi."
+        )
+
     document = update.message.document
     file_name = document.file_name
     
@@ -85,21 +89,23 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         new_file = await document.get_file()
         file_content = await new_file.download_as_bytearray()
         
-        # Deteksi Format CSV/Excel
         if file_name.lower().endswith('.csv'):
             try:
                 df = pd.read_csv(io.BytesIO(file_content), sep=';', dtype=str)
                 if len(df.columns) <= 1: df = pd.read_csv(io.BytesIO(file_content), sep=',', dtype=str)
             except: df = pd.read_csv(io.BytesIO(file_content), sep=None, engine='python', dtype=str)
-        else:
+        elif file_name.lower().endswith('.xlsx') or file_name.lower().endswith('.xls'):
             df = pd.read_excel(io.BytesIO(file_content), dtype=str)
+        else:
+            return await status_msg.edit_text("❌ Format salah. Gunakan .csv atau .xlsx")
         
-        # Normalisasi Header & Data
         df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
+        if 'nopol' not in df.columns:
+            return await status_msg.edit_text("❌ Gagal: Tidak ada kolom 'nopol'.")
+
         df['nopol'] = df['nopol'].astype(str).str.replace(' ', '').str.upper()
         df = df.replace({np.nan: None})
         
-        # Filter Kolom Valid
         valid_cols = df.columns.intersection(['nopol', 'type', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'finance', 'branch'])
         final_data = df[valid_cols].to_dict(orient='records')
         
@@ -107,40 +113,32 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         success_count = 0
         fail_count = 0
 
-        await status_msg.edit_text(f"📥 **Sedang memproses {total_rows} data...**")
+        await status_msg.edit_text(f"📥 **Memproses {total_rows} data...**")
 
-        # Batch Upload (Supabase Limit)
         BATCH_SIZE = 1000
         for i in range(0, total_rows, BATCH_SIZE):
             batch = final_data[i : i + BATCH_SIZE]
             try:
                 supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
                 success_count += len(batch)
-            except Exception as e:
-                logging.error(f"Batch Error: {e}")
-                fail_count += len(batch)
+            except: fail_count += len(batch)
 
         duration = round(time.time() - start_time, 2)
         
-        # Laporan Detail
         report = (
-            f"✅ **DATABASE BERHASIL DIPERBARUI**\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"📄 **File:** `{file_name}`\n"
-            f"📊 **Total:** {total_rows}\n"
-            f"✅ **Sukses:** {success_count}\n"
-            f"❌ **Gagal:** {fail_count}\n"
-            f"⏱ **Waktu:** {duration} detik\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
+            f"✅ **DATABASE DIPERBARUI (ADMIN)**\n━━━━━━━━━━━━━━━━━━\n"
+            f"📄 **File:** `{file_name}`\n📊 **Total:** {total_rows}\n"
+            f"✅ **Sukses:** {success_count}\n❌ **Gagal:** {fail_count}\n"
+            f"⏱ **Waktu:** {duration} detik\n━━━━━━━━━━━━━━━━━━\n"
             f"📅 _Update: {datetime.now().strftime('%d/%m/%Y %H:%M')}_"
         )
         await status_msg.edit_text(report, parse_mode='Markdown')
 
     except Exception as e:
-        await status_msg.edit_text(f"❌ **UPLOAD GAGAL:** {str(e)}")
+        await status_msg.edit_text(f"❌ **ERROR:** {str(e)}")
 
 # ==============================================================================
-#                        ADMIN: MANAJEMEN USER & STATS
+#                        ADMIN: MANAGEMENT
 # ==============================================================================
 
 async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -151,7 +149,7 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total = res_total.count if res_total.count else 0
         leasings = len(set([d['finance'] for d in res_leasing.data if d['finance']]))
         await update.message.reply_text(f"📊 **STATISTIK ADMIN**\n📂 Total Data: `{total}`\n🏦 Leasing: `{leasings}`", parse_mode='Markdown')
-    except Exception as e: await update.message.reply_text(f"Error: {e}")
+    except: await update.message.reply_text("Gagal ambil statistik.")
 
 async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
@@ -163,38 +161,38 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
             icon = "✅" if u['status'] == 'active' else "⏳"
             msg += f"{icon} `{u['user_id']}` | {u.get('nama_lengkap','-')}\n"
         await update.message.reply_text(msg, parse_mode='Markdown')
-    except: await update.message.reply_text("Gagal mengambil data.")
+    except: await update.message.reply_text("Gagal.")
 
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     try:
         uid = context.args[0]
         update_user_status(uid, 'rejected')
-        await update.message.reply_text(f"⛔ User `{uid}` berhasil di-BANNED.")
-    except: await update.message.reply_text("⚠️ Format salah. Gunakan: `/ban ID_USER`")
+        await update.message.reply_text(f"⛔ User `{uid}` BANNED.")
+    except: await update.message.reply_text("⚠️ Format: `/ban ID`")
 
 async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     try:
         uid = context.args[0]
         update_user_status(uid, 'active')
-        await update.message.reply_text(f"✅ User `{uid}` berhasil di-UNBAN.")
-    except: await update.message.reply_text("⚠️ Format salah. Gunakan: `/unban ID_USER`")
+        await update.message.reply_text(f"✅ User `{uid}` UNBANNED.")
+    except: await update.message.reply_text("⚠️ Format: `/unban ID`")
 
 async def delete_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     try:
         uid = context.args[0]
         supabase.table('users').delete().eq('user_id', uid).execute()
-        await update.message.reply_text(f"🗑️ User `{uid}` DIHAPUS PERMANEN.")
-    except: await update.message.reply_text("⚠️ Format salah. Gunakan: `/delete ID_USER`")
+        await update.message.reply_text(f"🗑️ User `{uid}` DIHAPUS.")
+    except: await update.message.reply_text("⚠️ Format: `/delete ID`")
 
 async def test_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     try:
-        await context.bot.send_message(chat_id=LOG_GROUP_ID, text="🔔 **TES NOTIFIKASI SUKSES!**", parse_mode='Markdown')
-        await update.message.reply_text("✅ Pesan terkirim ke Group Log.")
-    except: await update.message.reply_text("❌ Gagal kirim ke grup. Cek ID Group.")
+        await context.bot.send_message(chat_id=LOG_GROUP_ID, text="🔔 **TES NOTIFIKASI OK!**")
+        await update.message.reply_text("✅ Terkirim.")
+    except: await update.message.reply_text("❌ Gagal.")
 
 async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, vehicle_data):
     hp_raw = user_data.get('no_hp', '-')
@@ -222,11 +220,13 @@ async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, veh
     except: pass
 
 # ==============================================================================
-#                        USER: REGISTRASI (FORMULIR LENGKAP)
+#                        USER: REGISTRASI (FIXED LOGIC)
 # ==============================================================================
 
 async def register_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if get_user(update.effective_user.id): return await update.message.reply_text("✅ Anda sudah terdaftar.")
+    # Cek dulu apakah user sudah ada
+    if get_user(update.effective_user.id): 
+        return await update.message.reply_text("✅ Anda sudah terdaftar.")
     await update.message.reply_text("📝 **PENDAFTARAN MITRA**\n\n1️⃣ Masukkan **NAMA LENGKAP**:")
     return R_NAMA
 
@@ -258,26 +258,45 @@ async def register_agency(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return R_CONFIRM
 
 async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "❌ ULANGI": return ConversationHandler.END
+    if update.message.text == "❌ ULANGI": 
+        await update.message.reply_text("🔄 Silakan ketik /register untuk ulang.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+    
     data = {
         "user_id": update.effective_user.id,
-        "nama_lengkap": context.user_data['r_nama'],
-        "no_hp": context.user_data['r_hp'],
-        "email": context.user_data['r_email'],
-        "kota": context.user_data['r_kota'],
-        "agency": context.user_data['r_agency'],
+        "nama_lengkap": context.user_data.get('r_nama', '-'),
+        "no_hp": context.user_data.get('r_hp', '-'),
+        "email": context.user_data.get('r_email', '-'),
+        "kota": context.user_data.get('r_kota', '-'),
+        "agency": context.user_data.get('r_agency', '-'),
         "quota": 1000, "status": "pending"
     }
-    supabase.table('users').insert(data).execute()
-    await update.message.reply_text("✅ Data Terkirim! Mohon tunggu verifikasi Admin.", reply_markup=ReplyKeyboardRemove())
-    
-    # Notif ke Admin
-    kb = [[InlineKeyboardButton("✅ Approve", callback_data=f"appu_{data['user_id']}"), InlineKeyboardButton("❌ Reject", callback_data=f"reju_{data['user_id']}")]]
-    await context.bot.send_message(ADMIN_ID, f"🔔 **PENDAFTAR BARU**\n{data['nama_lengkap']} ({data['agency']})", reply_markup=InlineKeyboardMarkup(kb))
+
+    try:
+        # 1. Simpan ke Database
+        supabase.table('users').insert(data).execute()
+        
+        # 2. Balas ke User
+        await update.message.reply_text("✅ **Data Terkirim!**\nMohon tunggu verifikasi Admin dalam 1x24 jam.", reply_markup=ReplyKeyboardRemove())
+        
+        # 3. Notifikasi ke Admin (Dengan Proteksi Error)
+        kb = [[InlineKeyboardButton("✅ Approve", callback_data=f"appu_{data['user_id']}"), InlineKeyboardButton("❌ Reject", callback_data=f"reju_{data['user_id']}")]]
+        await context.bot.send_message(
+            chat_id=ADMIN_ID, 
+            text=f"🔔 **PENDAFTAR BARU**\n👤 {data['nama_lengkap']}\n🏢 {data['agency']}\n📍 {data['kota']}", 
+            reply_markup=InlineKeyboardMarkup(kb)
+        )
+    except Exception as e:
+        # Jika gagal (misal sudah terdaftar tapi stuck), log error
+        logging.error(f"Reg Error: {e}")
+        await update.message.reply_text("⚠️ **Info:** Data Anda mungkin sudah ada di sistem. Silakan hubungi Admin jika akun belum aktif.", reply_markup=ReplyKeyboardRemove())
+        
+        # Tetap coba notif admin manual jika insert gagal tapi user butuh bantuan (Optional, di sini kita skip agar tidak spam error)
+        
     return ConversationHandler.END
 
 # ==============================================================================
-#                     USER: TAMBAH DATA (CROWDSOURCING)
+#                     USER: TAMBAH DATA (MANUAL SATUAN)
 # ==============================================================================
 
 async def add_data_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -314,14 +333,12 @@ async def add_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "finance": context.user_data['a_leasing'], "ovd": f"Kiriman: {context.user_data['a_nokir']}"
     }
     await update.message.reply_text("✅ Terkirim! Menunggu persetujuan Admin.", reply_markup=ReplyKeyboardRemove())
-    
-    # Notif ke Admin
     kb = [[InlineKeyboardButton("✅ Terima Data", callback_data=f"v_acc_{n}_{update.effective_user.id}"), InlineKeyboardButton("❌ Tolak", callback_data="v_rej")]]
     await context.bot.send_message(ADMIN_ID, f"📥 **USULAN DATA BARU**\nNopol: {n}\nUnit: {context.user_data['a_type']}", reply_markup=InlineKeyboardMarkup(kb))
     return ConversationHandler.END
 
 # ==============================================================================
-#                        HANDLER UTAMA & START MESSAGE
+#                        HANDLER UTAMA
 # ==============================================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -347,14 +364,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kw = update.message.text.upper().replace(" ", "")
     await update.message.reply_text("⏳ *Mencari data...*", parse_mode='Markdown')
     
-    # SEARCH MULTI-FIELD (NOPOL, NOKA, NOSIN)
     try:
         res = supabase.table('kendaraan').select("*").or_(f"nopol.eq.{kw},noka.eq.{kw},nosin.eq.{kw}").execute()
         if res.data:
             d = res.data[0]
             update_quota_usage(u['user_id'], u['quota'])
-            
-            # FORMAT TAMPILAN PREMIUM
             text = (
                 f"✅ **DATA DITEMUKAN**\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
@@ -379,26 +393,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await notify_hit_to_group(context, u, d)
         else:
             await update.message.reply_text(f"❌ **DATA TIDAK DITEMUKAN**\n`{kw}`\n\nKetik /tambah jika Anda ingin berkontribusi.", parse_mode='Markdown')
-    except Exception as e:
-        await update.message.reply_text("❌ Terjadi kesalahan database.")
+    except: await update.message.reply_text("❌ Terjadi kesalahan database.")
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
     data = q.data
     
-    # APPROVE USER
     if data.startswith("appu_"):
         uid = data.split("_")[1]; update_user_status(uid, 'active')
         await q.edit_message_text(f"✅ User {uid} DISETUJUI.")
         await context.bot.send_message(uid, "🎉 **AKUN ANDA TELAH AKTIF!**\nSilakan mulai mencari data.")
     
-    # REJECT USER
     elif data.startswith("reju_"):
         uid = data.split("_")[1]; update_user_status(uid, 'rejected')
         await q.edit_message_text(f"⛔ User {uid} DITOLAK.")
         await context.bot.send_message(uid, "⛔ Pendaftaran Anda ditolak Admin.")
 
-    # APPROVE DATA
     elif data.startswith("v_acc_"):
         _, _, n, uid = data.split("_"); item = context.bot_data.get(f"prop_{n}")
         if item:
@@ -406,7 +416,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.edit_message_text(f"✅ Data {n} Masuk Database.")
             await context.bot.send_message(uid, f"🎊 Data `{n}` yang Anda kirim telah disetujui!")
     
-    # REJECT DATA
     elif data == "v_rej":
         await q.edit_message_text("❌ Data Ditolak/Diabaikan.")
 
@@ -417,7 +426,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == '__main__':
     app = ApplicationBuilder().token(token).build()
     
-    # 1. HANDLER REGISTRASI
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('register', register_start)],
         states={
@@ -431,7 +439,6 @@ if __name__ == '__main__':
         fallbacks=[CommandHandler('cancel', cancel)]
     ))
 
-    # 2. HANDLER TAMBAH DATA
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('tambah', add_data_start)],
         states={
@@ -444,20 +451,18 @@ if __name__ == '__main__':
         fallbacks=[CommandHandler('cancel', cancel)]
     ))
 
-    # 3. COMMAND HANDLERS
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('stats', get_stats))
-    app.add_handler(CommandHandler('users', list_users)) # Telah dikembalikan
-    app.add_handler(CommandHandler('ban', ban_user))     # Telah dikembalikan
-    app.add_handler(CommandHandler('unban', unban_user)) # Telah dikembalikan
-    app.add_handler(CommandHandler('delete', delete_user)) # Telah dikembalikan
+    app.add_handler(CommandHandler('users', list_users))
+    app.add_handler(CommandHandler('ban', ban_user))
+    app.add_handler(CommandHandler('unban', unban_user))
+    app.add_handler(CommandHandler('delete', delete_user))
     app.add_handler(CommandHandler('testgroup', test_group))
     app.add_handler(CommandHandler('panduan', lambda u,c: u.message.reply_text("📖 Ketik Nopol tanpa spasi.")))
 
-    # 4. MESSAGE & CALLBACK
     app.add_handler(CallbackQueryHandler(callback_handler))
-    app.add_handler(MessageHandler(filters.Document.ALL & filters.Chat(ADMIN_ID), handle_document_upload))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - FULL FEATURED")
+    print("✅ ONEASPAL BOT ONLINE - FIXED REGISTRATION")
     app.run_polling()
