@@ -22,8 +22,8 @@ key: str = os.environ.get("SUPABASE_KEY")
 token: str = os.environ.get("TELEGRAM_TOKEN")
 
 # --- ⚠️ KONFIGURASI ID ---
-ADMIN_ID = 7530512170        # ID Super Admin (Anda)
-LOG_GROUP_ID = -3627047676   # ID Grup Notifikasi
+ADMIN_ID = 7530512170          # ID Super Admin
+LOG_GROUP_ID = -1003627047676  # ID Grup (Sudah dikoreksi dengan -100)
 
 if not url or not key or not token:
     print("❌ ERROR: Cek file .env Anda.")
@@ -53,18 +53,29 @@ def update_quota_usage(user_id, current_quota):
     supabase.table('users').update({'quota': new_quota}).eq('user_id', user_id).execute()
     return new_quota
 
-# --- FUNGSI NOTIFIKASI GRUP ---
-async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, vehicle_data):
-    """Mengirim laporan penemuan unit ke Grup Admin"""
+# --- FUNGSI TEST GROUP (SUDAH DIPASANG) ---
+async def test_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Untuk mengetes apakah bot bisa kirim pesan ke grup"""
+    if update.effective_user.id != ADMIN_ID: return
     
-    # Format No HP untuk link WhatsApp (ganti 08 jadi 628)
+    try:
+        await context.bot.send_message(
+            chat_id=LOG_GROUP_ID,
+            text="🔔 **TES NOTIFIKASI SUKSES!**\n\nBot berhasil terhubung ke grup ini.",
+            parse_mode='Markdown'
+        )
+        await update.message.reply_text(f"✅ Pesan berhasil dikirim ke grup (ID: `{LOG_GROUP_ID}`)")
+    except Exception as e:
+        await update.message.reply_text(f"❌ GAGAL kirim ke `{LOG_GROUP_ID}`.\nError: {e}\n\nTips: Pastikan bot sudah jadi ADMIN di grup.")
+
+# --- FUNGSI NOTIFIKASI OTOMATIS ---
+async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, vehicle_data):
     hp_raw = user_data.get('no_hp', '-')
     if hp_raw.startswith('0'):
         hp_wa = '62' + hp_raw[1:]
     else:
         hp_wa = hp_raw
     
-    # Pesan Laporan
     report_text = (
         f"🚨 **UNIT DITEMUKAN! (HIT)**\n"
         f"━━━━━━━━━━━━━━━━━━\n"
@@ -78,7 +89,6 @@ async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, veh
         f"Segera hubungi tim lapangan!"
     )
 
-    # Tombol Link WhatsApp
     keyboard = [[InlineKeyboardButton("📞 Hubungi via WhatsApp", url=f"https://wa.me/{hp_wa}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -335,7 +345,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_quota_usage(user_id, user_data['quota'])
         data = results[0]
         
-        # Kirim Balasan ke User
         reply_text = (
             f"✅ **DATA DITEMUKAN**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
@@ -369,7 +378,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
-    await update.message.reply_text("🛠 **MENU ADMIN**\n/users, /ban, /unban, /delete")
+    await update.message.reply_text("🛠 **MENU ADMIN**\n/users, /ban, /unban, /delete, /testgroup")
 
 if __name__ == '__main__':
     application = ApplicationBuilder().token(token).build()
@@ -395,6 +404,10 @@ if __name__ == '__main__':
     application.add_handler(CommandHandler('unban', unban_user))
     application.add_handler(CommandHandler('delete', delete_user))
     application.add_handler(CommandHandler('admin', help_admin))
+    
+    # DAFTARKAN TEST GROUP
+    application.add_handler(CommandHandler('testgroup', test_group))
+
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
 
