@@ -1,6 +1,6 @@
 import os
 import logging
-import pandas as pd # Library untuk membaca Excel/CSV
+import pandas as pd
 import io
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
@@ -24,8 +24,8 @@ key: str = os.environ.get("SUPABASE_KEY")
 token: str = os.environ.get("TELEGRAM_TOKEN")
 
 # --- ⚠️ KONFIGURASI ID ---
-ADMIN_ID = 7530512170          # ID Super Admin
-LOG_GROUP_ID = -1003627047676  # ID Grup
+ADMIN_ID = 7530512170          # ID Super Admin (Anda)
+LOG_GROUP_ID = -1003627047676  # ID Grup Notifikasi
 
 if not url or not key or not token:
     print("❌ ERROR: Cek file .env Anda.")
@@ -40,7 +40,7 @@ except Exception as e:
 # --- STATE FORMULIR ---
 NAMA, NO_HP, NIK, ALAMAT, EMAIL, AGENCY, CONFIRM = range(7)
 
-# --- FUNGSI HELPER ---
+# --- FUNGSI HELPER DATABASE ---
 def get_user(user_id):
     response = supabase.table('users').select("*").eq('user_id', user_id).execute()
     if response.data: return response.data[0]
@@ -54,9 +54,9 @@ def update_quota_usage(user_id, current_quota):
     supabase.table('users').update({'quota': new_quota}).eq('user_id', user_id).execute()
     return new_quota
 
-# --- FUNGSI UPLOAD DATABASE (FITUR BARU) ---
+# --- FUNGSI UPLOAD DATABASE (UPDATED: AUTO-DETECT PEMISAH) ---
 async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Menangani upload file CSV/Excel dari Admin"""
+    """Menangani upload file CSV/Excel dari Admin dengan deteksi otomatis"""
     user_id = update.effective_user.id
     
     # 1. Proteksi: Hanya Admin yang boleh upload
@@ -79,55 +79,64 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         new_file = await document.get_file()
         file_content = await new_file.download_as_bytearray()
         
-        # 4. Baca File menggunakan Pandas
+        # 4. Baca File (Logic Baru: Support Titik Koma)
         if file_name.endswith('.csv'):
-            df = pd.read_csv(io.BytesIO(file_content))
+            try:
+                # Coba baca dengan engine python (auto-detect separator)
+                df = pd.read_csv(io.BytesIO(file_content), sep=None, engine='python')
+            except:
+                # Jika gagal, paksa pakai titik koma (format umum Indonesia)
+                df = pd.read_csv(io.BytesIO(file_content), sep=';')
         else:
             df = pd.read_excel(io.BytesIO(file_content))
 
-        # 5. Normalisasi Header (Ubah jadi huruf kecil semua agar cocok dengan database)
-        # Contoh: "No Pol" -> "nopol", "TYPE" -> "type"
+        # 5. Normalisasi Header (Lower case & ganti spasi dengan _)
         df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
         
-        # Mapping kolom Excel -> Kolom Database
-        # Pastikan Excel Anda punya header: nopol, type, tahun, warna, noka, nosin, ovd, finance, branch
-        expected_cols = ['nopol', 'type', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'finance', 'branch']
-        
-        # Cek kelengkapan kolom (Minimal ada Nopol)
+        # Cek Header
         if 'nopol' not in df.columns:
-            await status_msg.edit_text("❌ **ERROR:** Tidak ditemukan kolom 'nopol' di file Anda.\nPastikan header kolom sudah benar.")
-            return
+            # Coba cari kolom alternatif jika user salah ketik header
+            possible = [c for c in df.columns if 'no' in c and 'pol' in c] # cari yang mengandung 'no' dan 'pol'
+            if possible:
+                df.rename(columns={possible[0]: 'nopol'}, inplace=True)
+            else:
+                await status_msg.edit_text(f"❌ **ERROR HEADER:** Tidak ditemukan kolom 'nopol'.\nKolom terbaca: {df.columns.tolist()}")
+                return
 
         # 6. Bersihkan Data
-        df['nopol'] = df['nopol'].astype(str).str.replace(' ', '').str.upper() # Nopol tanpa spasi & Uppercase
-        df = df.fillna('') # Isi data kosong dengan string kosong
+        # Hapus spasi, titik koma, dan jadikan huruf besar semua
+        df['nopol'] = df['nopol'].astype(str).str.replace(' ', '').str.replace(';', '').str.upper()
+        df = df.fillna('')
         
-        # Filter hanya kolom yang ada di database kita
-        final_data = df[df.columns.intersection(expected_cols)].to_dict(orient='records')
+        # Filter kolom yang akan diupload
+        expected_cols = ['nopol', 'type', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'finance', 'branch']
+        valid_cols = df.columns.intersection(expected_cols)
         
+        final_data = df[valid_cols].to_dict(orient='records')
         total_rows = len(final_data)
+        
         if total_rows == 0:
             await status_msg.edit_text("❌ File kosong atau tidak ada data yang terbaca.")
             return
 
-        await status_msg.edit_text(f"📥 **Mulai Upload {total_rows} data...**\nIni mungkin memakan waktu beberapa saat.")
+        await status_msg.edit_text(f"📥 **Mulai Upload {total_rows} data...**\nProses ini berjalan di background.")
 
-        # 7. Upload per Batch (Chunking) agar tidak timeout
+        # 7. Upload per Batch (Agar server stabil)
         BATCH_SIZE = 1000
         success_count = 0
         
         for i in range(0, total_rows, BATCH_SIZE):
             batch = final_data[i : i + BATCH_SIZE]
             try:
-                # UPSERT: Update jika nopol ada, Insert jika baru
+                # Upsert: Update jika ada, Insert jika baru
                 supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
                 success_count += len(batch)
             except Exception as e:
-                logging.error(f"Error upload batch {i}: {e}")
+                logging.error(f"Error batch {i}: {e}")
         
         await context.bot.send_message(
             chat_id=user_id,
-            text=f"✅ **UPLOAD SUKSES!**\n\nTotal Data Diproses: {success_count} dari {total_rows}.\nDatabase telah diperbarui.",
+            text=f"✅ **UPLOAD SUKSES!**\n\nTotal Data Masuk: {success_count} dari {total_rows}.\nDatabase telah diperbarui.",
             parse_mode='Markdown'
         )
 
@@ -135,8 +144,7 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         logging.error(f"Error Upload: {e}")
         await status_msg.edit_text(f"❌ **GAGAL:** Terjadi kesalahan sistem.\nError: {str(e)}")
 
-
-# --- FUNGSI LAIN (TETAP SAMA SEPERTI SEBELUMNYA) ---
+# --- FUNGSI TEST & NOTIFIKASI ---
 async def test_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     try:
@@ -165,6 +173,7 @@ async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, veh
     except Exception as e:
         logging.error(f"Gagal kirim notif: {e}")
 
+# --- ADMIN COMMANDS ---
 async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     try:
@@ -202,7 +211,7 @@ async def delete_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🗑️ User `{context.args[0]}` DELETED.", parse_mode='Markdown')
     except: await update.message.reply_text("⚠️ Format: `/delete <id>`")
 
-# --- REGISTRATION ---
+# --- REGISTRATION FLOW ---
 async def register_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     user = get_user(uid)
@@ -263,7 +272,6 @@ async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         supabase.table('users').insert(data).execute()
         await update.message.reply_text("✅ DATA TERKIRIM. Tunggu verifikasi Admin.", reply_markup=ReplyKeyboardRemove())
         
-        # Notif Admin
         kb = [[InlineKeyboardButton("✅", callback_data=f"approve_{data['user_id']}"), InlineKeyboardButton("❌", callback_data=f"reject_{data['user_id']}")]]
         await context.bot.send_message(chat_id=ADMIN_ID, text=f"🔔 **NEW REGISTER**\nUser: {data['nama_lengkap']}\nAgency: {data['agency']}", reply_markup=InlineKeyboardMarkup(kb))
     except: await update.message.reply_text("❌ Error / Sudah terdaftar.", reply_markup=ReplyKeyboardRemove())
@@ -273,6 +281,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🚫 Batal.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
+# --- HANDLER UTAMA ---
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -322,7 +331,7 @@ async def help_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == '__main__':
     app = ApplicationBuilder().token(token).build()
     
-    # Handlers
+    # Conversations
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('register', register_start)],
         states={NAMA:[MessageHandler(filters.TEXT, register_nama)], NO_HP:[MessageHandler(filters.TEXT, register_hp)],
@@ -331,6 +340,7 @@ if __name__ == '__main__':
                 CONFIRM:[MessageHandler(filters.TEXT, register_confirm)]},
         fallbacks=[CommandHandler('cancel', cancel)]))
     
+    # Commands
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('users', list_users))
     app.add_handler(CommandHandler('ban', ban_user))
@@ -338,11 +348,12 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('delete', delete_user))
     app.add_handler(CommandHandler('admin', help_admin))
     app.add_handler(CommandHandler('testgroup', test_group))
-    app.add_handler(CallbackQueryHandler(button_callback))
     
-    # HANDLER KHUSUS UPLOAD DOCUMENT (Hanya Admin)
+    # Callback & Document Upload
+    app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.Document.ALL & filters.Chat(ADMIN_ID), handle_document_upload))
     
+    # Text Message (Search)
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
     print(f"✅ Bot Online. Admin: {ADMIN_ID}")
