@@ -267,42 +267,65 @@ async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔄 Silakan ketik /register untuk ulang.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
     
+    # --- PERBAIKAN MAPPING DATABASE ---
+    # Kita sesuaikan nama key di sini dengan nama kolom di Supabase (image_9abb49.png)
     data = {
-        "user_id": update.effective_user.id,
+        "user_id": update.effective_user.id,        # ID Telegram
         "nama_lengkap": context.user_data.get('r_nama', '-'),
         "no_hp": context.user_data.get('r_hp', '-'),
         "email": context.user_data.get('r_email', '-'),
-        "kota": context.user_data.get('r_kota', '-'),
+        
+        # MAPPING PENTING: Input 'r_kota' user masuk ke kolom 'alamat' database
+        "alamat": context.user_data.get('r_kota', '-'), 
+        
+        # Karena form tidak minta NIK, kita isi strip "-" agar tidak error
+        "nik": "-", 
+        
         "agency": context.user_data.get('r_agency', '-'),
-        "quota": 1000, "status": "pending"
+        "quota": 1000, 
+        "status": "pending"
     }
 
+    print(f"🔄 Mencoba insert data user: {data['user_id']}") 
+
     try:
-        # 1. Simpan ke Database
+        # 1. INSERT ke SUPABASE
         supabase.table('users').insert(data).execute()
-        logging.info(f"New User Inserted: {data['user_id']}")
+        print("✅ Insert Berhasil!")
         
-        # 2. Balas ke User
+        # 2. Respon ke User
         await update.message.reply_text("✅ **Data Terkirim!**\nMohon tunggu verifikasi Admin.", reply_markup=ReplyKeyboardRemove())
         
-        # 3. Notifikasi ke Admin (Dengan Logging Error yang jelas)
-        logging.info(f"Sending notif to ADMIN_ID: {ADMIN_ID}")
+        # 3. Notifikasi ke Admin
+        # Pastikan ADMIN_ID sudah benar di settingan atas
         kb = [[InlineKeyboardButton("✅ Approve", callback_data=f"appu_{data['user_id']}"), InlineKeyboardButton("❌ Reject", callback_data=f"reju_{data['user_id']}")]]
+        
+        # Format pesan notifikasi ke admin
+        admin_msg = (
+            f"🔔 **PENDAFTAR BARU**\n"
+            f"👤 {data['nama_lengkap']}\n"
+            f"🏢 {data['agency']}\n"
+            f"📍 {data['alamat']}\n"  # Tampilkan Alamat/Kota
+            f"📱 {data['no_hp']}"
+        )
+        
         await context.bot.send_message(
             chat_id=ADMIN_ID, 
-            text=f"🔔 **PENDAFTAR BARU**\n👤 {data['nama_lengkap']}\n🏢 {data['agency']}\n📍 {data['kota']}", 
+            text=admin_msg, 
             reply_markup=InlineKeyboardMarkup(kb)
         )
+        print(f"✅ Notifikasi terkirim ke Admin ID: {ADMIN_ID}")
+
     except Exception as e:
-        logging.error(f"REGISTRATION ERROR: {e}")
-        # Kemungkinan error: User sudah ada (Duplicate) atau Gagal kirim pesan ke Admin
+        print(f"❌ ERROR REGISTRASI: {e}") 
+        # Cek duplikat
         if "duplicate key" in str(e).lower():
-            await update.message.reply_text("⚠️ Data Anda sudah masuk sebelumnya. Mohon tunggu verifikasi Admin.", reply_markup=ReplyKeyboardRemove())
+            await update.message.reply_text("⚠️ Anda sudah terdaftar sebelumnya.", reply_markup=ReplyKeyboardRemove())
         else:
-            await update.message.reply_text("⚠️ Terjadi kesalahan sistem. Hubungi Admin.", reply_markup=ReplyKeyboardRemove())
+            # Tampilkan error spesifik jika bukan duplikat (misal kolom tidak ketemu)
+            await update.message.reply_text(f"⚠️ **Gagal menyimpan data.**\nError teknis database.", reply_markup=ReplyKeyboardRemove())
         
     return ConversationHandler.END
-
 # ==============================================================================
 #                     USER: TAMBAH DATA (MANUAL SATUAN)
 # ==============================================================================
