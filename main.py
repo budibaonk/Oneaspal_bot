@@ -202,35 +202,51 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         await status_msg.edit_text(f"❌ **ERROR:** {str(e)}")
 
 # ==============================================================================
-#                        ADMIN: MANAGEMENT & STATS (SMART GROUPING)
+#                        ADMIN: MANAGEMENT & STATS (FIXED PAGINATION)
 # ==============================================================================
 
 async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
-    msg_wait = await update.message.reply_text("⏳ *Menghitung statistik cerdas...*", parse_mode='Markdown')
+    msg_wait = await update.message.reply_text("⏳ *Sedang menghitung seluruh data (ini butuh waktu)...*", parse_mode='Markdown')
 
     try:
-        # 1. Hitung Total Data & User
+        # 1. Hitung Total Data & User (Pakai count='exact' dan head=True agar cepat)
         res_total = supabase.table('kendaraan').select("*", count="exact", head=True).execute()
         total_unit = res_total.count if res_total.count else 0
 
         res_users = supabase.table('users').select("*", count="exact", head=True).execute()
         total_user = res_users.count if res_users.count else 0
 
-        # 2. Ambil Data Leasing (Range Besar & Smart Grouping)
-        res_leasing = supabase.table('kendaraan').select("finance").range(0, 49999).execute()
-        
+        # 2. Ambil Data Leasing (DENGAN LOOPING AGAR SEMUA DATA TERAMBIL)
         raw_set = set()
-        for d in res_leasing.data:
-            f = d.get('finance')
-            if f:
-                clean_f = str(f).strip().upper()
-                if len(clean_f) > 1 and clean_f not in ["-", "NAN", "NONE", "NULL"]:
-                    raw_set.add(clean_f)
+        offset = 0
+        batch_size = 1000  # Supabase limit default
         
-        # Smart Grouping (BCA & BCA Finance = 1)
+        while True:
+            # Ambil per 1000 data
+            res_batch = supabase.table('kendaraan').select("finance").range(offset, offset + batch_size - 1).execute()
+            data = res_batch.data
+            
+            if not data:
+                break # Berhenti jika data habis
+            
+            # Masukkan ke set (himpunan unik)
+            for d in data:
+                f = d.get('finance')
+                if f:
+                    clean_f = str(f).strip().upper()
+                    if len(clean_f) > 1 and clean_f not in ["-", "NAN", "NONE", "NULL"]:
+                        raw_set.add(clean_f)
+            
+            # Cek apakah data yang diterima kurang dari batch_size (artinya ini halaman terakhir)
+            if len(data) < batch_size:
+                break
+            
+            offset += batch_size
+
+        # 3. Smart Grouping (BCA & BCA Finance = 1)
         sorted_names = sorted(list(raw_set), key=len)
         final_groups = []
         for name in sorted_names:
@@ -243,7 +259,7 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         total_leasing = len(final_groups)
 
-        # Tampilkan Laporan
+        # 4. Tampilkan Laporan
         msg = (
             f"📊 **STATISTIK ONEASPAL**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
@@ -251,7 +267,7 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👥 **Total User:** `{total_user:,}` Mitra\n"
             f"🏦 **Jumlah Leasing:** `{total_leasing}`\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"🔍 _Metode: Smart Grouping_"
+            f"🔍 _Metode: Pagination Loop & Smart Grouping_"
         )
         await msg_wait.edit_text(msg, parse_mode='Markdown')
 
@@ -598,7 +614,7 @@ if __name__ == '__main__':
 
     # 3. COMMAND HANDLER UTAMA
     app.add_handler(CommandHandler('start', start))
-    app.add_handler(CommandHandler('stats', get_stats))
+    app.add_handler(CommandHandler('stats', get_stats)) # FIX APPLIED HERE
     app.add_handler(CommandHandler('users', list_users))
     app.add_handler(CommandHandler('ban', ban_user))
     app.add_handler(CommandHandler('unban', unban_user))
@@ -611,5 +627,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - FULL FEATURED v1.0")
+    print("✅ ONEASPAL BOT ONLINE - FULL FEATURED v1.1")
     app.run_polling()
