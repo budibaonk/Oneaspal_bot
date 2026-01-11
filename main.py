@@ -4,10 +4,12 @@ import pandas as pd
 import io
 import numpy as np
 import time
+import asyncio 
 from datetime import datetime
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, constants
 from telegram.ext import (
+    Application,
     ApplicationBuilder, 
     ContextTypes, 
     CommandHandler, 
@@ -54,6 +56,20 @@ R_NAMA, R_HP, R_EMAIL, R_KOTA, R_AGENCY, R_CONFIRM = range(6)
 A_NOPOL, A_TYPE, A_LEASING, A_NOKIR, A_CONFIRM = range(6, 11)
 
 # ==============================================================================
+#                        AUTO MENU COMMAND (UX PRO)
+# ==============================================================================
+async def post_init(application: Application):
+    """Mengatur Tombol Menu secara Otomatis saat Bot Start"""
+    await application.bot.set_my_commands([
+        ("start", "🔄 Restart / Menu Utama"),
+        ("register", "📝 Daftar Mitra Baru"),
+        ("tambah", "➕ Tambah Unit Manual"),
+        ("panduan", "📖 Cara Penggunaan"),
+        ("stats", "📊 Statistik (Admin Only)")
+    ])
+    print("✅ Menu Perintah Berhasil Di-set!")
+
+# ==============================================================================
 #                             DATABASE HELPERS
 # ==============================================================================
 
@@ -82,6 +98,9 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
     user_id = update.effective_user.id
     user_data = get_user(user_id)
     
+    # Efek Uploading...
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.UPLOAD_DOCUMENT)
+
     if not user_data or user_data['status'] != 'active':
         if user_id != ADMIN_ID: 
             return await update.message.reply_text("⛔ **AKSES DITOLAK**\nAnda belum terdaftar aktif.")
@@ -242,7 +261,7 @@ async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, veh
     except: pass
 
 # ==============================================================================
-#                        USER: REGISTRASI (MAPPING FIXED)
+#                        USER: REGISTRASI (UX PRO)
 # ==============================================================================
 
 async def register_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -323,13 +342,12 @@ async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-#                     USER: TAMBAH DATA (TOMBOL BATAL)
+#                     USER: TAMBAH DATA (UX PRO: BATAL BUTTON)
 # ==============================================================================
 
 async def add_data_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = get_user(update.effective_user.id)
     if not u or u['status'] != 'active': return await update.message.reply_text("⛔ Akses ditolak.")
-    # TOMBOL BATAL DITAMBAHKAN DI SINI
     await update.message.reply_text("➕ **TAMBAH UNIT BARU**\n\n1️⃣ Masukkan **Nopol**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return A_NOPOL
 
@@ -351,12 +369,10 @@ async def add_leasing(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def add_nokir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['a_nokir'] = update.message.text
     summary = f"📋 **KONFIRMASI UNIT**\nNopol: {context.user_data['a_nopol']}\nUnit: {context.user_data['a_type']}"
-    # Opsi Batal juga ada di konfirmasi akhir
     await update.message.reply_text(summary, reply_markup=ReplyKeyboardMarkup([["✅ KIRIM KE ADMIN", "❌ BATAL"]], one_time_keyboard=True))
     return A_CONFIRM
 
 async def add_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Logika jika user menekan BATAL di akhir
     if update.message.text == "❌ BATAL":
         await update.message.reply_text("🚫 Tambah data dibatalkan.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
@@ -372,7 +388,7 @@ async def add_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-#                        HANDLER UTAMA
+#                        HANDLER UTAMA & TYPING ACTION
 # ==============================================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -396,7 +412,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not u or u['status'] != 'active': return
     
     kw = update.message.text.upper().replace(" ", "")
-    await update.message.reply_text("⏳ *Mencari data...*", parse_mode='Markdown')
+    
+    # 🌟 UX PRO: KIRIM EFEK MENGETIK
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
+    await asyncio.sleep(0.5) # Jeda sedikit biar efeknya terlihat (opsional)
+
+    # Note: Kita hapus "Mencari data..." biar lebih bersih, cukup pakai efek typing
+    # await update.message.reply_text("⏳ *Mencari data...*", parse_mode='Markdown') 
     
     try:
         res = supabase.table('kendaraan').select("*").or_(f"nopol.eq.{kw},noka.eq.{kw},nosin.eq.{kw}").execute()
@@ -455,9 +477,9 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 if __name__ == '__main__':
-    app = ApplicationBuilder().token(token).build()
+    # post_init ditambahkan di sini agar Menu Command muncul otomatis
+    app = ApplicationBuilder().token(token).post_init(post_init).build()
     
-    # 1. REGISTRASI (Timeout 5 Menit)
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('register', register_start)],
         states={
@@ -468,12 +490,10 @@ if __name__ == '__main__':
             R_AGENCY:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), register_agency)],
             R_CONFIRM:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), register_confirm)]
         },
-        # Perhatikan di sini: Kita tambahkan regex BATAL agar tombol keyboard berfungsi sebagai cancel
         fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)],
         conversation_timeout=300
     ))
 
-    # 2. TAMBAH DATA (Timeout 60 Detik + Tombol Batal)
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('tambah', add_data_start)],
         states={
@@ -481,7 +501,7 @@ if __name__ == '__main__':
             A_TYPE:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), add_type)],
             A_LEASING:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), add_leasing)],
             A_NOKIR:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), add_nokir)],
-            A_CONFIRM:[MessageHandler(filters.TEXT, add_confirm)] # add_confirm handle sendiri tombol BATAL
+            A_CONFIRM:[MessageHandler(filters.TEXT, add_confirm)]
         },
         fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)],
         conversation_timeout=60
@@ -500,5 +520,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - FINAL UX")
+    print("✅ ONEASPAL BOT ONLINE - PRO UX EDITION")
     app.run_polling()
