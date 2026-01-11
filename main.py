@@ -374,7 +374,7 @@ async def panduan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "2️⃣ **TAMBAH DATA:** `/tambah`\n"
         "3️⃣ **LAPOR SELESAI:** `/lapor`\n"
         "4️⃣ **KONTAK ADMIN:** `/admin [pesan]`\n"
-        "5️⃣ **UPLOAD:** Kirim file Excel ke sini."
+        "5️⃣ **UPLOAD:** Kirim file Excel ke chat bot langsung, klik icon CLIP kirim file yang ada dikanan bawah."
     )
     await update.message.reply_text(text_panduan, parse_mode='Markdown')
 
@@ -418,10 +418,30 @@ async def lapor_delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYP
     
     if update.message.text == "✅ KIRIM LAPORAN":
         nopol = context.user_data.get('lapor_nopol')
+        user = get_user(update.effective_user.id)
+        
         await update.message.reply_text(f"✅ Laporan `{nopol}` terkirim.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
         
-        kb = [[InlineKeyboardButton("✅ Setujui", callback_data=f"del_acc_{nopol}_{update.effective_user.id}"), InlineKeyboardButton("❌ Tolak", callback_data=f"del_rej_{update.effective_user.id}")]]
-        await context.bot.send_message(chat_id=ADMIN_ID, text=f"🗑️ **REQ HAPUS**\nNopol: `{nopol}`", reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
+        # Kirim Notifikasi Lengkap ke Admin (REVISED)
+        kb = [
+            [InlineKeyboardButton("✅ Setujui", callback_data=f"del_acc_{nopol}_{update.effective_user.id}")],
+            [InlineKeyboardButton("❌ Tolak", callback_data=f"del_rej_{update.effective_user.id}")]
+        ]
+        
+        admin_msg = (
+            f"🗑️ **REQUEST PENGHAPUSAN UNIT**\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 **Pelapor:** {user.get('nama_lengkap')}\n"
+            f"🏢 **Agency:** {user.get('agency')}\n"
+            f"📱 **No HP:** `{user.get('no_hp')}`\n"
+            f"📧 **Email:** `{user.get('email')}`\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🔢 **Nopol:** `{nopol}`\n"
+            f"📝 **Status:** Laporan Selesai/Aman\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👉 Klik **Setujui** untuk menghapus data ini dari database PERMANEN."
+        )
+        await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
     
     return ConversationHandler.END
 
@@ -776,5 +796,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - V1.7.1 (FULL RESTORED TEXT)")
+    print("✅ ONEASPAL BOT ONLINE - V1.7.2 (DETAIL ADMIN REPORT)")
     app.run_polling()
