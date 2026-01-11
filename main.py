@@ -91,7 +91,7 @@ def update_quota_usage(user_id, current_quota):
     except: pass
 
 # ==============================================================================
-#                 HANDLER UPLOAD FILE (SMART RETRY & CLEANING)
+#                 HANDLER UPLOAD FILE (PESAN BARU & SMART UPLOAD)
 # ==============================================================================
 
 async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -108,10 +108,15 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
     document = update.message.document
     file_name = document.file_name
 
-    # USER BIASA -> TITIP FILE KE ADMIN
+    # --- SKENARIO A: USER BIASA (PESAN BARU DISINI) ---
     if user_id != ADMIN_ID:
         await update.message.reply_text(
-            "✅ **FILE DITERIMA**\nFile Excel telah dikirim ke Admin.\n⏳ *Menunggu verifikasi...*",
+            "✅ **FILE BERHASIL DITERIMA**\n\n"
+            "Terima kasih, Rekan Mitra! 🤝\n"
+            "File data Anda telah diteruskan ke Admin untuk proses validasi dan penyesuaian.\n\n"
+            "⏳ **Estimasi Update:** 1x24 Jam.\n"
+            "Terima kasih atas kontribusi Anda memperbarui database kita.\n\n"
+            "**Salam Satu Aspal!** 👋",
             parse_mode='Markdown'
         )
         try:
@@ -124,7 +129,7 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         except: pass
         return 
 
-    # ADMIN -> PROSES SMART UPLOAD
+    # --- SKENARIO B: ADMIN (PROSES UPLOAD KE DATABASE) ---
     status_msg = await update.message.reply_text("⏳ **Menganalisa & Membersihkan file...**")
     start_time = time.time()
 
@@ -202,7 +207,7 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         await status_msg.edit_text(f"❌ **ERROR:** {str(e)}")
 
 # ==============================================================================
-#                        ADMIN: MANAGEMENT & STATS (FIXED PAGINATION)
+#                        ADMIN: MANAGEMENT & STATS (PAGINATION LOOP)
 # ==============================================================================
 
 async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -212,27 +217,25 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg_wait = await update.message.reply_text("⏳ *Sedang menghitung seluruh data (ini butuh waktu)...*", parse_mode='Markdown')
 
     try:
-        # 1. Hitung Total Data & User (Pakai count='exact' dan head=True agar cepat)
+        # 1. Hitung Total Data & User
         res_total = supabase.table('kendaraan').select("*", count="exact", head=True).execute()
         total_unit = res_total.count if res_total.count else 0
 
         res_users = supabase.table('users').select("*", count="exact", head=True).execute()
         total_user = res_users.count if res_users.count else 0
 
-        # 2. Ambil Data Leasing (DENGAN LOOPING AGAR SEMUA DATA TERAMBIL)
+        # 2. Ambil Data Leasing (DENGAN LOOPING)
         raw_set = set()
         offset = 0
-        batch_size = 1000  # Supabase limit default
+        batch_size = 1000
         
         while True:
             # Ambil per 1000 data
             res_batch = supabase.table('kendaraan').select("finance").range(offset, offset + batch_size - 1).execute()
             data = res_batch.data
             
-            if not data:
-                break # Berhenti jika data habis
+            if not data: break
             
-            # Masukkan ke set (himpunan unik)
             for d in data:
                 f = d.get('finance')
                 if f:
@@ -240,13 +243,10 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if len(clean_f) > 1 and clean_f not in ["-", "NAN", "NONE", "NULL"]:
                         raw_set.add(clean_f)
             
-            # Cek apakah data yang diterima kurang dari batch_size (artinya ini halaman terakhir)
-            if len(data) < batch_size:
-                break
-            
+            if len(data) < batch_size: break
             offset += batch_size
 
-        # 3. Smart Grouping (BCA & BCA Finance = 1)
+        # 3. Smart Grouping
         sorted_names = sorted(list(raw_set), key=len)
         final_groups = []
         for name in sorted_names:
@@ -259,7 +259,6 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         total_leasing = len(final_groups)
 
-        # 4. Tampilkan Laporan
         msg = (
             f"📊 **STATISTIK ONEASPAL**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
@@ -267,7 +266,7 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👥 **Total User:** `{total_user:,}` Mitra\n"
             f"🏦 **Jumlah Leasing:** `{total_leasing}`\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"🔍 _Metode: Pagination Loop & Smart Grouping_"
+            f"🔍 _Metode: Pagination Loop_"
         )
         await msg_wait.edit_text(msg, parse_mode='Markdown')
 
@@ -614,7 +613,7 @@ if __name__ == '__main__':
 
     # 3. COMMAND HANDLER UTAMA
     app.add_handler(CommandHandler('start', start))
-    app.add_handler(CommandHandler('stats', get_stats)) # FIX APPLIED HERE
+    app.add_handler(CommandHandler('stats', get_stats))
     app.add_handler(CommandHandler('users', list_users))
     app.add_handler(CommandHandler('ban', ban_user))
     app.add_handler(CommandHandler('unban', unban_user))
@@ -627,5 +626,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - FULL FEATURED v1.1")
+    print("✅ ONEASPAL BOT ONLINE - UPDATE 1.2")
     app.run_polling()
