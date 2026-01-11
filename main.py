@@ -27,19 +27,18 @@ url: str = os.environ.get("SUPABASE_URL")
 key: str = os.environ.get("SUPABASE_KEY")
 token: str = os.environ.get("TELEGRAM_TOKEN")
 
-# --- ⚠️ PERBAIKAN PENTING DI SINI ---
-# Kita ambil ADMIN_ID dari file .env agar tidak salah sasaran
-# Pastikan di file .env Bapak ada baris: ADMIN_ID=1234567890
+# --- ⚠️ SETUP ADMIN ID ---
+DEFAULT_ADMIN_ID = 7530512170
 try:
-    ADMIN_ID = int(os.environ.get("ADMIN_ID"))
-except:
-    # Jika tidak ada di .env, gunakan fallback (GANTI ANGKA INI DENGAN ID TELEGRAM BAPAK JIKA MANUAL)
-    print("⚠️ WARNING: ADMIN_ID tidak ditemukan di .env, menggunakan ID default.")
-    ADMIN_ID = 7530512170 
+    env_id = os.environ.get("ADMIN_ID")
+    ADMIN_ID = int(env_id) if env_id else DEFAULT_ADMIN_ID
+except ValueError:
+    ADMIN_ID = DEFAULT_ADMIN_ID
+
+print(f"✅ ADMIN ID: {ADMIN_ID}")
 
 LOG_GROUP_ID = -1003627047676  
 
-# Cek Koneksi
 if not url or not key or not token:
     print("❌ ERROR: Cek file .env Anda.")
     exit()
@@ -76,16 +75,57 @@ def update_quota_usage(user_id, current_quota):
     except: pass
 
 # ==============================================================================
-#                        ADMIN: UPLOAD FILE
+#                 HANDLER UPLOAD FILE (ADMIN vs USER)
 # ==============================================================================
 
 async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id != ADMIN_ID:
-        return await update.message.reply_text("⛔ **AKSES DITOLAK**\nKhusus Admin.")
+    user_data = get_user(user_id)
+    
+    # 1. CEK IZIN PENGGUNA
+    if not user_data or user_data['status'] != 'active':
+        if user_id != ADMIN_ID: # Admin boleh lewat walau data user blm ada
+            return await update.message.reply_text("⛔ **AKSES DITOLAK**\nAnda belum terdaftar aktif.")
 
     document = update.message.document
     file_name = document.file_name
+
+    # ==========================================================================
+    # SKENARIO A: USER BIASA (TITIP FILE KE ADMIN)
+    # ==========================================================================
+    if user_id != ADMIN_ID:
+        # Beri respon cepat ke User
+        await update.message.reply_text(
+            "✅ **FILE DITERIMA**\n\n"
+            "File Excel Anda telah berhasil dikirim ke Admin.\n"
+            "⏳ *Data akan segera diupload setelah verifikasi.*\n\n"
+            "Terima kasih atas kontribusinya!",
+            parse_mode='Markdown'
+        )
+        
+        # Teruskan (Forward) File ke Chat Pribadi Admin
+        try:
+            caption_admin = (
+                f"📥 **FILE KONTRIBUSI USER**\n"
+                f"👤 **Pengirim:** {user_data.get('nama_lengkap')} ({user_data.get('agency')})\n"
+                f"📄 **File:** `{file_name}`\n"
+                f"👇 *Silakan cek file ini. Jika valid, kirim balik ke bot untuk upload.*"
+            )
+            await context.bot.send_document(
+                chat_id=ADMIN_ID,
+                document=document.file_id,
+                caption=caption_admin,
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            logging.error(f"Gagal forward ke admin: {e}")
+        
+        return # STOP di sini, jangan lanjut proses database
+
+    # ==========================================================================
+    # SKENARIO B: ADMIN (PROSES UPLOAD KE DATABASE)
+    # ==========================================================================
+    
     status_msg = await update.message.reply_text("⏳ **Menganalisa file...**")
     start_time = time.time()
 
@@ -93,6 +133,7 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         new_file = await document.get_file()
         file_content = await new_file.download_as_bytearray()
         
+        # Deteksi Format
         if file_name.lower().endswith('.csv'):
             try:
                 df = pd.read_csv(io.BytesIO(file_content), sep=';', dtype=str)
@@ -103,7 +144,11 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         else:
             return await status_msg.edit_text("❌ Format salah. Gunakan .csv atau .xlsx")
         
+        # Normalisasi Header
         df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
+        if 'nopol' not in df.columns:
+            return await status_msg.edit_text("❌ Gagal: Tidak ada kolom 'nopol'.")
+
         df['nopol'] = df['nopol'].astype(str).str.replace(' ', '').str.upper()
         df = df.replace({np.nan: None})
         
@@ -113,8 +158,10 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         total_rows = len(final_data)
         success_count = 0
         fail_count = 0
+
         await status_msg.edit_text(f"📥 **Memproses {total_rows} data...**")
 
+        # Batch Upload
         BATCH_SIZE = 1000
         for i in range(0, total_rows, BATCH_SIZE):
             batch = final_data[i : i + BATCH_SIZE]
@@ -124,8 +171,9 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
             except: fail_count += len(batch)
 
         duration = round(time.time() - start_time, 2)
+        
         report = (
-            f"✅ **DATABASE DIPERBARUI**\n━━━━━━━━━━━━━━━━━━\n"
+            f"✅ **DATABASE DIPERBARUI (ADMIN)**\n━━━━━━━━━━━━━━━━━━\n"
             f"📄 **File:** `{file_name}`\n📊 **Total:** {total_rows}\n"
             f"✅ **Sukses:** {success_count}\n❌ **Gagal:** {fail_count}\n"
             f"⏱ **Waktu:** {duration}s"
@@ -218,13 +266,12 @@ async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, veh
     except: pass
 
 # ==============================================================================
-#                        USER: REGISTRASI (FIXED & DEBUGGING)
+#                        USER: REGISTRASI (FIXED MAPPING)
 # ==============================================================================
 
 async def register_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user(update.effective_user.id)
     if user:
-        # Jika status pending, informasikan
         if user['status'] == 'pending':
             return await update.message.reply_text("⏳ Pendaftaran Anda masih **MENUNGGU VERIFIKASI** Admin.")
         elif user['status'] == 'active':
@@ -267,65 +314,44 @@ async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔄 Silakan ketik /register untuk ulang.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
     
-    # --- PERBAIKAN MAPPING DATABASE ---
-    # Kita sesuaikan nama key di sini dengan nama kolom di Supabase (image_9abb49.png)
     data = {
-        "user_id": update.effective_user.id,        # ID Telegram
+        "user_id": update.effective_user.id,
         "nama_lengkap": context.user_data.get('r_nama', '-'),
         "no_hp": context.user_data.get('r_hp', '-'),
         "email": context.user_data.get('r_email', '-'),
-        
-        # MAPPING PENTING: Input 'r_kota' user masuk ke kolom 'alamat' database
         "alamat": context.user_data.get('r_kota', '-'), 
-        
-        # Karena form tidak minta NIK, kita isi strip "-" agar tidak error
         "nik": "-", 
-        
         "agency": context.user_data.get('r_agency', '-'),
         "quota": 1000, 
         "status": "pending"
     }
 
-    print(f"🔄 Mencoba insert data user: {data['user_id']}") 
+    print(f"🔄 Insert data user: {data['user_id']}") 
 
     try:
-        # 1. INSERT ke SUPABASE
         supabase.table('users').insert(data).execute()
         print("✅ Insert Berhasil!")
-        
-        # 2. Respon ke User
         await update.message.reply_text("✅ **Data Terkirim!**\nMohon tunggu verifikasi Admin.", reply_markup=ReplyKeyboardRemove())
         
-        # 3. Notifikasi ke Admin
-        # Pastikan ADMIN_ID sudah benar di settingan atas
         kb = [[InlineKeyboardButton("✅ Approve", callback_data=f"appu_{data['user_id']}"), InlineKeyboardButton("❌ Reject", callback_data=f"reju_{data['user_id']}")]]
-        
-        # Format pesan notifikasi ke admin
         admin_msg = (
             f"🔔 **PENDAFTAR BARU**\n"
             f"👤 {data['nama_lengkap']}\n"
             f"🏢 {data['agency']}\n"
-            f"📍 {data['alamat']}\n"  # Tampilkan Alamat/Kota
+            f"📍 {data['alamat']}\n"
             f"📱 {data['no_hp']}"
         )
-        
-        await context.bot.send_message(
-            chat_id=ADMIN_ID, 
-            text=admin_msg, 
-            reply_markup=InlineKeyboardMarkup(kb)
-        )
-        print(f"✅ Notifikasi terkirim ke Admin ID: {ADMIN_ID}")
+        await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, reply_markup=InlineKeyboardMarkup(kb))
 
     except Exception as e:
         print(f"❌ ERROR REGISTRASI: {e}") 
-        # Cek duplikat
         if "duplicate key" in str(e).lower():
             await update.message.reply_text("⚠️ Anda sudah terdaftar sebelumnya.", reply_markup=ReplyKeyboardRemove())
         else:
-            # Tampilkan error spesifik jika bukan duplikat (misal kolom tidak ketemu)
             await update.message.reply_text(f"⚠️ **Gagal menyimpan data.**\nError teknis database.", reply_markup=ReplyKeyboardRemove())
         
     return ConversationHandler.END
+
 # ==============================================================================
 #                     USER: TAMBAH DATA (MANUAL SATUAN)
 # ==============================================================================
@@ -492,8 +518,11 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('panduan', lambda u,c: u.message.reply_text("📖 Ketik Nopol tanpa spasi.")))
 
     app.add_handler(CallbackQueryHandler(callback_handler))
+    
+    # HANDLER DOKUMEN: MENANGANI UPLOAD ADMIN & TITIP FILE USER
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
+    
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - FIXED NOTIF")
+    print("✅ ONEASPAL BOT ONLINE - MODERATED UPLOAD")
     app.run_polling()
