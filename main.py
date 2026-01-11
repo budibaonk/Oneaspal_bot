@@ -185,47 +185,68 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
 async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     
-    # Efek visual loading
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
-    msg_wait = await update.message.reply_text("⏳ *Menghitung statistik real-time...*", parse_mode='Markdown')
+    msg_wait = await update.message.reply_text("⏳ *Menghitung statistik cerdas...*", parse_mode='Markdown')
 
     try:
-        # 1. Hitung Total Data Kendaraan (head=True)
+        # 1. Hitung Total Data & User
         res_total = supabase.table('kendaraan').select("*", count="exact", head=True).execute()
         total_unit = res_total.count if res_total.count else 0
 
-        # 2. Hitung Total User Mitra (head=True)
         res_users = supabase.table('users').select("*", count="exact", head=True).execute()
         total_user = res_users.count if res_users.count else 0
 
-        # 3. Hitung Jumlah Leasing (Range Besar)
+        # 2. Ambil Data Leasing (Range Besar)
         res_leasing = supabase.table('kendaraan').select("finance").range(0, 49999).execute()
         
-        leasing_set = set()
+        # A. Kumpulkan semua nama unik (Normalisasi: Huruf Besar & Strip Spasi)
+        raw_set = set()
         for d in res_leasing.data:
-            finance = d.get('finance')
-            if finance:
-                clean_finance = str(finance).strip().upper()
-                if clean_finance and clean_finance != "-" and clean_finance != "NAN" and clean_finance != "NONE":
-                    leasing_set.add(clean_finance)
+            f = d.get('finance')
+            if f:
+                clean_f = str(f).strip().upper()
+                # Filter data sampah
+                if len(clean_f) > 1 and clean_f not in ["-", "NAN", "NONE", "NULL"]:
+                    raw_set.add(clean_f)
         
-        total_leasing = len(leasing_set)
+        # B. ALGORITMA SMART GROUPING (Deteksi Kemiripan)
+        # Urutkan dari yang terpendek: ["BCA", "OTO", "BCA FINANCE", "OTO MULTIARTHA"]
+        sorted_names = sorted(list(raw_set), key=len)
+        final_groups = []
 
-        # 4. Tampilkan Laporan
+        for name in sorted_names:
+            # Cek apakah nama ini sudah terwakili oleh grup yang ada?
+            # Contoh: "BCA FINANCE" mengandung "BCA" -> SKIP (Sudah dihitung)
+            is_duplicate = False
+            for group in final_groups:
+                if group in name: # Cek substring
+                    is_duplicate = True
+                    break
+            
+            if not is_duplicate:
+                final_groups.append(name)
+
+        total_leasing = len(final_groups)
+
+        # C. DEBUG LOG (Cek di Terminal Railway untuk melihat daftar leasingnya)
+        print(f"✅ LEASING TERDETEKSI ({total_leasing}): {final_groups}")
+
+        # 3. Tampilkan Laporan
         msg = (
             f"📊 **STATISTIK ONEASPAL**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"📂 **Total Data:** `{total_unit:,}` Unit\n"
             f"👥 **Total User:** `{total_user:,}` Mitra\n"
             f"🏦 **Jumlah Leasing:** `{total_leasing}`\n"
-            f"━━━━━━━━━━━━━━━━━━"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🔍 _Metode: Smart Grouping (BCA & BCA Finance = 1)_"
         )
         await msg_wait.edit_text(msg, parse_mode='Markdown')
 
     except Exception as e:
         logging.error(f"Stats Error: {e}")
-        await msg_wait.edit_text(f"❌ Gagal mengambil data: {e}")
-
+        await msg_wait.edit_text(f"❌ Error: {e}")
+        
 async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     try:
