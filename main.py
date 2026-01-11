@@ -179,18 +179,52 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         await status_msg.edit_text(f"❌ **ERROR:** {str(e)}")
 
 # ==============================================================================
-#                        ADMIN: MANAGEMENT
+#                        ADMIN: MANAGEMENT & STATS (FIXED)
 # ==============================================================================
 
 async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
+    
+    # Efek visual loading
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
+    msg_wait = await update.message.reply_text("⏳ *Menghitung statistik real-time...*", parse_mode='Markdown')
+
     try:
-        res_total = supabase.table('kendaraan').select("nopol", count="exact").execute()
-        res_leasing = supabase.table('kendaraan').select("finance").execute()
-        total = res_total.count if res_total.count else 0
-        leasings = len(set([d['finance'] for d in res_leasing.data if d['finance']]))
-        await update.message.reply_text(f"📊 **STATISTIK ADMIN**\n📂 Total Data: `{total}`\n🏦 Leasing: `{leasings}`", parse_mode='Markdown')
-    except: await update.message.reply_text("Gagal ambil statistik.")
+        # 1. Hitung Total Data Kendaraan (head=True)
+        res_total = supabase.table('kendaraan').select("*", count="exact", head=True).execute()
+        total_unit = res_total.count if res_total.count else 0
+
+        # 2. Hitung Total User Mitra (head=True)
+        res_users = supabase.table('users').select("*", count="exact", head=True).execute()
+        total_user = res_users.count if res_users.count else 0
+
+        # 3. Hitung Jumlah Leasing (Range Besar)
+        res_leasing = supabase.table('kendaraan').select("finance").range(0, 49999).execute()
+        
+        leasing_set = set()
+        for d in res_leasing.data:
+            finance = d.get('finance')
+            if finance:
+                clean_finance = str(finance).strip().upper()
+                if clean_finance and clean_finance != "-" and clean_finance != "NAN" and clean_finance != "NONE":
+                    leasing_set.add(clean_finance)
+        
+        total_leasing = len(leasing_set)
+
+        # 4. Tampilkan Laporan
+        msg = (
+            f"📊 **STATISTIK ONEASPAL**\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"📂 **Total Data:** `{total_unit:,}` Unit\n"
+            f"👥 **Total User:** `{total_user:,}` Mitra\n"
+            f"🏦 **Jumlah Leasing:** `{total_leasing}`\n"
+            f"━━━━━━━━━━━━━━━━━━"
+        )
+        await msg_wait.edit_text(msg, parse_mode='Markdown')
+
+    except Exception as e:
+        logging.error(f"Stats Error: {e}")
+        await msg_wait.edit_text(f"❌ Gagal mengambil data: {e}")
 
 async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
@@ -342,7 +376,7 @@ async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-#                     USER: TAMBAH DATA (UX PRO: BATAL BUTTON)
+#                     USER: TAMBAH DATA (UX PRO)
 # ==============================================================================
 
 async def add_data_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -413,12 +447,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     kw = update.message.text.upper().replace(" ", "")
     
-    # 🌟 UX PRO: KIRIM EFEK MENGETIK
+    # 🌟 UX PRO: EFEK MENGETIK
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
-    await asyncio.sleep(0.5) # Jeda sedikit biar efeknya terlihat (opsional)
-
-    # Note: Kita hapus "Mencari data..." biar lebih bersih, cukup pakai efek typing
-    # await update.message.reply_text("⏳ *Mencari data...*", parse_mode='Markdown') 
+    await asyncio.sleep(0.5) 
     
     try:
         res = supabase.table('kendaraan').select("*").or_(f"nopol.eq.{kw},noka.eq.{kw},nosin.eq.{kw}").execute()
@@ -520,5 +551,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - PRO UX EDITION")
+    print("✅ ONEASPAL BOT ONLINE - FULL FINAL ULTIMATE")
     app.run_polling()
