@@ -27,7 +27,7 @@ url: str = os.environ.get("SUPABASE_URL")
 key: str = os.environ.get("SUPABASE_KEY")
 token: str = os.environ.get("TELEGRAM_TOKEN")
 
-# --- ⚠️ SETUP ADMIN ID ---
+# --- SETUP ADMIN ID ---
 DEFAULT_ADMIN_ID = 7530512170
 try:
     env_id = os.environ.get("ADMIN_ID")
@@ -75,57 +75,37 @@ def update_quota_usage(user_id, current_quota):
     except: pass
 
 # ==============================================================================
-#                 HANDLER UPLOAD FILE (ADMIN vs USER)
+#                 HANDLER UPLOAD FILE (TITIP KE ADMIN)
 # ==============================================================================
 
 async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_data = get_user(user_id)
     
-    # 1. CEK IZIN PENGGUNA
     if not user_data or user_data['status'] != 'active':
-        if user_id != ADMIN_ID: # Admin boleh lewat walau data user blm ada
+        if user_id != ADMIN_ID: 
             return await update.message.reply_text("⛔ **AKSES DITOLAK**\nAnda belum terdaftar aktif.")
 
     document = update.message.document
     file_name = document.file_name
 
-    # ==========================================================================
-    # SKENARIO A: USER BIASA (TITIP FILE KE ADMIN)
-    # ==========================================================================
+    # USER BIASA -> TITIP FILE KE ADMIN
     if user_id != ADMIN_ID:
-        # Beri respon cepat ke User
         await update.message.reply_text(
-            "✅ **FILE DITERIMA**\n\n"
-            "File Excel Anda telah berhasil dikirim ke Admin.\n"
-            "⏳ *Data akan segera diupload setelah verifikasi.*\n\n"
-            "Terima kasih atas kontribusinya!",
+            "✅ **FILE DITERIMA**\nFile Excel telah dikirim ke Admin.\n⏳ *Menunggu verifikasi...*",
             parse_mode='Markdown'
         )
-        
-        # Teruskan (Forward) File ke Chat Pribadi Admin
         try:
             caption_admin = (
-                f"📥 **FILE KONTRIBUSI USER**\n"
-                f"👤 **Pengirim:** {user_data.get('nama_lengkap')} ({user_data.get('agency')})\n"
-                f"📄 **File:** `{file_name}`\n"
-                f"👇 *Silakan cek file ini. Jika valid, kirim balik ke bot untuk upload.*"
+                f"📥 **KONTRIBUSI FILE USER**\n"
+                f"👤 {user_data.get('nama_lengkap')} ({user_data.get('agency')})\n"
+                f"📄 `{file_name}`"
             )
-            await context.bot.send_document(
-                chat_id=ADMIN_ID,
-                document=document.file_id,
-                caption=caption_admin,
-                parse_mode='Markdown'
-            )
-        except Exception as e:
-            logging.error(f"Gagal forward ke admin: {e}")
-        
-        return # STOP di sini, jangan lanjut proses database
+            await context.bot.send_document(chat_id=ADMIN_ID, document=document.file_id, caption=caption_admin, parse_mode='Markdown')
+        except: pass
+        return 
 
-    # ==========================================================================
-    # SKENARIO B: ADMIN (PROSES UPLOAD KE DATABASE)
-    # ==========================================================================
-    
+    # ADMIN -> PROSES UPLOAD
     status_msg = await update.message.reply_text("⏳ **Menganalisa file...**")
     start_time = time.time()
 
@@ -133,7 +113,6 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         new_file = await document.get_file()
         file_content = await new_file.download_as_bytearray()
         
-        # Deteksi Format
         if file_name.lower().endswith('.csv'):
             try:
                 df = pd.read_csv(io.BytesIO(file_content), sep=';', dtype=str)
@@ -144,7 +123,6 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         else:
             return await status_msg.edit_text("❌ Format salah. Gunakan .csv atau .xlsx")
         
-        # Normalisasi Header
         df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
         if 'nopol' not in df.columns:
             return await status_msg.edit_text("❌ Gagal: Tidak ada kolom 'nopol'.")
@@ -161,7 +139,6 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
 
         await status_msg.edit_text(f"📥 **Memproses {total_rows} data...**")
 
-        # Batch Upload
         BATCH_SIZE = 1000
         for i in range(0, total_rows, BATCH_SIZE):
             batch = final_data[i : i + BATCH_SIZE]
@@ -171,9 +148,8 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
             except: fail_count += len(batch)
 
         duration = round(time.time() - start_time, 2)
-        
         report = (
-            f"✅ **DATABASE DIPERBARUI (ADMIN)**\n━━━━━━━━━━━━━━━━━━\n"
+            f"✅ **DATABASE DIPERBARUI**\n━━━━━━━━━━━━━━━━━━\n"
             f"📄 **File:** `{file_name}`\n📊 **Total:** {total_rows}\n"
             f"✅ **Sukses:** {success_count}\n❌ **Gagal:** {fail_count}\n"
             f"⏱ **Waktu:** {duration}s"
@@ -266,7 +242,7 @@ async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, veh
     except: pass
 
 # ==============================================================================
-#                        USER: REGISTRASI (FIXED MAPPING)
+#                        USER: REGISTRASI (MAPPING FIXED)
 # ==============================================================================
 
 async def register_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -279,27 +255,27 @@ async def register_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             return await update.message.reply_text("⛔ Pendaftaran Anda sebelumnya **DITOLAK**.")
             
-    await update.message.reply_text("📝 **PENDAFTARAN MITRA**\n\n1️⃣ Masukkan **NAMA LENGKAP**:")
+    await update.message.reply_text("📝 **PENDAFTARAN MITRA**\n\n1️⃣ Masukkan **NAMA LENGKAP**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return R_NAMA
 
 async def register_nama(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['r_nama'] = update.message.text
-    await update.message.reply_text("2️⃣ Masukkan **NO HP (WA)**:")
+    await update.message.reply_text("2️⃣ Masukkan **NO HP (WA)**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return R_HP
 
 async def register_hp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['r_hp'] = update.message.text
-    await update.message.reply_text("3️⃣ Masukkan **EMAIL**:")
+    await update.message.reply_text("3️⃣ Masukkan **EMAIL**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return R_EMAIL
 
 async def register_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['r_email'] = update.message.text
-    await update.message.reply_text("4️⃣ Masukkan **KOTA DOMISILI**:")
+    await update.message.reply_text("4️⃣ Masukkan **KOTA DOMISILI**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return R_KOTA
 
 async def register_kota(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['r_kota'] = update.message.text
-    await update.message.reply_text("5️⃣ Masukkan **PT / AGENCY**:")
+    await update.message.reply_text("5️⃣ Masukkan **PT / AGENCY**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return R_AGENCY
 
 async def register_agency(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -325,12 +301,8 @@ async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "quota": 1000, 
         "status": "pending"
     }
-
-    print(f"🔄 Insert data user: {data['user_id']}") 
-
     try:
         supabase.table('users').insert(data).execute()
-        print("✅ Insert Berhasil!")
         await update.message.reply_text("✅ **Data Terkirim!**\nMohon tunggu verifikasi Admin.", reply_markup=ReplyKeyboardRemove())
         
         kb = [[InlineKeyboardButton("✅ Approve", callback_data=f"appu_{data['user_id']}"), InlineKeyboardButton("❌ Reject", callback_data=f"reju_{data['user_id']}")]]
@@ -342,48 +314,53 @@ async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📱 {data['no_hp']}"
         )
         await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, reply_markup=InlineKeyboardMarkup(kb))
-
     except Exception as e:
-        print(f"❌ ERROR REGISTRASI: {e}") 
         if "duplicate key" in str(e).lower():
             await update.message.reply_text("⚠️ Anda sudah terdaftar sebelumnya.", reply_markup=ReplyKeyboardRemove())
         else:
-            await update.message.reply_text(f"⚠️ **Gagal menyimpan data.**\nError teknis database.", reply_markup=ReplyKeyboardRemove())
+            await update.message.reply_text(f"⚠️ Gagal menyimpan data.", reply_markup=ReplyKeyboardRemove())
         
     return ConversationHandler.END
 
 # ==============================================================================
-#                     USER: TAMBAH DATA (MANUAL SATUAN)
+#                     USER: TAMBAH DATA (TOMBOL BATAL)
 # ==============================================================================
 
 async def add_data_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = get_user(update.effective_user.id)
     if not u or u['status'] != 'active': return await update.message.reply_text("⛔ Akses ditolak.")
-    await update.message.reply_text("➕ **TAMBAH UNIT BARU**\n\n1️⃣ Masukkan **Nopol**:")
+    # TOMBOL BATAL DITAMBAHKAN DI SINI
+    await update.message.reply_text("➕ **TAMBAH UNIT BARU**\n\n1️⃣ Masukkan **Nopol**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return A_NOPOL
 
 async def add_nopol(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['a_nopol'] = update.message.text.upper().replace(" ", "")
-    await update.message.reply_text("2️⃣ Masukkan **Type Mobil**:")
+    await update.message.reply_text("2️⃣ Masukkan **Type Mobil**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return A_TYPE
 
 async def add_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['a_type'] = update.message.text
-    await update.message.reply_text("3️⃣ Masukkan **Leasing**:")
+    await update.message.reply_text("3️⃣ Masukkan **Leasing**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return A_LEASING
 
 async def add_leasing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['a_leasing'] = update.message.text
-    await update.message.reply_text("4️⃣ Masukkan **No Kiriman**:")
+    await update.message.reply_text("4️⃣ Masukkan **No Kiriman**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return A_NOKIR
 
 async def add_nokir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['a_nokir'] = update.message.text
     summary = f"📋 **KONFIRMASI UNIT**\nNopol: {context.user_data['a_nopol']}\nUnit: {context.user_data['a_type']}"
-    await update.message.reply_text(summary, reply_markup=ReplyKeyboardMarkup([["✅ KIRIM KE ADMIN"]], one_time_keyboard=True))
+    # Opsi Batal juga ada di konfirmasi akhir
+    await update.message.reply_text(summary, reply_markup=ReplyKeyboardMarkup([["✅ KIRIM KE ADMIN", "❌ BATAL"]], one_time_keyboard=True))
     return A_CONFIRM
 
 async def add_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Logika jika user menekan BATAL di akhir
+    if update.message.text == "❌ BATAL":
+        await update.message.reply_text("🚫 Tambah data dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+
     n = context.user_data['a_nopol']
     context.bot_data[f"prop_{n}"] = {
         "nopol": n, "type": context.user_data['a_type'], 
@@ -460,19 +437,16 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         uid = data.split("_")[1]; update_user_status(uid, 'active')
         await q.edit_message_text(f"✅ User {uid} DISETUJUI.")
         await context.bot.send_message(uid, "🎉 **AKUN ANDA TELAH AKTIF!**\nSilakan mulai mencari data.")
-    
     elif data.startswith("reju_"):
         uid = data.split("_")[1]; update_user_status(uid, 'rejected')
         await q.edit_message_text(f"⛔ User {uid} DITOLAK.")
         await context.bot.send_message(uid, "⛔ Pendaftaran Anda ditolak Admin.")
-
     elif data.startswith("v_acc_"):
         _, _, n, uid = data.split("_"); item = context.bot_data.get(f"prop_{n}")
         if item:
             supabase.table('kendaraan').upsert(item).execute()
             await q.edit_message_text(f"✅ Data {n} Masuk Database.")
             await context.bot.send_message(uid, f"🎊 Data `{n}` yang Anda kirim telah disetujui!")
-    
     elif data == "v_rej":
         await q.edit_message_text("❌ Data Ditolak/Diabaikan.")
 
@@ -483,29 +457,34 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == '__main__':
     app = ApplicationBuilder().token(token).build()
     
+    # 1. REGISTRASI (Timeout 5 Menit)
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('register', register_start)],
         states={
-            R_NAMA:[MessageHandler(filters.TEXT, register_nama)],
-            R_HP:[MessageHandler(filters.TEXT, register_hp)],
-            R_EMAIL:[MessageHandler(filters.TEXT, register_email)],
-            R_KOTA:[MessageHandler(filters.TEXT, register_kota)],
-            R_AGENCY:[MessageHandler(filters.TEXT, register_agency)],
-            R_CONFIRM:[MessageHandler(filters.TEXT, register_confirm)]
+            R_NAMA:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), register_nama)],
+            R_HP:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), register_hp)],
+            R_EMAIL:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), register_email)],
+            R_KOTA:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), register_kota)],
+            R_AGENCY:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), register_agency)],
+            R_CONFIRM:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), register_confirm)]
         },
-        fallbacks=[CommandHandler('cancel', cancel)]
+        # Perhatikan di sini: Kita tambahkan regex BATAL agar tombol keyboard berfungsi sebagai cancel
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)],
+        conversation_timeout=300
     ))
 
+    # 2. TAMBAH DATA (Timeout 60 Detik + Tombol Batal)
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('tambah', add_data_start)],
         states={
-            A_NOPOL:[MessageHandler(filters.TEXT, add_nopol)],
-            A_TYPE:[MessageHandler(filters.TEXT, add_type)],
-            A_LEASING:[MessageHandler(filters.TEXT, add_leasing)],
-            A_NOKIR:[MessageHandler(filters.TEXT, add_nokir)],
-            A_CONFIRM:[MessageHandler(filters.TEXT, add_confirm)]
+            A_NOPOL:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), add_nopol)],
+            A_TYPE:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), add_type)],
+            A_LEASING:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), add_leasing)],
+            A_NOKIR:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), add_nokir)],
+            A_CONFIRM:[MessageHandler(filters.TEXT, add_confirm)] # add_confirm handle sendiri tombol BATAL
         },
-        fallbacks=[CommandHandler('cancel', cancel)]
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)],
+        conversation_timeout=60
     ))
 
     app.add_handler(CommandHandler('start', start))
@@ -518,11 +497,8 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('panduan', lambda u,c: u.message.reply_text("📖 Ketik Nopol tanpa spasi.")))
 
     app.add_handler(CallbackQueryHandler(callback_handler))
-    
-    # HANDLER DOKUMEN: MENANGANI UPLOAD ADMIN & TITIP FILE USER
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
-    
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - MODERATED UPLOAD")
+    print("✅ ONEASPAL BOT ONLINE - FINAL UX")
     app.run_polling()
