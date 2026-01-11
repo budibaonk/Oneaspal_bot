@@ -393,7 +393,7 @@ async def panduan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👉 Ketik: `/admin [Isi Pesan Anda]`\n"
         "Contoh: `/admin Pak, mohon cek data X`\n\n"
         "5️⃣ **UPLOAD DATA (MASSAL)**\n"
-        "👉 **Kirim file Excel (.xlsx) langsung ke sini.**"
+        "👉 **Kirim file Excel (.xlsx) langsung, klik logo CLIP disebelah kanan bawah kirim file dichat.**"
     )
     await update.message.reply_text(text_panduan, parse_mode='Markdown')
 
