@@ -91,7 +91,7 @@ def update_quota_usage(user_id, current_quota):
     except: pass
 
 # ==============================================================================
-#                 HANDLER UPLOAD FILE (TITIP KE ADMIN)
+#                 HANDLER UPLOAD FILE (SMART RETRY & CLEANING)
 # ==============================================================================
 
 async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -124,14 +124,15 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         except: pass
         return 
 
-    # ADMIN -> PROSES UPLOAD
-    status_msg = await update.message.reply_text("⏳ **Menganalisa file...**")
+    # ADMIN -> PROSES SMART UPLOAD
+    status_msg = await update.message.reply_text("⏳ **Menganalisa & Membersihkan file...**")
     start_time = time.time()
 
     try:
         new_file = await document.get_file()
         file_content = await new_file.download_as_bytearray()
         
+        # Baca File
         if file_name.lower().endswith('.csv'):
             try:
                 df = pd.read_csv(io.BytesIO(file_content), sep=';', dtype=str)
@@ -142,11 +143,15 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         else:
             return await status_msg.edit_text("❌ Format salah. Gunakan .csv atau .xlsx")
         
+        # Normalisasi
         df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
         if 'nopol' not in df.columns:
             return await status_msg.edit_text("❌ Gagal: Tidak ada kolom 'nopol'.")
 
+        # PEMBERSIHAN DATA (SMART CLEANING)
         df['nopol'] = df['nopol'].astype(str).str.replace(' ', '').str.upper()
+        # Hapus Duplikat Internal (Ambil data paling bawah)
+        df = df.drop_duplicates(subset=['nopol'], keep='last')
         df = df.replace({np.nan: None})
         
         valid_cols = df.columns.intersection(['nopol', 'type', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'finance', 'branch'])
@@ -156,22 +161,40 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         success_count = 0
         fail_count = 0
 
-        await status_msg.edit_text(f"📥 **Memproses {total_rows} data...**")
+        await status_msg.edit_text(f"📥 **Memproses {total_rows} data bersih...**")
 
+        # SMART BATCH UPLOAD (RETRY MECHANISM)
         BATCH_SIZE = 1000
         for i in range(0, total_rows, BATCH_SIZE):
             batch = final_data[i : i + BATCH_SIZE]
             try:
+                # 1. Coba kirim 1000 sekaligus
                 supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
                 success_count += len(batch)
-            except: fail_count += len(batch)
+            except Exception:
+                logging.error(f"Batch {i} failed, retrying smaller chunks...")
+                # 2. Jika gagal, pecah jadi 100
+                for j in range(0, len(batch), 100):
+                    mini_batch = batch[j : j + 100]
+                    try:
+                        supabase.table('kendaraan').upsert(mini_batch, on_conflict='nopol').execute()
+                        success_count += len(mini_batch)
+                    except:
+                        # 3. Jika masih gagal, kirim SATU PER SATU (Penyelamatan terakhir)
+                        for item in mini_batch:
+                            try:
+                                supabase.table('kendaraan').upsert([item], on_conflict='nopol').execute()
+                                success_count += 1
+                            except:
+                                fail_count += 1
 
         duration = round(time.time() - start_time, 2)
         report = (
             f"✅ **DATABASE DIPERBARUI**\n━━━━━━━━━━━━━━━━━━\n"
-            f"📄 **File:** `{file_name}`\n📊 **Total:** {total_rows}\n"
+            f"📄 **File:** `{file_name}`\n📊 **Total Bersih:** {total_rows}\n"
             f"✅ **Sukses:** {success_count}\n❌ **Gagal:** {fail_count}\n"
-            f"⏱ **Waktu:** {duration}s"
+            f"⏱ **Waktu:** {duration}s\n"
+            f"ℹ️ _Smart Retry Active_"
         )
         await status_msg.edit_text(report, parse_mode='Markdown')
 
@@ -179,7 +202,7 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         await status_msg.edit_text(f"❌ **ERROR:** {str(e)}")
 
 # ==============================================================================
-#                        ADMIN: MANAGEMENT & STATS
+#                        ADMIN: MANAGEMENT & STATS (SMART GROUPING)
 # ==============================================================================
 
 async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -207,7 +230,7 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if len(clean_f) > 1 and clean_f not in ["-", "NAN", "NONE", "NULL"]:
                     raw_set.add(clean_f)
         
-        # Smart Grouping
+        # Smart Grouping (BCA & BCA Finance = 1)
         sorted_names = sorted(list(raw_set), key=len)
         final_groups = []
         for name in sorted_names:
@@ -581,12 +604,12 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('unban', unban_user))
     app.add_handler(CommandHandler('delete', delete_user))
     app.add_handler(CommandHandler('testgroup', test_group))
-    app.add_handler(CommandHandler('panduan', panduan)) # <-- SUDAH UPDATE
+    app.add_handler(CommandHandler('panduan', panduan))
 
     # 4. UPLOAD & MESSAGE
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - FINAL & SECURE")
+    print("✅ ONEASPAL BOT ONLINE - FULL FEATURED v1.0")
     app.run_polling()
