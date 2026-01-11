@@ -56,7 +56,7 @@ R_NAMA, R_HP, R_EMAIL, R_KOTA, R_AGENCY, R_CONFIRM = range(6)
 A_NOPOL, A_TYPE, A_LEASING, A_NOKIR, A_CONFIRM = range(6, 11)
 
 # ==============================================================================
-#                        AUTO MENU COMMAND (UX PRO)
+#                        AUTO MENU COMMAND
 # ==============================================================================
 async def post_init(application: Application):
     """Mengatur Tombol Menu secara Otomatis saat Bot Start"""
@@ -64,7 +64,7 @@ async def post_init(application: Application):
         ("start", "🔄 Restart / Menu Utama"),
         ("register", "📝 Daftar Mitra Baru"),
         ("tambah", "➕ Tambah Unit Manual"),
-        ("panduan", "📖 Cara Penggunaan"),
+        ("panduan", "📖 Petunjuk Penggunaan"),
         ("stats", "📊 Statistik (Admin Only)")
     ])
     print("✅ Menu Perintah Berhasil Di-set!")
@@ -179,7 +179,7 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
         await status_msg.edit_text(f"❌ **ERROR:** {str(e)}")
 
 # ==============================================================================
-#                        ADMIN: MANAGEMENT & STATS (FIXED)
+#                        ADMIN: MANAGEMENT & STATS
 # ==============================================================================
 
 async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -196,42 +196,31 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         res_users = supabase.table('users').select("*", count="exact", head=True).execute()
         total_user = res_users.count if res_users.count else 0
 
-        # 2. Ambil Data Leasing (Range Besar)
+        # 2. Ambil Data Leasing (Range Besar & Smart Grouping)
         res_leasing = supabase.table('kendaraan').select("finance").range(0, 49999).execute()
         
-        # A. Kumpulkan semua nama unik (Normalisasi: Huruf Besar & Strip Spasi)
         raw_set = set()
         for d in res_leasing.data:
             f = d.get('finance')
             if f:
                 clean_f = str(f).strip().upper()
-                # Filter data sampah
                 if len(clean_f) > 1 and clean_f not in ["-", "NAN", "NONE", "NULL"]:
                     raw_set.add(clean_f)
         
-        # B. ALGORITMA SMART GROUPING (Deteksi Kemiripan)
-        # Urutkan dari yang terpendek: ["BCA", "OTO", "BCA FINANCE", "OTO MULTIARTHA"]
+        # Smart Grouping
         sorted_names = sorted(list(raw_set), key=len)
         final_groups = []
-
         for name in sorted_names:
-            # Cek apakah nama ini sudah terwakili oleh grup yang ada?
-            # Contoh: "BCA FINANCE" mengandung "BCA" -> SKIP (Sudah dihitung)
             is_duplicate = False
             for group in final_groups:
-                if group in name: # Cek substring
+                if group in name: 
                     is_duplicate = True
                     break
-            
-            if not is_duplicate:
-                final_groups.append(name)
+            if not is_duplicate: final_groups.append(name)
 
         total_leasing = len(final_groups)
 
-        # C. DEBUG LOG (Cek di Terminal Railway untuk melihat daftar leasingnya)
-        print(f"✅ LEASING TERDETEKSI ({total_leasing}): {final_groups}")
-
-        # 3. Tampilkan Laporan
+        # Tampilkan Laporan
         msg = (
             f"📊 **STATISTIK ONEASPAL**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
@@ -239,14 +228,14 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👥 **Total User:** `{total_user:,}` Mitra\n"
             f"🏦 **Jumlah Leasing:** `{total_leasing}`\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"🔍 _Metode: Smart Grouping (BCA & BCA Finance = 1)_"
+            f"🔍 _Metode: Smart Grouping_"
         )
         await msg_wait.edit_text(msg, parse_mode='Markdown')
 
     except Exception as e:
         logging.error(f"Stats Error: {e}")
         await msg_wait.edit_text(f"❌ Error: {e}")
-        
+
 async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     try:
@@ -316,7 +305,30 @@ async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, veh
     except: pass
 
 # ==============================================================================
-#                        USER: REGISTRASI (UX PRO)
+#                        FITUR: PANDUAN LENGKAP
+# ==============================================================================
+
+async def panduan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text_panduan = (
+        "📖 **PANDUAN PENGGUNAAN ONEASPAL**\n\n"
+        "1️⃣ **PENCARIAN DATA**\n"
+        "Cukup ketik data yang dicari langsung di chat ini (tanpa spasi).\n"
+        "✅ Bisa cari: **Nopol**, **Noka**, atau **Nosin**\n"
+        "🔍 *Contoh:* `B1234XYZ` atau `MH1JBB123...`\n\n"
+        "2️⃣ **TAMBAH DATA (MANUAL)**\n"
+        "Jika Anda menemukan unit baru di lapangan:\n"
+        "👉 Ketik perintah: `/tambah`\n"
+        "Ikuti instruksi bot untuk memasukkan Nopol, Type, Leasing, dll.\n\n"
+        "3️⃣ **UPLOAD DATA (MASSAL)**\n"
+        "Anda punya banyak data dalam format Excel/CSV?\n"
+        "👉 **Kirim file Excel (.xlsx) langsung ke sini.**\n"
+        "Bot akan meneruskan file Anda ke Admin untuk diverifikasi dan di-upload.\n\n"
+        "💡 *Gunakan tombol Menu di kiri bawah untuk melihat perintah.*"
+    )
+    await update.message.reply_text(text_panduan, parse_mode='Markdown')
+
+# ==============================================================================
+#                        USER: REGISTRASI
 # ==============================================================================
 
 async def register_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -397,7 +409,7 @@ async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-#                     USER: TAMBAH DATA (UX PRO)
+#                     USER: TAMBAH DATA (MANUAL)
 # ==============================================================================
 
 async def add_data_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -443,7 +455,7 @@ async def add_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-#                        HANDLER UTAMA & TYPING ACTION
+#                        HANDLER UTAMA
 # ==============================================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -468,7 +480,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     kw = update.message.text.upper().replace(" ", "")
     
-    # 🌟 UX PRO: EFEK MENGETIK
+    # Efek Mengetik...
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
     await asyncio.sleep(0.5) 
     
@@ -529,9 +541,10 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 if __name__ == '__main__':
-    # post_init ditambahkan di sini agar Menu Command muncul otomatis
+    # post_init untuk Menu Command Otomatis
     app = ApplicationBuilder().token(token).post_init(post_init).build()
     
+    # 1. REGISTRASI (Cancel Regex & Timeout)
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('register', register_start)],
         states={
@@ -546,6 +559,7 @@ if __name__ == '__main__':
         conversation_timeout=300
     ))
 
+    # 2. TAMBAH DATA (Cancel Regex & Timeout)
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('tambah', add_data_start)],
         states={
@@ -559,6 +573,7 @@ if __name__ == '__main__':
         conversation_timeout=60
     ))
 
+    # 3. COMMAND HANDLER UTAMA
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('stats', get_stats))
     app.add_handler(CommandHandler('users', list_users))
@@ -566,11 +581,12 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('unban', unban_user))
     app.add_handler(CommandHandler('delete', delete_user))
     app.add_handler(CommandHandler('testgroup', test_group))
-    app.add_handler(CommandHandler('panduan', lambda u,c: u.message.reply_text("📖 Ketik Nopol tanpa spasi.")))
+    app.add_handler(CommandHandler('panduan', panduan)) # <-- SUDAH UPDATE
 
+    # 4. UPLOAD & MESSAGE
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - FULL FINAL ULTIMATE")
+    print("✅ ONEASPAL BOT ONLINE - FINAL & SECURE")
     app.run_polling()
