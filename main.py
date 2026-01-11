@@ -369,12 +369,12 @@ async def panduan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📖 **PANDUAN ONEASPAL**\n\n"
         "1️⃣ **CARI DATA**\n"
         "Ketik Nopol/Noka/Nosin tanpa spasi.\n"
-        "✅ Bisa ketik: `1234ABC` (Tanpa huruf depan)\n"
-        "✅ Bisa ketik: `B1234ABC` (Lengkap)\n\n"
+        "✅ Contoh: `1234ABC` (Tanpa huruf depan)\n"
+        "✅ Contoh: `B1234ABC` (Lengkap)\n\n"
         "2️⃣ **TAMBAH DATA:** `/tambah`\n"
         "3️⃣ **LAPOR SELESAI:** `/lapor`\n"
         "4️⃣ **KONTAK ADMIN:** `/admin [pesan]`\n"
-        "5️⃣ **UPLOAD:** Kirim file Excel ke chat BOT, klik icon CLIP kirim file dibawah kanan."
+        "5️⃣ **UPLOAD:** Kirim file Excel ke sini."
     )
     await update.message.reply_text(text_panduan, parse_mode='Markdown')
 
@@ -385,7 +385,15 @@ async def panduan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def lapor_delete_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = get_user(update.effective_user.id)
     if not u or u['status'] != 'active': return await update.message.reply_text("⛔ Akses ditolak.")
-    await update.message.reply_text("🗑️ **LAPOR UNIT SELESAI**\nMasukkan Nopol:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
+    
+    await update.message.reply_text(
+        "🗑️ **LAPOR UNIT SELESAI/AMAN**\n\n"
+        "Anda melaporkan bahwa unit sudah **Selesai/Lunas** dari Leasing.\n"
+        "Admin akan memverifikasi laporan ini sebelum data dihapus.\n\n"
+        "👉 Masukkan **Nomor Polisi (Nopol)** unit:",
+        reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True),
+        parse_mode='Markdown'
+    )
     return L_NOPOL
 
 async def lapor_delete_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -393,7 +401,7 @@ async def lapor_delete_check(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         res = supabase.table('kendaraan').select("*").eq('nopol', nopol_input).execute()
         if not res.data: 
-            await update.message.reply_text(f"❌ Nopol `{nopol_input}` tidak ada.", reply_markup=ReplyKeyboardRemove())
+            await update.message.reply_text(f"❌ Nopol `{nopol_input}` tidak ditemukan di database.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
             return ConversationHandler.END
         
         unit = res.data[0]
@@ -405,7 +413,7 @@ async def lapor_delete_check(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def lapor_delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "❌ BATAL": 
-        await update.message.reply_text("🚫 Batal.", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text("🚫 Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
     
     if update.message.text == "✅ KIRIM LAPORAN":
@@ -581,17 +589,27 @@ async def add_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-#                        HANDLER UTAMA (WITH WILDCARD SEARCH)
+#                        HANDLER UTAMA (START & MESSAGE)
 # ==============================================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    info_text = f"\n📢 **INFO:** {GLOBAL_INFO}\n" if GLOBAL_INFO else ""
+    info_text = ""
+    if GLOBAL_INFO:
+        info_text = f"\n📢 **INFO:** {GLOBAL_INFO}\n━━━━━━━━━━━━━━━━━━\n"
+
+    # TEKS LENGKAP PROFESIONAL (RESTORED)
     welcome_text = (
         f"{info_text}"
-        "\n🤖 **Selamat Datang di Oneaspal_bot**\n\n"
+        "🤖 **Selamat Datang di Oneaspal_bot**\n\n"
         "**Salam Satu Aspal!** 👋\n"
-        "Halo, Rekan Mitra Lapangan.\n"
-        "Cari data via Nopol, Noka, atau Nosin.\n\n"
+        "Halo, Rekan Mitra Lapangan.\n\n"
+        "**Oneaspal_bot** adalah asisten digital profesional untuk mempermudah pencarian data kendaraan secara real-time.\n\n"
+        "Cari data melalui:\n"
+        "✅ **Nomor Polisi (Nopol)**\n"
+        "✅ **Nomor Rangka (Noka)**\n"
+        "✅ **Nomor Mesin (Nosin)**\n\n"
+        "⚠️ **PENTING:** Akses bersifat **PRIVATE**. Anda wajib mendaftar dan menunggu verifikasi Admin.\n\n"
+        "--- \n"
         "👉 Jalankan perintah /register untuk mendaftar."
     )
     await update.message.reply_text(welcome_text, parse_mode='Markdown')
@@ -632,8 +650,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🏦 **Finance:** {d.get('finance', '-')}\n"
                 f"🏢 **Branch:** {d.get('branch', '-')}\n"
                 f"━━━━━━━━━━━━━━━━━━\n\n"
-                f"⚠️ *CATATAN PENTING:*\n"
-                f"Silahkan konfirmasi kepada PIC leasing terkait."
+                f"⚠️ **CATATAN PENTING:**\n"
+                f"Ini bukan alat yang SAH untuk penarikan atau menyita aset kendaraan, "
+                f"Silahkan konfirmasi kepada PIC leasing terkait.\n"
+                f"Terima kasih."
             )
             await update.message.reply_text(text, parse_mode='Markdown')
             await notify_hit_to_group(context, u, d)
@@ -646,7 +666,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
     data = q.data
     
-    # Expanded logic for clarity
     if data.startswith("appu_"):
         uid = data.split("_")[1]
         update_user_status(uid, 'active')
@@ -757,5 +776,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - V1.6 (FULL EXPANDED)")
+    print("✅ ONEASPAL BOT ONLINE - V1.7.1 (FULL RESTORED TEXT)")
     app.run_polling()
