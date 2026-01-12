@@ -520,16 +520,32 @@ async def register_kota(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def register_agency(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['r_agency'] = update.message.text
-    summary = (f"📋 **KONFIRMASI DATA**\nNama: {context.user_data['r_nama']}\n"
-               f"HP: {context.user_data['r_hp']}\nKota: {context.user_data['r_kota']}\nAgency: {context.user_data['r_agency']}")
-    await update.message.reply_text(summary, reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ ULANGI"]], one_time_keyboard=True))
+    
+    # PERBAIKAN UX: Tampilan lebih rapi & Instruksi lebih tegas
+    summary = (
+        f"📋 **KONFIRMASI DATA PENDAFTARAN**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **Nama:** {context.user_data.get('r_nama')}\n"
+        f"📱 **HP:** {context.user_data.get('r_hp')}\n"
+        f"📧 **Email:** {context.user_data.get('r_email')}\n"
+        f"📍 **Kota:** {context.user_data.get('r_kota')}\n"
+        f"🏢 **Agency:** {context.user_data.get('r_agency')}\n"
+        f"━━━━━━━━━━━━━━━━━━\n\n"
+        f"⚠️ **PENTING: DATA BELUM TERKIRIM!**\n"
+        f"Silakan cek kembali data di atas.\n"
+        f"👉 Klik tombol **✅ KIRIM SEKARANG** di bawah untuk menyelesaikan pendaftaran."
+    )
+    # Tombol diperjelas: "✅ KIRIM SEKARANG" agar user tau ini aksi final
+    await update.message.reply_text(summary, reply_markup=ReplyKeyboardMarkup([["✅ KIRIM SEKARANG", "❌ ULANGI"]], one_time_keyboard=True), parse_mode='Markdown')
     return R_CONFIRM
 
 async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Update logic untuk menangkap tombol baru
     if update.message.text == "❌ ULANGI": 
-        await update.message.reply_text("🔄 Silakan ketik /register untuk ulang.", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text("🔄 Silakan ketik /register untuk mengisi ulang data.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
     
+    # Logic simpan data
     data = {
         "user_id": update.effective_user.id,
         "nama_lengkap": context.user_data.get('r_nama', '-'),
@@ -543,8 +559,16 @@ async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     try:
         supabase.table('users').insert(data).execute()
-        await update.message.reply_text("✅ **Data Terkirim!**\nMohon tunggu verifikasi Admin.", reply_markup=ReplyKeyboardRemove())
+        # Pesan sukses
+        await update.message.reply_text(
+            "✅ **PENDAFTARAN BERHASIL!**\n\n"
+            "Data Anda telah kami terima dan sedang dalam antrean verifikasi Admin.\n"
+            "Mohon tunggu notifikasi selanjutnya.", 
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='Markdown'
+        )
         
+        # Notifikasi ke Admin
         kb = [[InlineKeyboardButton("✅ Approve", callback_data=f"appu_{data['user_id']}"), InlineKeyboardButton("❌ Reject", callback_data=f"reju_{data['user_id']}")]]
         admin_msg = (
             f"🔔 **PENDAFTAR BARU**\n"
