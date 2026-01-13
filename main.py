@@ -95,7 +95,7 @@ R_NAMA, R_HP, R_EMAIL, R_KOTA, R_AGENCY, R_CONFIRM = range(6)
 A_NOPOL, A_TYPE, A_LEASING, A_NOKIR, A_CONFIRM = range(6, 11)
 L_NOPOL, L_CONFIRM = range(11, 13) 
 D_NOPOL, D_CONFIRM = range(13, 15)
-# UPLOAD SMART STATES (Updated v1.9)
+# UPLOAD SMART STATES
 U_LEASING_USER, U_LEASING_ADMIN, U_CONFIRM_UPLOAD = range(15, 18)
 
 # ==============================================================================
@@ -105,9 +105,10 @@ async def post_init(application: Application):
     """Mengatur Tombol Menu secara Otomatis saat Bot Start"""
     await application.bot.set_my_commands([
         ("start", "🔄 Restart / Menu Utama"),
-        ("register", "📝 Daftar Mitra Baru"),
+        ("cekkuota", "💳 Cek Sisa Kuota"),
         ("tambah", "➕ Tambah Unit Manual"),
         ("lapor", "🗑️ Lapor Unit Selesai"),
+        ("register", "📝 Daftar Mitra Baru"),
         ("admin", "📩 Hubungi Admin"),
         ("panduan", "📖 Petunjuk Penggunaan"),
     ])
@@ -134,9 +135,21 @@ def update_quota_usage(user_id, current_quota):
         supabase.table('users').update({'quota': new_quota}).eq('user_id', user_id).execute()
     except: pass
 
+def topup_quota(user_id, amount):
+    """Fungsi Helper untuk Admin Topup Kuota"""
+    try:
+        user = get_user(user_id)
+        if user:
+            current = user.get('quota', 0)
+            new_total = current + amount
+            supabase.table('users').update({'quota': new_total}).eq('user_id', user_id).execute()
+            return True, new_total
+        return False, 0
+    except: return False, 0
+
 def smart_rename_columns(df):
     """Fungsi pintar untuk menstandarkan nama kolom berdasarkan Kamus"""
-    # Bersihkan nama kolom asli (lowercase, strip, replace spasi/titik dengan _)
+    # Bersihkan nama kolom asli
     df.columns = df.columns.str.strip().str.lower().str.replace('.', ' ', regex=False)
     
     new_cols = {}
@@ -146,7 +159,6 @@ def smart_rename_columns(df):
         renamed = False
         # Cek di kamus alias
         for standard_name, aliases in COLUMN_ALIASES.items():
-            # Cek apakah nama kolom ada di dalam list alias
             if col == standard_name or col in aliases:
                 new_cols[col] = standard_name
                 found_cols.append(standard_name)
@@ -161,7 +173,67 @@ def smart_rename_columns(df):
     return df, found_cols
 
 # ==============================================================================
-#                 HANDLER UPLOAD FILE (SMART CONVERSATION) - V1.9
+#                 FITUR BARU: CEK KUOTA & TOPUP ADMIN (V1.9.1)
+# ==============================================================================
+
+async def cek_kuota(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    u = get_user(update.effective_user.id)
+    if not u or u['status'] != 'active': 
+        return await update.message.reply_text("⛔ Akun Anda belum aktif.")
+    
+    msg = (
+        f"💳 **INFO AKUN MITRA**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **Nama:** {u.get('nama_lengkap')}\n"
+        f"🏢 **Agency:** {u.get('agency')}\n"
+        f"📱 **ID:** `{u.get('user_id')}`\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🔋 **SISA KUOTA:** `{u.get('quota', 0)}` HIT\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"💡 _Kuota hanya berkurang jika data ditemukan._"
+    )
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
+async def admin_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    
+    try:
+        # Format: /topup [user_id] [jumlah]
+        args = context.args
+        if len(args) < 2:
+            return await update.message.reply_text(
+                "⚠️ Format Salah!\nGunakan: `/topup [User_ID] [Jumlah]`\n\nContoh: `/topup 12345678 100`", 
+                parse_mode='Markdown'
+            )
+        
+        target_id = args[0]
+        amount = int(args[1])
+        
+        success, new_balance = topup_quota(target_id, amount)
+        
+        if success:
+            await update.message.reply_text(
+                f"✅ **TOPUP SUKSES**\n"
+                f"User ID: `{target_id}`\n"
+                f"Tambah: +{amount}\n"
+                f"Total Baru: {new_balance}", 
+                parse_mode='Markdown'
+            )
+            # Notif ke User
+            try:
+                await context.bot.send_message(
+                    chat_id=target_id, 
+                    text=f"🎉 **KUOTA BERTAMBAH!**\n\nAdmin telah menambahkan +{amount} kuota ke akun Anda.\nTotal Kuota: {new_balance}\n\nSelamat bekerja kembali! 🚙💨"
+                )
+            except: pass
+        else:
+            await update.message.reply_text("❌ Gagal. Pastikan ID User benar dan terdaftar.")
+            
+    except ValueError:
+        await update.message.reply_text("⚠️ Jumlah harus angka.")
+
+# ==============================================================================
+#                 HANDLER UPLOAD FILE (SMART CONVERSATION)
 # ==============================================================================
 
 async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -177,7 +249,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.UPLOAD_DOCUMENT)
     
-    # Simpan file sementara di memory context
+    # Simpan file sementara
     context.user_data['upload_file_id'] = document.file_id
     context.user_data['upload_file_name'] = file_name
 
@@ -292,7 +364,7 @@ async def upload_leasing_admin(update: Update, context: ContextTypes.DEFAULT_TYP
         final_leasing_name = "UNKNOWN"
         df['finance'] = 'UNKNOWN'
 
-    # Standardize Nopol
+    # Standardize Nopol (Hapus spasi, Uppercase)
     df['nopol'] = df['nopol'].astype(str).str.replace(' ', '').str.upper()
     df = df.drop_duplicates(subset=['nopol'], keep='last')
     df = df.replace({np.nan: None})
@@ -378,11 +450,13 @@ async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYP
 
         duration = round(time.time() - start_time, 2)
         report = (
-            f"✅ **UPLOAD SUKSES!**\n━━━━━━━━━━━━━━━━━━\n"
+            f"✅ **UPLOAD SUKSES!**\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
             f"📄 **File:** `{file_name}`\n"
             f"🏦 **Leasing:** {leasing_name}\n"
             f"📊 **Total Upload:** {total_rows}\n"
-            f"✅ **Berhasil:** {success_count}\n❌ **Gagal:** {fail_count}\n"
+            f"✅ **Berhasil:** {success_count}\n"
+            f"❌ **Gagal:** {fail_count}\n"
             f"⏱ **Waktu:** {duration}s"
         )
         await status_msg.edit_text(report, parse_mode='Markdown')
@@ -457,7 +531,7 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = "📋 **20 USER TERBARU**\n"
         for u in res.data:
             icon = "✅" if u['status'] == 'active' else "⏳"
-            msg += f"{icon} `{u['user_id']}` | {u.get('nama_lengkap','-')}\n"
+            msg += f"{icon} `{u['user_id']}` | {u.get('nama_lengkap','-')} | Q:{u.get('quota',0)}\n"
         await update.message.reply_text(msg, parse_mode='Markdown')
     except: await update.message.reply_text("Gagal.")
 
@@ -521,7 +595,12 @@ async def contact_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("⚠️ Contoh: `/admin Lapor error...`", parse_mode='Markdown')
     
     try:
-        report = (f"📩 **PESAN MITRA**\n👤 {u.get('nama_lengkap')}\n💬 {msg_content}")
+        report = (
+            f"📩 **PESAN MITRA**\n"
+            f"👤 {u.get('nama_lengkap')}\n"
+            f"📱 `{u.get('user_id')}`\n"
+            f"💬 {msg_content}"
+        )
         await context.bot.send_message(chat_id=ADMIN_ID, text=report)
         await update.message.reply_text("✅ Terkirim.")
     except: 
@@ -559,10 +638,11 @@ async def panduan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Ketik Nopol/Noka/Nosin tanpa spasi.\n"
         "✅ Contoh: `1234ABC` (Tanpa huruf depan)\n"
         "✅ Contoh: `B1234ABC` (Lengkap)\n\n"
-        "2️⃣ **TAMBAH DATA:** `/tambah`\n"
-        "3️⃣ **LAPOR SELESAI:** `/lapor`\n"
-        "4️⃣ **KONTAK ADMIN:** `/admin [pesan]`\n"
-        "5️⃣ **UPLOAD:** Kirim file Excel ke chat bot langsung, klik icon CLIP kirim file yang ada dikanan bawah."
+        "2️⃣ **CEK KUOTA:** `/cekkuota`\n"
+        "3️⃣ **TAMBAH DATA:** `/tambah`\n"
+        "4️⃣ **LAPOR SELESAI:** `/lapor`\n"
+        "5️⃣ **KONTAK ADMIN:** `/admin [pesan]`\n"
+        "6️⃣ **UPLOAD:** Kirim file Excel ke chat bot langsung."
     )
     await update.message.reply_text(text_panduan, parse_mode='Markdown')
 
@@ -708,7 +788,7 @@ async def register_kota(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def register_agency(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['r_agency'] = update.message.text
     
-    # PERBAIKAN UX: Tampilan lebih rapi & Instruksi lebih tegas
+    # PERBAIKAN UX REGISTRASI (v1.7.3)
     summary = (
         f"📋 **KONFIRMASI DATA PENDAFTARAN**\n"
         f"━━━━━━━━━━━━━━━━━━\n"
@@ -865,6 +945,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = get_user(update.effective_user.id)
     if not u or u['status'] != 'active': return
     
+    # --- CEK KUOTA (v1.9.1) ---
+    quota = u.get('quota', 0)
+    if quota <= 0:
+        return await update.message.reply_text(
+            "⛔ **KUOTA HABIS!**\n\n"
+            "Sisa kuota pencarian Anda: **0**.\n"
+            "Silakan hubungi Admin untuk melakukan Top Up / Donasi Sukarela.\n\n"
+            "👉 Ketik `/admin Mohon info topup`",
+            parse_mode='Markdown'
+        )
+
     kw = update.message.text.upper().replace(" ", "")
     
     if len(kw) < 3:
@@ -1022,8 +1113,10 @@ if __name__ == '__main__':
         conversation_timeout=120
     ))
 
-    # HANDLERS UMUM
     app.add_handler(CommandHandler('start', start))
+    app.add_handler(CommandHandler('cekkuota', cek_kuota))
+    app.add_handler(CommandHandler('topup', admin_topup))
+    
     app.add_handler(CommandHandler('stats', get_stats))
     app.add_handler(CommandHandler('users', list_users))
     app.add_handler(CommandHandler('ban', ban_user))
@@ -1039,5 +1132,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - V1.9 (SMART UPLOAD + ADMIN CONFIRMATION)")
+    print("✅ ONEASPAL BOT ONLINE - V1.9.1 (FULL EXPANDED)")
     app.run_polling()
