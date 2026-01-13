@@ -521,7 +521,7 @@ async def register_kota(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def register_agency(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['r_agency'] = update.message.text
     
-    # PERBAIKAN UX: Tampilan lebih rapi & Instruksi lebih tegas
+    # PERBAIKAN UX REGISTRASI
     summary = (
         f"📋 **KONFIRMASI DATA PENDAFTARAN**\n"
         f"━━━━━━━━━━━━━━━━━━\n"
@@ -535,17 +535,14 @@ async def register_agency(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Silakan cek kembali data di atas.\n"
         f"👉 Klik tombol **✅ KIRIM SEKARANG** di bawah untuk menyelesaikan pendaftaran."
     )
-    # Tombol diperjelas: "✅ KIRIM SEKARANG" agar user tau ini aksi final
     await update.message.reply_text(summary, reply_markup=ReplyKeyboardMarkup([["✅ KIRIM SEKARANG", "❌ ULANGI"]], one_time_keyboard=True), parse_mode='Markdown')
     return R_CONFIRM
 
 async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Update logic untuk menangkap tombol baru
     if update.message.text == "❌ ULANGI": 
         await update.message.reply_text("🔄 Silakan ketik /register untuk mengisi ulang data.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
     
-    # Logic simpan data
     data = {
         "user_id": update.effective_user.id,
         "nama_lengkap": context.user_data.get('r_nama', '-'),
@@ -559,7 +556,6 @@ async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     try:
         supabase.table('users').insert(data).execute()
-        # Pesan sukses
         await update.message.reply_text(
             "✅ **PENDAFTARAN BERHASIL!**\n\n"
             "Data Anda telah kami terima dan sedang dalam antrean verifikasi Admin.\n"
@@ -568,7 +564,6 @@ async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
         
-        # Notifikasi ke Admin
         kb = [[InlineKeyboardButton("✅ Approve", callback_data=f"appu_{data['user_id']}"), InlineKeyboardButton("❌ Reject", callback_data=f"reju_{data['user_id']}")]]
         admin_msg = (
             f"🔔 **PENDAFTAR BARU**\n"
@@ -623,13 +618,37 @@ async def add_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     n = context.user_data['a_nopol']
+    
+    # Simpan data sementara di bot_data untuk di-approve admin
     context.bot_data[f"prop_{n}"] = {
-        "nopol": n, "type": context.user_data['a_type'], 
-        "finance": context.user_data['a_leasing'], "ovd": f"Kiriman: {context.user_data['a_nokir']}"
+        "nopol": n, 
+        "type": context.user_data['a_type'], 
+        "finance": context.user_data['a_leasing'], 
+        "ovd": f"Kiriman: {context.user_data['a_nokir']}"
     }
+    
+    # Ambil data user pelapor untuk ditampilkan ke Admin
+    u = get_user(update.effective_user.id)
+    
     await update.message.reply_text("✅ Terkirim! Menunggu persetujuan Admin.", reply_markup=ReplyKeyboardRemove())
+    
+    # PERBAIKAN REPORT KE ADMIN (Detailed Add Data Report)
     kb = [[InlineKeyboardButton("✅ Terima Data", callback_data=f"v_acc_{n}_{update.effective_user.id}"), InlineKeyboardButton("❌ Tolak", callback_data="v_rej")]]
-    await context.bot.send_message(ADMIN_ID, f"📥 **USULAN DATA BARU**\nNopol: {n}\nUnit: {context.user_data['a_type']}", reply_markup=InlineKeyboardMarkup(kb))
+    
+    admin_msg = (
+        f"📥 **USULAN DATA BARU (MANUAL)**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **Pengirim:** {u.get('nama_lengkap')}\n"
+        f"🏢 **Agency:** {u.get('agency')}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🔢 **Nopol:** `{n}`\n"
+        f"🚙 **Unit:** {context.user_data['a_type']}\n"
+        f"🏦 **Leasing:** {context.user_data['a_leasing']}\n"
+        f"📝 **Ket:** {context.user_data['a_nokir']}\n"
+        f"━━━━━━━━━━━━━━━━━━"
+    )
+    
+    await context.bot.send_message(ADMIN_ID, text=admin_msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
     return ConversationHandler.END
 
 # ==============================================================================
@@ -820,5 +839,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - V1.7.2 (DETAIL ADMIN REPORT)")
+    print("✅ ONEASPAL BOT ONLINE - V1.7.3 (UX & ENHANCED REPORTING)")
     app.run_polling()
