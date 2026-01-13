@@ -54,11 +54,49 @@ except Exception as e:
     print(f"❌ Gagal koneksi Supabase: {e}")
     exit()
 
+# --- KAMUS ALIAS KOLOM (SMART MAPPING) ---
+# Ini adalah "Otak Detektif" untuk mengenali berbagai istilah kolom
+COLUMN_ALIASES = {
+    'nopol': [
+        'no polisi', 'nomor polisi', 'no_polisi', 'no.polisi', 
+        'plat', 'no plat', 'nomor plat', 'nopol', 
+        'nomor kendaraan', 'no. kendaraan', 'nomer', 'tnkb', 'license plate'
+    ],
+    'type': [
+        'type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 
+        'deskripsi unit', 'merk', 'object', 'kendaraan', 'item', 'brand'
+    ],
+    'tahun': ['tahun', 'year', 'thn', 'rakitan', 'th'],
+    'warna': ['warna', 'color', 'colour', 'cat', 'kelir'],
+    'noka': [
+        'noka', 'no rangka', 'nomor rangka', 'chassis', 'chasis', 
+        'vin', 'rangka', 'no.rangka'
+    ],
+    'nosin': [
+        'nosin', 'no mesin', 'nomor mesin', 'engine', 'mesin', 
+        'no.mesin'
+    ],
+    'finance': [
+        'finance', 'leasing', 'lising', 'multifinance', 'cabang', 
+        'partner', 'mitra', 'principal', 'company'
+    ],
+    'ovd': [
+        'ovd', 'overdue', 'dpd', 'keterlambatan', 'hari', 
+        'telat', 'aging', 'od', 'bucket'
+    ],
+    'branch': [
+        'branch', 'area', 'kota', 'pos', 'cabang', 
+        'lokasi', 'wilayah', 'region', 'area_name'
+    ]
+}
+
 # --- STATE CONVERSATION ---
 R_NAMA, R_HP, R_EMAIL, R_KOTA, R_AGENCY, R_CONFIRM = range(6)
 A_NOPOL, A_TYPE, A_LEASING, A_NOKIR, A_CONFIRM = range(6, 11)
 L_NOPOL, L_CONFIRM = range(11, 13) 
 D_NOPOL, D_CONFIRM = range(13, 15)
+# UPLOAD SMART STATES (Updated v1.9)
+U_LEASING_USER, U_LEASING_ADMIN, U_CONFIRM_UPLOAD = range(15, 18)
 
 # ==============================================================================
 #                        AUTO MENU COMMAND
@@ -96,112 +134,262 @@ def update_quota_usage(user_id, current_quota):
         supabase.table('users').update({'quota': new_quota}).eq('user_id', user_id).execute()
     except: pass
 
+def smart_rename_columns(df):
+    """Fungsi pintar untuk menstandarkan nama kolom berdasarkan Kamus"""
+    # Bersihkan nama kolom asli (lowercase, strip, replace spasi/titik dengan _)
+    df.columns = df.columns.str.strip().str.lower().str.replace('.', ' ', regex=False)
+    
+    new_cols = {}
+    found_cols = []
+    
+    for col in df.columns:
+        renamed = False
+        # Cek di kamus alias
+        for standard_name, aliases in COLUMN_ALIASES.items():
+            # Cek apakah nama kolom ada di dalam list alias
+            if col == standard_name or col in aliases:
+                new_cols[col] = standard_name
+                found_cols.append(standard_name)
+                renamed = True
+                break
+        
+        # Jika tidak ada di alias, biarkan nama aslinya
+        if not renamed:
+            new_cols[col] = col
+
+    df.rename(columns=new_cols, inplace=True)
+    return df, found_cols
+
 # ==============================================================================
-#                 HANDLER UPLOAD FILE (SMART RETRY & CLEANING)
+#                 HANDLER UPLOAD FILE (SMART CONVERSATION) - V1.9
 # ==============================================================================
 
-async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_data = get_user(user_id)
-    
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.UPLOAD_DOCUMENT)
+    document = update.message.document
+    file_name = document.file_name
 
+    # Cek Validitas User
     if not user_data or user_data['status'] != 'active':
         if user_id != ADMIN_ID: 
             return await update.message.reply_text("⛔ **AKSES DITOLAK**\nAnda belum terdaftar aktif.")
 
-    document = update.message.document
-    file_name = document.file_name
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.UPLOAD_DOCUMENT)
+    
+    # Simpan file sementara di memory context
+    context.user_data['upload_file_id'] = document.file_id
+    context.user_data['upload_file_name'] = file_name
 
-    # USER BIASA -> TITIP FILE KE ADMIN
+    # ALUR 1: USER BIASA -> Minta Nama Leasing -> Forward ke Admin
     if user_id != ADMIN_ID:
         await update.message.reply_text(
-            "✅ **FILE BERHASIL DITERIMA**\n\n"
-            "Terima kasih, Rekan Mitra! 🤝\n"
-            "File data Anda telah diteruskan ke Admin untuk proses validasi dan penyesuaian.\n\n"
-            "⏳ **Estimasi Update:** 1x24 Jam.\n"
-            "Terima kasih atas kontribusi Anda memperbarui database kita.\n\n"
-            "**Salam Satu Aspal!** 👋",
-            parse_mode='Markdown'
+            f"📄 File `{file_name}` diterima.\n\n"
+            "Satu langkah lagi: **Ini data dari Leasing/Finance apa?**\n"
+            "(Contoh: BCA, Mandiri, Adira, Balimor)",
+            parse_mode='Markdown',
+            reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True)
         )
+        return U_LEASING_USER
+
+    # ALUR 2: ADMIN -> Smart Process -> Konfirmasi Leasing
+    else:
+        msg = await update.message.reply_text("⏳ **Menganalisa struktur file...**")
+        
         try:
-            caption_admin = (
-                f"📥 **KONTRIBUSI FILE USER**\n"
-                f"👤 {user_data.get('nama_lengkap')} ({user_data.get('agency')})\n"
-                f"📄 `{file_name}`"
+            # Download file
+            new_file = await document.get_file()
+            file_content = await new_file.download_as_bytearray()
+            
+            # Baca Excel/CSV
+            if file_name.lower().endswith('.csv'):
+                try: df = pd.read_csv(io.BytesIO(file_content), sep=';', dtype=str)
+                except: df = pd.read_csv(io.BytesIO(file_content), sep=None, engine='python', dtype=str)
+            else:
+                df = pd.read_excel(io.BytesIO(file_content), dtype=str)
+            
+            # --- THE BRAIN: SMART RENAME ---
+            df, found_cols = smart_rename_columns(df)
+            
+            # Simpan dataframe di context
+            context.user_data['df_records'] = df.to_dict(orient='records')
+            
+            # Cek apakah kolom Nopol ketemu
+            if 'nopol' not in df.columns:
+                await msg.edit_text(
+                    "❌ **ERROR SMART DETECT**\n"
+                    "Sistem tidak menemukan kolom yang mirip dengan **'Nopol'**.\n"
+                    f"Kolom terbaca: {', '.join(df.columns[:5])}...\n"
+                    "Mohon cek file Anda."
+                )
+                return ConversationHandler.END
+
+            # Cek keberadaan Leasing
+            has_finance = 'finance' in df.columns
+            
+            report = (
+                f"✅ **SMART SCAN SELESAI**\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"📊 **Kolom Terdeteksi:** {', '.join(found_cols)}\n"
+                f"📁 **Total Baris:** {len(df)}\n"
+                f"🏦 **Kolom Leasing:** {'✅ ADA' if has_finance else '⚠️ TIDAK ADA'}\n"
+                f"━━━━━━━━━━━━━━━━━━\n\n"
+                f"👉 **MASUKKAN NAMA LEASING UNTUK DATA INI:**\n"
+                f"_(Ketik 'SKIP' jika ingin menggunakan kolom leasing yang ada di file)_"
             )
-            await context.bot.send_document(chat_id=ADMIN_ID, document=document.file_id, caption=caption_admin, parse_mode='Markdown')
-        except: pass
-        return 
+            await msg.edit_text(report, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+            return U_LEASING_ADMIN
 
-    # ADMIN -> PROSES SMART UPLOAD
-    status_msg = await update.message.reply_text("⏳ **Menganalisa & Membersihkan file...**")
-    start_time = time.time()
+        except Exception as e:
+            await msg.edit_text(f"❌ Gagal baca file: {str(e)}")
+            return ConversationHandler.END
 
-    try:
-        new_file = await document.get_file()
-        file_content = await new_file.download_as_bytearray()
-        
-        if file_name.lower().endswith('.csv'):
-            try:
-                df = pd.read_csv(io.BytesIO(file_content), sep=';', dtype=str)
-                if len(df.columns) <= 1: df = pd.read_csv(io.BytesIO(file_content), sep=',', dtype=str)
-            except: df = pd.read_csv(io.BytesIO(file_content), sep=None, engine='python', dtype=str)
-        elif file_name.lower().endswith('.xlsx') or file_name.lower().endswith('.xls'):
-            df = pd.read_excel(io.BytesIO(file_content), dtype=str)
-        else:
-            return await status_msg.edit_text("❌ Format salah. Gunakan .csv atau .xlsx")
-        
-        df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
-        if 'nopol' not in df.columns:
-            return await status_msg.edit_text("❌ Gagal: Tidak ada kolom 'nopol'.")
+async def upload_leasing_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # User memasukkan nama leasing
+    leasing_name = update.message.text
+    if leasing_name == "❌ BATAL": 
+        await update.message.reply_text("🚫 Upload dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
 
-        df['nopol'] = df['nopol'].astype(str).str.replace(' ', '').str.upper()
-        df = df.drop_duplicates(subset=['nopol'], keep='last')
-        df = df.replace({np.nan: None})
+    file_id = context.user_data.get('upload_file_id')
+    file_name = context.user_data.get('upload_file_name')
+    user = get_user(update.effective_user.id)
+
+    # Forward ke Admin dengan Keterangan Leasing
+    caption_admin = (
+        f"📥 **FILE DARI MITRA (SMART UPLOAD)**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **Pengirim:** {user.get('nama_lengkap')} ({user.get('agency')})\n"
+        f"🏦 **Leasing:** {leasing_name.upper()}\n"
+        f"📄 **File:** `{file_name}`\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👉 _Silakan download dan upload ulang untuk memproses._"
+    )
+    await context.bot.send_document(chat_id=ADMIN_ID, document=file_id, caption=caption_admin, parse_mode='Markdown')
+    
+    await update.message.reply_text(
+        "✅ **TERIMA KASIH!**\n"
+        "File dan info leasing telah dikirim ke Admin untuk diproses.\n"
+        "Salam Satu Aspal! 👋",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    return ConversationHandler.END
+
+async def upload_leasing_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Admin memasukkan nama leasing override
+    leasing_input = update.message.text
+    
+    # Restore Dataframe
+    df = pd.DataFrame(context.user_data['df_records'])
+    
+    # INJECT LEASING NAME
+    final_leasing_name = leasing_input.upper()
+    if final_leasing_name != 'SKIP':
+        df['finance'] = final_leasing_name
+    elif 'finance' in df.columns:
+        final_leasing_name = "SESUAI FILE (AUTO)"
+    else:
+        final_leasing_name = "UNKNOWN"
+        df['finance'] = 'UNKNOWN'
+
+    # Standardize Nopol
+    df['nopol'] = df['nopol'].astype(str).str.replace(' ', '').str.upper()
+    df = df.drop_duplicates(subset=['nopol'], keep='last')
+    df = df.replace({np.nan: None})
+    
+    # Filter kolom yang valid untuk DB
+    valid_cols_db = ['nopol', 'type', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'finance', 'branch']
+    for col in valid_cols_db:
+        if col not in df.columns:
+            df[col] = None
+    
+    # Ambil sampel baris pertama untuk preview
+    sample = df.iloc[0]
+    
+    # Simpan data final yang siap upload ke context
+    context.user_data['final_data_records'] = df[valid_cols_db].to_dict(orient='records')
+    context.user_data['final_leasing_name'] = final_leasing_name
+    
+    # Tampilkan Preview & Minta Konfirmasi (SAFEGUARD)
+    preview_msg = (
+        f"🔎 **PREVIEW SMART DETECTIVE**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🏦 **Leasing Set:** {final_leasing_name}\n"
+        f"📊 **Total Data:** {len(df)}\n\n"
+        f"📝 **CONTOH DATA BARIS PERTAMA:**\n"
+        f"🔹 **Nopol:** `{sample['nopol']}`\n"
+        f"🔹 **Unit:** {sample['type']}\n"
+        f"🔹 **Noka:** {sample['noka']}\n"
+        f"🔹 **Nosin:** {sample['nosin']}\n"
+        f"🔹 **Warna:** {sample['warna']}\n"
+        f"🔹 **OVD:** {sample['ovd']}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"⚠️ **Pastikan data di atas sudah benar.**\n"
+        f"Klik **EKSEKUSI UPLOAD** untuk memasukkan ke database."
+    )
+    
+    await update.message.reply_text(
+        preview_msg, 
+        parse_mode='Markdown',
+        reply_markup=ReplyKeyboardMarkup([["🚀 EKSEKUSI UPLOAD", "❌ BATAL"]], one_time_keyboard=True)
+    )
+    return U_CONFIRM_UPLOAD
+
+async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    choice = update.message.text
+    
+    if choice == "❌ BATAL":
+        await update.message.reply_text("🚫 Proses upload dibatalkan. Data tidak disimpan.", reply_markup=ReplyKeyboardRemove())
+        context.user_data.pop('final_data_records', None)
+        return ConversationHandler.END
+    
+    if choice == "🚀 EKSEKUSI UPLOAD":
+        status_msg = await update.message.reply_text("⏳ **Sedang mengupload data ke database...**", reply_markup=ReplyKeyboardRemove())
+        start_time = time.time()
         
-        valid_cols = df.columns.intersection(['nopol', 'type', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'finance', 'branch'])
-        final_data = df[valid_cols].to_dict(orient='records')
+        final_data = context.user_data.get('final_data_records')
+        leasing_name = context.user_data.get('final_leasing_name')
+        file_name = context.user_data.get('upload_file_name')
         
+        # BATCH UPLOAD PROCESS
         total_rows = len(final_data)
         success_count = 0
         fail_count = 0
-
-        await status_msg.edit_text(f"📥 **Memproses {total_rows} data bersih...**")
-
         BATCH_SIZE = 1000
+        
         for i in range(0, total_rows, BATCH_SIZE):
             batch = final_data[i : i + BATCH_SIZE]
             try:
                 supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
                 success_count += len(batch)
             except Exception:
-                logging.error(f"Batch {i} failed, retrying smaller chunks...")
+                # Retry Logic
                 for j in range(0, len(batch), 100):
-                    mini_batch = batch[j : j + 100]
+                    mini = batch[j : j + 100]
                     try:
-                        supabase.table('kendaraan').upsert(mini_batch, on_conflict='nopol').execute()
-                        success_count += len(mini_batch)
+                        supabase.table('kendaraan').upsert(mini, on_conflict='nopol').execute()
+                        success_count += len(mini)
                     except:
-                        for item in mini_batch:
+                        for item in mini:
                             try:
                                 supabase.table('kendaraan').upsert([item], on_conflict='nopol').execute()
                                 success_count += 1
-                            except:
-                                fail_count += 1
+                            except: fail_count += 1
 
         duration = round(time.time() - start_time, 2)
         report = (
-            f"✅ **DATABASE DIPERBARUI**\n━━━━━━━━━━━━━━━━━━\n"
-            f"📄 **File:** `{file_name}`\n📊 **Total Bersih:** {total_rows}\n"
-            f"✅ **Sukses:** {success_count}\n❌ **Gagal:** {fail_count}\n"
-            f"⏱ **Waktu:** {duration}s\n"
-            f"ℹ️ _Smart Retry Active_"
+            f"✅ **UPLOAD SUKSES!**\n━━━━━━━━━━━━━━━━━━\n"
+            f"📄 **File:** `{file_name}`\n"
+            f"🏦 **Leasing:** {leasing_name}\n"
+            f"📊 **Total Upload:** {total_rows}\n"
+            f"✅ **Berhasil:** {success_count}\n❌ **Gagal:** {fail_count}\n"
+            f"⏱ **Waktu:** {duration}s"
         )
         await status_msg.edit_text(report, parse_mode='Markdown')
-
-    except Exception as e:
-        await status_msg.edit_text(f"❌ **ERROR:** {str(e)}")
+        
+        # Bersihkan memory
+        context.user_data.pop('final_data_records', None)
+        return ConversationHandler.END
 
 # ==============================================================================
 #                        ADMIN: MANAGEMENT & STATS
@@ -422,7 +610,6 @@ async def lapor_delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYP
         
         await update.message.reply_text(f"✅ Laporan `{nopol}` terkirim.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
         
-        # Kirim Notifikasi Lengkap ke Admin (REVISED)
         kb = [
             [InlineKeyboardButton("✅ Setujui", callback_data=f"del_acc_{nopol}_{update.effective_user.id}")],
             [InlineKeyboardButton("❌ Tolak", callback_data=f"del_rej_{update.effective_user.id}")]
@@ -521,7 +708,7 @@ async def register_kota(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def register_agency(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['r_agency'] = update.message.text
     
-    # PERBAIKAN UX REGISTRASI
+    # PERBAIKAN UX: Tampilan lebih rapi & Instruksi lebih tegas
     summary = (
         f"📋 **KONFIRMASI DATA PENDAFTARAN**\n"
         f"━━━━━━━━━━━━━━━━━━\n"
@@ -619,7 +806,6 @@ async def add_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     n = context.user_data['a_nopol']
     
-    # Simpan data sementara di bot_data untuk di-approve admin
     context.bot_data[f"prop_{n}"] = {
         "nopol": n, 
         "type": context.user_data['a_type'], 
@@ -627,12 +813,10 @@ async def add_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "ovd": f"Kiriman: {context.user_data['a_nokir']}"
     }
     
-    # Ambil data user pelapor untuk ditampilkan ke Admin
     u = get_user(update.effective_user.id)
     
     await update.message.reply_text("✅ Terkirim! Menunggu persetujuan Admin.", reply_markup=ReplyKeyboardRemove())
     
-    # PERBAIKAN REPORT KE ADMIN (Detailed Add Data Report)
     kb = [[InlineKeyboardButton("✅ Terima Data", callback_data=f"v_acc_{n}_{update.effective_user.id}"), InlineKeyboardButton("❌ Tolak", callback_data="v_rej")]]
     
     admin_msg = (
@@ -775,6 +959,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == '__main__':
     app = ApplicationBuilder().token(token).post_init(post_init).build()
     
+    # 1. REGISTRASI
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('register', register_start)],
         states={
@@ -789,6 +974,7 @@ if __name__ == '__main__':
         conversation_timeout=300
     ))
 
+    # 2. TAMBAH DATA (USER)
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('tambah', add_data_start)],
         states={
@@ -802,6 +988,7 @@ if __name__ == '__main__':
         conversation_timeout=60
     ))
 
+    # 3. LAPOR HAPUS DATA (USER)
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('lapor', lapor_delete_start)],
         states={
@@ -812,6 +999,7 @@ if __name__ == '__main__':
         conversation_timeout=60
     ))
 
+    # 4. HAPUS MANUAL (ADMIN)
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('hapus', delete_unit_start)],
         states={
@@ -822,6 +1010,19 @@ if __name__ == '__main__':
         conversation_timeout=60
     ))
 
+    # 5. UPLOAD FILE SMART (USER & ADMIN) - V1.9 (With Admin Confirmation)
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Document.ALL, upload_start)],
+        states={
+            U_LEASING_USER: [MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), upload_leasing_user)],
+            U_LEASING_ADMIN: [MessageHandler(filters.TEXT, upload_leasing_admin)],
+            U_CONFIRM_UPLOAD: [MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), upload_confirm_admin)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)],
+        conversation_timeout=120
+    ))
+
+    # HANDLERS UMUM
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('stats', get_stats))
     app.add_handler(CommandHandler('users', list_users))
@@ -836,8 +1037,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('admin', contact_admin))
 
     app.add_handler(CallbackQueryHandler(callback_handler))
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - V1.7.3 (UX & ENHANCED REPORTING)")
+    print("✅ ONEASPAL BOT ONLINE - V1.9 (SMART UPLOAD + ADMIN CONFIRMATION)")
     app.run_polling()
