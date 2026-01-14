@@ -31,14 +31,14 @@ from supabase import create_client, Client
 # 1. Load Environment Variables
 # ------------------------------------------------------------------------------
 # Membaca file .env untuk mengambil token dan kunci rahasia
-# Pastikan file .env ada di root folder proyek
+# Pastikan file .env ada di root folder proyek dan terisi dengan benar.
 load_dotenv()
 
 # ------------------------------------------------------------------------------
 # 2. Konfigurasi Logging System
 # ------------------------------------------------------------------------------
-# Ini penting agar kita bisa melihat apa yang terjadi di terminal/log server
-# Level INFO akan menampilkan pesan status standar
+# Ini penting agar kita bisa melihat apa yang terjadi di terminal/log server.
+# Level INFO akan menampilkan pesan status standar (bukan debug yang terlalu detail).
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s', 
     level=logging.INFO
@@ -47,28 +47,35 @@ logging.basicConfig(
 # ------------------------------------------------------------------------------
 # 3. Ambil Credential dari Environment
 # ------------------------------------------------------------------------------
-# Pastikan nama variabel di .env atau Railway SESUAI dengan ini
+# Pastikan nama variabel di .env atau Railway SESUAI dengan ini.
+# Jika salah satu tidak ada, bot tidak akan bisa jalan.
+
+# URL Database Supabase Project
 url: str = os.environ.get("SUPABASE_URL")
+
+# Service Role Key (Kunci Sakti untuk Admin Database)
 key: str = os.environ.get("SUPABASE_KEY")
+
+# Token Bot Telegram dari BotFather
 token: str = os.environ.get("TELEGRAM_TOKEN")
 
 # ------------------------------------------------------------------------------
 # 4. Variable Global & Konstanta
 # ------------------------------------------------------------------------------
-# Variable ini digunakan untuk menyimpan pesan sticky info dari Admin
-# Default kosong, diisi lewat command /setinfo
+# Variable ini digunakan untuk menyimpan pesan sticky info dari Admin.
+# Default kosong, diisi lewat command /setinfo.
 GLOBAL_INFO = ""
 
-# ID Group Log untuk notifikasi jika ada unit ditemukan (HIT)
-# Bot akan mengirim pesan ke sini jika ada user yang mencari Nopol dan hasilnya ADA
-# Pastikan bot sudah dimasukkan ke group ini dan dijadikan Admin
+# ID Group Log untuk notifikasi jika ada unit ditemukan (HIT).
+# Bot akan mengirim pesan ke sini jika ada user yang mencari Nopol dan hasilnya ADA.
+# Pastikan bot sudah dimasukkan ke group ini dan dijadikan Admin.
 LOG_GROUP_ID = -1003627047676  
 
 # ------------------------------------------------------------------------------
 # 5. Setup Admin ID
 # ------------------------------------------------------------------------------
-# Mengambil ID Admin dari .env, jika tidak ada gunakan default (ID Bapak)
-# ID ini memiliki hak akses penuh (Superuser)
+# Mengambil ID Admin dari .env, jika tidak ada gunakan default (ID Bapak).
+# ID ini memiliki hak akses penuh (Superuser) untuk ACC user, Upload, dan Delete.
 DEFAULT_ADMIN_ID = 7530512170
 try:
     env_id = os.environ.get("ADMIN_ID")
@@ -84,7 +91,7 @@ print(f"✅ SYSTEM BOOT: ADMIN ID TERDETEKSI = {ADMIN_ID}")
 # ------------------------------------------------------------------------------
 # 6. Validasi Kelengkapan Credential
 # ------------------------------------------------------------------------------
-# Jika salah satu kunci kosong, bot akan membatalkan start agar tidak error di tengah jalan
+# Jika salah satu kunci kosong, matikan bot untuk mencegah error fatal.
 if not url or not key or not token:
     print("❌ CRITICAL ERROR: Credential tidak lengkap!")
     print("👉 Pastikan file .env berisi: SUPABASE_URL, SUPABASE_KEY, TELEGRAM_TOKEN")
@@ -93,7 +100,7 @@ if not url or not key or not token:
 # ------------------------------------------------------------------------------
 # 7. Inisialisasi Koneksi Database Supabase
 # ------------------------------------------------------------------------------
-# Mencoba terhubung ke cloud database
+# Mencoba terhubung ke cloud database.
 try:
     supabase: Client = create_client(url, key)
     print("✅ DATABASE: Koneksi ke Supabase Berhasil!")
@@ -114,6 +121,7 @@ except Exception as e:
 # Kamus ini berfungsi sebagai "Otak" bot untuk mengenali header Excel yang berantakan.
 # Semua alias ditulis dalam HURUF KECIL TANPA SPASI/TITIK/SIMBOL.
 # NOTE: Tambahkan kata kunci baru di sini jika ada format excel baru.
+# Ditulis memanjang ke bawah (Vertical) agar mudah dibaca dan diedit satu per satu.
 
 COLUMN_ALIASES = {
     'nopol': [
@@ -221,7 +229,7 @@ COLUMN_ALIASES = {
         'od', 
         'bucket', 
         'daysoverdue', 
-        'overduedays',
+        'overduedays', 
         'kiriman', 
         'kolektibilitas', 
         'kol'
@@ -259,7 +267,7 @@ L_NOPOL, L_CONFIRM = range(11, 13)
 # 4. State untuk Hapus Data Manual (Oleh Admin)
 D_NOPOL, D_CONFIRM = range(13, 15)
 
-# 5. State untuk Smart Upload Excel/CSV
+# 5. State untuk Smart Upload Excel/CSV (Oleh Admin & User)
 U_LEASING_USER, U_LEASING_ADMIN, U_CONFIRM_UPLOAD = range(15, 18)
 
 
@@ -272,7 +280,7 @@ U_LEASING_USER, U_LEASING_ADMIN, U_CONFIRM_UPLOAD = range(15, 18)
 async def post_init(application: Application):
     """
     Fungsi ini dipanggil otomatis SATU KALI saat bot pertama kali menyala.
-    Tugasnya: Memasang tombol menu (Blue Menu Button) di Telegram user.
+    Tugasnya: Memasang tombol menu (Blue Menu Button) di samping kolom chat Telegram user.
     """
     print("⏳ Sedang meng-set menu perintah Telegram...")
     
@@ -498,14 +506,14 @@ async def admin_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Total Baru: {new_balance}", 
                 parse_mode='Markdown'
             )
-            # Notifikasi ke User
+            # Kirim notifikasi ke User yang di-topup
             try:
                 await context.bot.send_message(
                     chat_id=target_id, 
                     text=f"🎉 **KUOTA BERTAMBAH!**\n\nAdmin telah menambahkan +{amount} kuota ke akun Anda.\nTotal Kuota Saat Ini: {new_balance}\n\nSelamat bekerja kembali! 🚙💨"
                 )
             except: 
-                pass
+                pass # Abaikan jika user memblokir bot
         else:
             await update.message.reply_text("❌ Gagal Topup. Pastikan ID User benar dan sudah terdaftar.")
             
@@ -515,13 +523,14 @@ async def admin_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ##############################################################################
 #
-#                 BAGIAN 5: SMART UPLOAD (STABLE MODE)
+#                 BAGIAN 5: SMART UPLOAD (STABLE MODE - NO RATE LIMIT)
 #
 # ##############################################################################
 
 async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Handler saat file dokumen diterima.
+    Handler pemicu saat user mengirim file dokumen.
+    Mendukung CSV dan Excel.
     """
     user_id = update.effective_user.id
     user_data = get_user(user_id)
@@ -533,51 +542,58 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id != ADMIN_ID: 
             return await update.message.reply_text("⛔ **AKSES DITOLAK**\nAnda belum terdaftar aktif.")
 
-    # Status Typing
+    # Status Typing/Uploading
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.UPLOAD_DOCUMENT)
     
-    # Simpan info file
+    # Simpan info file sementara di memory context
     context.user_data['upload_file_id'] = doc.file_id
     context.user_data['upload_file_name'] = file_name
 
-    # ALUR 1: USER BIASA (Forward ke Admin)
+    # --- ALUR 1: USER BIASA (Forward ke Admin) ---
     if user_id != ADMIN_ID:
         await update.message.reply_text(
-            f"📄 File `{file_name}` diterima.\n\nSatu langkah lagi: **Ini data dari Leasing/Finance apa?**",
+            f"📄 File `{file_name}` diterima.\n\n"
+            "Satu langkah lagi: **Ini data dari Leasing/Finance apa?**\n"
+            "(Contoh: BCA, Mandiri, Adira, Balimor)",
             parse_mode='Markdown', 
             reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True)
         )
         return U_LEASING_USER
 
-    # ALUR 2: ADMIN (SMART PROCESSING)
+    # --- ALUR 2: ADMIN (SMART PROCESSING) ---
     else:
+        # Kirim pesan loading awal
         msg = await update.message.reply_text("⏳ **Membaca file (Mode: Robust)...**")
         
         try:
-            # Download file
+            # Download file dari Telegram Server
             new_file = await doc.get_file()
             file_content = await new_file.download_as_bytearray()
             
-            # Baca & Normalisasi
+            # 1. BACA FILE DENGAN FUNGSI ROBUST
             df = read_file_robust(file_content, file_name)
+            
+            # 2. NORMALISASI HEADER (Anti-Spasi & Typo)
             df, found_cols = smart_rename_columns(df)
+            
+            # Simpan dataframe ke context
             context.user_data['df_records'] = df.to_dict(orient='records')
             
-            # Validasi Kolom Nopol
+            # 3. VALIDASI KOLOM NOPOL (Wajib Ada)
             if 'nopol' not in df.columns:
                 det = ", ".join(df.columns[:5])
                 
-                # Hapus pesan loading
+                # Hapus pesan loading dulu
                 await msg.delete()
                 
                 await update.message.reply_text(
-                    f"❌ **GAGAL DETEKSI NOPOL**\n"
+                    f"❌ **GAGAL DETEKSI KOLOM 'NOPOL'**\n\n"
                     f"Kolom terbaca: {det}\n"
-                    f"Pastikan ada kolom: 'No Polisi', 'Plat', atau 'TNKB'."
+                    "👉 Pastikan ada kolom: 'No Polisi', 'Plat', atau 'TNKB' di baris pertama file."
                 )
                 return ConversationHandler.END
 
-            # Cek kolom finance
+            # Cek keberadaan kolom finance
             has_finance = 'finance' in df.columns
             
             report = (
@@ -587,11 +603,13 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📁 **Total Baris:** {len(df)}\n"
                 f"🏦 **Kolom Leasing:** {'✅ ADA' if has_finance else '⚠️ TIDAK ADA'}\n"
                 f"━━━━━━━━━━━━━━━━━━\n\n"
-                f"👉 **MASUKKAN NAMA LEASING:**\n"
-                f"_(Ketik 'SKIP' jika ingin menggunakan kolom dari file)_"
+                f"👉 **MASUKKAN NAMA LEASING UNTUK DATA INI:**\n"
+                f"_(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)_"
             )
             
-            # Hapus pesan lama, kirim pesan baru (untuk menghindari error keyboard)
+            # --- FIX: DELETE OLD MESSAGE, SEND NEW WITH KEYBOARD ---
+            # Telegram melarang edit_text disertai ReplyKeyboardMarkup.
+            # Jadi kita hapus pesan lama, lalu kirim pesan baru.
             await msg.delete()
             
             await update.message.reply_text(
@@ -602,12 +620,13 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return U_LEASING_ADMIN
 
         except Exception as e:
+            # Jika error baca file
             await msg.edit_text(f"❌ Gagal memproses file: {str(e)}")
             return ConversationHandler.END
 
 async def upload_leasing_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Handler User: Input nama leasing -> Forward ke Admin.
+    Handler untuk User Biasa: Memasukkan nama leasing sebelum diforward ke Admin.
     """
     leasing_name = update.message.text
     if leasing_name == "❌ BATAL": 
@@ -618,33 +637,32 @@ async def upload_leasing_user(update: Update, context: ContextTypes.DEFAULT_TYPE
     file_name = context.user_data.get('upload_file_name')
     user = get_user(update.effective_user.id)
 
-    # Kirim ke Admin
+    # Kirim Dokumen ke Admin
     caption_admin = (
-        f"📥 **UPLOAD FILE MITRA**\n"
+        f"📥 **UPLOAD FILE DARI MITRA**\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"👤 **Pengirim:** {user.get('nama_lengkap')}\n"
         f"🏦 **Leasing:** {leasing_name.upper()}\n"
         f"📄 **File:** `{file_name}`\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"👉 _Silakan download dan upload ulang file ini._"
+        f"👉 _Silakan download dan upload ulang file ini ke bot untuk memproses._"
     )
     await context.bot.send_document(chat_id=ADMIN_ID, document=file_id, caption=caption_admin, parse_mode='Markdown')
     
-    await update.message.reply_text("✅ **TERKIRIM!**\nFile Anda telah dikirim ke Admin.", reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text("✅ **TERKIRIM!**\nFile Anda telah dikirim ke Admin untuk diproses.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
 async def upload_leasing_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Handler Admin: Input nama leasing -> Preview Data.
+    Handler untuk Admin: Inject Nama Leasing & Preview Data.
     """
     leasing_input = update.message.text
     
-    # Ambil dataframe dari memory
+    # Restore dataframe dari memory
     df = pd.DataFrame(context.user_data['df_records'])
     
-    # Tentukan nama leasing
+    # Logic Penamaan Leasing
     final_leasing_name = leasing_input.upper()
-    
     if final_leasing_name != 'SKIP':
         df['finance'] = final_leasing_name
     elif 'finance' not in df.columns:
@@ -653,22 +671,23 @@ async def upload_leasing_admin(update: Update, context: ContextTypes.DEFAULT_TYP
     else:
         final_leasing_name = "SESUAI FILE"
 
-    # Bersihkan Data Nopol (Hapus spasi, titik, dll)
+    # Standardisasi Nopol (Hapus semua simbol aneh, uppercase)
+    # Contoh: "B 1234 ABC" -> "B1234ABC"
     df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
     
-    # Hapus Duplikat Nopol (Prioritaskan data terbaru/paling bawah)
+    # Hapus Duplikat Nopol (Ambil data paling bawah/terbaru)
     df = df.drop_duplicates(subset=['nopol'], keep='last').replace({np.nan: None})
     
-    # Filter Kolom yang akan masuk DB
+    # Filter hanya kolom yang sesuai database Supabase
     valid_cols_db = ['nopol', 'type', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'finance', 'branch']
     for col in valid_cols_db:
         if col not in df.columns: 
             df[col] = None
     
-    # Ambil sample untuk preview
+    # Ambil sampel baris pertama untuk preview
     sample = df.iloc[0]
     
-    # Simpan final data
+    # Simpan data final yang siap upload
     context.user_data['final_data_records'] = df[valid_cols_db].to_dict(orient='records')
     context.user_data['final_leasing_name'] = final_leasing_name
     
@@ -697,8 +716,8 @@ async def upload_leasing_admin(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Handler Eksekusi Upload - STABLE MODE (Tanpa Update Live Bar).
-    Ini untuk mencegah error 'Rate Limit' dari Telegram saat upload banyak data.
+    Handler Admin: Eksekusi Upload ke Database.
+    Menggunakan mode STABIL (Tanpa Live Progress Bar) untuk mencegah Rate Limit Telegram.
     """
     choice = update.message.text
     
@@ -707,7 +726,7 @@ async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data.pop('final_data_records', None)
         return ConversationHandler.END
     
-    # 1. Info Awal (Satu kali saja)
+    # Kirim pesan awal progress
     status_msg = await update.message.reply_text(
         "⏳ **SEDANG MENGUPLOAD DATA...**\n"
         "--------------------------------\n"
@@ -722,40 +741,40 @@ async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYP
     
     success_count = 0
     fail_count = 0
-    last_error_msg = "" 
+    last_error_msg = "" # Variable untuk menangkap pesan error asli dari Supabase
+    BATCH_SIZE = 1000 # Upload per 1000 baris agar tidak timeout
     
-    # Batasan Upload per Batch (Supabase limit)
-    BATCH_SIZE = 1000 
-    
+    # Mulai Timer
     start_time = time.time()
     
-    # 2. Proses Upload (Looping)
+    # Mulai Loop Batch Upload
     for i in range(0, len(final_data), BATCH_SIZE):
         batch = final_data[i : i + BATCH_SIZE]
         try:
-            # Upsert: Insert baru atau Update jika nopol sudah ada
+            # Upsert: Insert atau Update jika nopol sudah ada
             supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
             success_count += len(batch)
         except Exception as e:
-            last_error_msg = str(e) # Tangkap error umum
+            last_error_msg = str(e) # Tangkap error level batch
             
-            # Fallback: Jika batch gagal, coba satu per satu
+            # Jika batch besar gagal, coba retry satu per satu (Fallback Mode)
+            # Ini berguna untuk mencari tahu baris mana yang bikin error
             for item in batch:
                 try:
                     supabase.table('kendaraan').upsert([item], on_conflict='nopol').execute()
                     success_count += 1
                 except Exception as inner_e:
                     fail_count += 1
-                    last_error_msg = str(inner_e) # Tangkap error spesifik
+                    last_error_msg = str(inner_e) # Tangkap error spesifik per baris
 
     duration = round(time.time() - start_time, 2)
 
-    # 3. Laporan Akhir (Satu kali di akhir)
-    if fail > 0:
+    # Buat Laporan Akhir (Hanya lapor sekali di akhir)
+    if fail_count > 0:
         report = (
             f"❌ **SELESAI DENGAN ERROR**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"✅ Berhasil: {success_count}\n"
+            f"✅ Sukses: {success_count}\n"
             f"❌ Gagal: {fail_count}\n"
             f"⏱ Waktu: {duration} detik\n\n"
             f"🔍 **LOG ERROR:**\n"
@@ -774,20 +793,21 @@ async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYP
         
     await status_msg.edit_text(report, parse_mode='Markdown')
     
-    # Bersihkan Memori Server
+    # Bersihkan memori
     context.user_data.pop('final_data_records', None)
     return ConversationHandler.END
 
 
 # ##############################################################################
 #
-#                 BAGIAN 6: FITUR ADMIN (STATS, USER, BROADCAST)
+#                 BAGIAN 6: FITUR ADMIN EKSKLUSIF (STATS, USER MANAGEMENT)
 #
 # ##############################################################################
 
 async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Menampilkan statistik total data, user, dan JUMLAH LEASING UNIK.
+    Menggunakan teknik Pagination Loop untuk menghitung leasing.
     """
     if update.effective_user.id != ADMIN_ID: return
     
@@ -795,29 +815,41 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg_wait = await update.message.reply_text("⏳ *Sedang menghitung seluruh data... (Mohon tunggu)*", parse_mode='Markdown')
 
     try:
-        # 1. Hitung Total Unit
+        # 1. Hitung Total Unit (Cepat)
         res_total = supabase.table('kendaraan').select("*", count="exact", head=True).execute()
         total_unit = res_total.count if res_total.count else 0
 
-        # 2. Hitung Total User
+        # 2. Hitung Total User (Cepat)
         res_users = supabase.table('users').select("*", count="exact", head=True).execute()
         total_user = res_users.count if res_users.count else 0
 
         # 3. Hitung Jumlah Leasing Unik (Pagination Loop)
+        # Mengambil seluruh data finance secara bertahap untuk dihitung uniknya
         raw_set = set()
         offset = 0
         batch_size = 1000
+        
         while True:
+            # Ambil data kolom 'finance' saja per batch
             res_batch = supabase.table('kendaraan').select("finance").range(offset, offset + batch_size - 1).execute()
             data = res_batch.data
-            if not data: break
+            
+            if not data: 
+                break
+            
             for d in data:
                 f = d.get('finance')
                 if f:
+                    # Bersihkan nama leasing (uppercase & trim)
                     clean_f = str(f).strip().upper()
+                    # Filter data sampah
                     if len(clean_f) > 1 and clean_f not in ["-", "NAN", "NONE", "NULL", "UNKNOWN"]:
                         raw_set.add(clean_f)
-            if len(data) < batch_size: break
+            
+            # Jika data kurang dari batch_size, berarti sudah habis
+            if len(data) < batch_size: 
+                break
+            
             offset += batch_size
 
         total_leasing = len(raw_set)
@@ -879,6 +911,7 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Cek Panjang Pesan (Telegram Max 4096 char)
         if len(msg) > 4000:
+            # Jika terlalu panjang, potong
             await update.message.reply_text(msg[:4000] + "\n\n⚠️ _(Daftar dipotong karena terlalu panjang)_", parse_mode='Markdown')
         else:
             await update.message.reply_text(msg, parse_mode='Markdown')
@@ -889,7 +922,7 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Blokir user akses.
+    Memblokir user agar tidak bisa menggunakan bot.
     """
     if update.effective_user.id != ADMIN_ID: return
     try:
@@ -900,7 +933,7 @@ async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Buka blokir user.
+    Membuka blokir user.
     """
     if update.effective_user.id != ADMIN_ID: return
     try:
@@ -911,7 +944,7 @@ async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def delete_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Hapus user permanen.
+    Menghapus user permanen dari database.
     """
     if update.effective_user.id != ADMIN_ID: return
     try:
@@ -922,18 +955,21 @@ async def delete_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def set_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Set pesan info sticky.
+    Set pesan info sticky di perintah /start.
     """
     global GLOBAL_INFO
     if update.effective_user.id != ADMIN_ID: return
     
     msg = " ".join(context.args)
+    if not msg: 
+        return await update.message.reply_text("⚠️ Contoh: `/setinfo 🔥 Bonus Hari Ini!`", parse_mode='Markdown')
+    
     GLOBAL_INFO = msg
     await update.message.reply_text(f"✅ **Info Terpasang!**\n{GLOBAL_INFO}", parse_mode='Markdown')
 
 async def del_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Hapus pesan info.
+    Menghapus pesan info sticky.
     """
     global GLOBAL_INFO
     if update.effective_user.id != ADMIN_ID: return
@@ -943,10 +979,10 @@ async def del_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def contact_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    User kirim pesan ke admin.
+    User mengirim pesan ke Admin.
     """
     u = get_user(update.effective_user.id)
-    if not u: return
+    if not u or u['status'] != 'active': return
     
     msg_content = " ".join(context.args)
     if not msg_content: 
@@ -961,7 +997,7 @@ async def contact_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, vehicle_data):
     """
-    Kirim notifikasi ke Group Log jika data ditemukan.
+    Mengirim notifikasi ke Group Log saat unit ditemukan (HIT).
     """
     hp_raw = user_data.get('no_hp', '-')
     hp_wa = '62' + hp_raw[1:] if hp_raw.startswith('0') else hp_raw
@@ -1009,29 +1045,33 @@ async def panduan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def test_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Test kirim pesan ke group log.
+    Mengetes apakah bot bisa mengirim pesan ke Group Log.
     """
     if update.effective_user.id != ADMIN_ID: return
     try:
-        await context.bot.send_message(chat_id=LOG_GROUP_ID, text="🔔 **TES NOTIFIKASI GROUP OK!**")
+        await context.bot.send_message(chat_id=LOG_GROUP_ID, text="🔔 **TES NOTIFIKASI GROUP OK!**\nBot berfungsi dengan baik.")
         await update.message.reply_text("✅ Notifikasi terkirim ke Group Log.")
-    except: await update.message.reply_text("❌ Gagal kirim ke Group Log.")
+    except: await update.message.reply_text("❌ Gagal kirim ke Group Log. Cek ID Group & Pastikan Bot sudah jadi Admin di sana.")
 
 
 # ##############################################################################
 #
-#                 BAGIAN 8: HANDLER CONVERSATION (INTERAKSI USER)
+#                 BAGIAN 8: HANDLER CONVERSATION (REGISTRASI & LAPOR)
 #
 # ##############################################################################
 
-# --- LAPOR HAPUS ---
+# --- LAPOR HAPUS (USER) ---
 async def lapor_delete_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = get_user(update.effective_user.id)
     if not u or u['status'] != 'active': return await update.message.reply_text("⛔ Akses ditolak.")
     
     await update.message.reply_text(
-        "🗑️ **LAPOR UNIT SELESAI**\nMasukkan Nopol:",
-        reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True)
+        "🗑️ **LAPOR UNIT SELESAI/AMAN**\n\n"
+        "Anda melaporkan bahwa unit sudah **Selesai/Lunas** dari Leasing.\n"
+        "Admin akan memverifikasi laporan ini sebelum data dihapus.\n\n"
+        "👉 Masukkan **Nomor Polisi (Nopol)** unit:",
+        reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True),
+        parse_mode='Markdown'
     )
     return L_NOPOL
 
@@ -1040,118 +1080,243 @@ async def lapor_delete_check(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         res = supabase.table('kendaraan').select("*").eq('nopol', nopol_input).execute()
         if not res.data: 
-            await update.message.reply_text("❌ Data tidak ditemukan.")
+            await update.message.reply_text(f"❌ Nopol `{nopol_input}` tidak ditemukan di database.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
             return ConversationHandler.END
         
-        context.user_data['ln'] = nopol_input
-        await update.message.reply_text(f"⚠️ Lapor Hapus `{nopol_input}`?", reply_markup=ReplyKeyboardMarkup([["✅ YA", "❌ BATAL"]], one_time_keyboard=True), parse_mode='Markdown')
+        unit = res.data[0]
+        context.user_data['lapor_nopol'] = nopol_input
+        await update.message.reply_text(f"⚠️ Lapor Hapus `{unit['nopol']}` ({unit.get('type')})?", reply_markup=ReplyKeyboardMarkup([["✅ KIRIM LAPORAN", "❌ BATAL"]], one_time_keyboard=True), parse_mode='Markdown')
         return L_CONFIRM
-    except: return ConversationHandler.END
+    except: 
+        return ConversationHandler.END
 
 async def lapor_delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "✅ YA":
-        n = context.user_data['ln']
+    if update.message.text == "❌ BATAL": 
+        await update.message.reply_text("🚫 Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+    
+    if update.message.text == "✅ KIRIM LAPORAN":
+        nopol = context.user_data.get('lapor_nopol')
         user = get_user(update.effective_user.id)
         
-        await update.message.reply_text("✅ Laporan terkirim ke Admin.", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text(f"✅ Laporan `{nopol}` terkirim.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
         
-        kb = [[InlineKeyboardButton("✅ Setujui", callback_data=f"del_acc_{n}_{update.effective_user.id}"), InlineKeyboardButton("❌ Tolak", callback_data=f"del_rej_{update.effective_user.id}")]]
-        await context.bot.send_message(chat_id=ADMIN_ID, text=f"🗑️ **REQ HAPUS:** `{n}`\n👤 {user['nama_lengkap']}", reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
+        kb = [
+            [InlineKeyboardButton("✅ Setujui", callback_data=f"del_acc_{nopol}_{update.effective_user.id}")],
+            [InlineKeyboardButton("❌ Tolak", callback_data=f"del_rej_{update.effective_user.id}")]
+        ]
+        
+        admin_msg = (
+            f"🗑️ **REQUEST PENGHAPUSAN UNIT**\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 **Pelapor:** {user.get('nama_lengkap')}\n"
+            f"🏢 **Agency:** {user.get('agency')}\n"
+            f"🔢 **Nopol:** `{nopol}`\n"
+            f"📝 **Status:** Laporan Selesai/Aman\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👉 Klik **Setujui** untuk menghapus data ini dari database PERMANEN."
+        )
+        await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
     
     return ConversationHandler.END
 
 # --- HAPUS MANUAL (ADMIN) ---
 async def delete_unit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
+    if update.effective_user.id != ADMIN_ID: return await update.message.reply_text("⛔ Admin Only.")
     await update.message.reply_text("🗑️ **HAPUS MANUAL**\nMasukkan Nopol:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return D_NOPOL
 
 async def delete_unit_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['dn'] = update.message.text.upper().replace(" ", "")
-    await update.message.reply_text(f"⚠️ Hapus Permanen `{context.user_data['dn']}`?", reply_markup=ReplyKeyboardMarkup([["✅ YA", "❌ BATAL"]], one_time_keyboard=True), parse_mode='Markdown')
-    return D_CONFIRM
+    nopol_input = update.message.text.upper().replace(" ", "")
+    try:
+        res = supabase.table('kendaraan').select("*").eq('nopol', nopol_input).execute()
+        if not res.data: 
+            await update.message.reply_text(f"❌ Nopol `{nopol_input}` tidak ada.", reply_markup=ReplyKeyboardRemove())
+            return ConversationHandler.END
+        
+        unit = res.data[0]
+        context.user_data['del_nopol'] = nopol_input
+        await update.message.reply_text(f"⚠️ Hapus Permanen `{unit['nopol']}`?", reply_markup=ReplyKeyboardMarkup([["✅ YA, HAPUS", "❌ BATAL"]], one_time_keyboard=True), parse_mode='Markdown')
+        return D_CONFIRM
+    except: 
+        return ConversationHandler.END
 
 async def delete_unit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "✅ YA":
-        supabase.table('kendaraan').delete().eq('nopol', context.user_data['dn']).execute()
-        await update.message.reply_text("✅ Data Dihapus.", reply_markup=ReplyKeyboardRemove())
+    if update.message.text == "❌ BATAL": 
+        await update.message.reply_text("🚫 Batal.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+    
+    if update.message.text == "✅ YA, HAPUS":
+        nopol = context.user_data.get('del_nopol')
+        supabase.table('kendaraan').delete().eq('nopol', nopol).execute()
+        await update.message.reply_text(f"✅ `{nopol}` DIHAPUS.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
+    
     return ConversationHandler.END
 
-# --- REGISTRASI ---
+# --- REGISTRASI (FULL STEP & LENGKAP v3.2) ---
 async def register_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if get_user(update.effective_user.id): return await update.message.reply_text("✅ Sudah terdaftar.")
-    await update.message.reply_text("📝 **NAMA LENGKAP:**", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
+    user = get_user(update.effective_user.id)
+    if user:
+        if user['status'] == 'pending': 
+            return await update.message.reply_text("⏳ Pendaftaran Anda masih **MENUNGGU VERIFIKASI** Admin.")
+        elif user['status'] == 'active': 
+            return await update.message.reply_text("✅ Anda sudah terdaftar dan **AKTIF**.")
+        else: 
+            return await update.message.reply_text("⛔ Pendaftaran Anda sebelumnya **DITOLAK**.")
+            
+    await update.message.reply_text("📝 **PENDAFTARAN MITRA**\n\n1️⃣ Masukkan **NAMA LENGKAP**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return R_NAMA
 
 async def register_nama(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['r_nama'] = update.message.text
-    await update.message.reply_text("📱 **NO HP:**")
+    await update.message.reply_text("2️⃣ Masukkan **NO HP (WA)**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return R_HP
 
 async def register_hp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['r_hp'] = update.message.text
-    await update.message.reply_text("📧 **EMAIL:**")
+    await update.message.reply_text("3️⃣ Masukkan **EMAIL**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return R_EMAIL
 
 async def register_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['r_email'] = update.message.text
-    await update.message.reply_text("📍 **KOTA DOMISILI:**")
+    await update.message.reply_text("4️⃣ Masukkan **KOTA DOMISILI**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return R_KOTA
 
 async def register_kota(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['r_kota'] = update.message.text
-    await update.message.reply_text("🏢 **AGENCY:**")
+    await update.message.reply_text("5️⃣ Masukkan **PT / AGENCY**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return R_AGENCY
 
 async def register_agency(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['r_agency'] = update.message.text
-    await update.message.reply_text("✅ **KIRIM DATA?**", reply_markup=ReplyKeyboardMarkup([["✅ YA", "❌ BATAL"]], one_time_keyboard=True))
+    
+    summary = (
+        f"📋 **KONFIRMASI DATA PENDAFTARAN**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **Nama:** {context.user_data.get('r_nama')}\n"
+        f"📱 **HP:** {context.user_data.get('r_hp')}\n"
+        f"📧 **Email:** {context.user_data.get('r_email')}\n"
+        f"📍 **Kota:** {context.user_data.get('r_kota')}\n"
+        f"🏢 **Agency:** {context.user_data.get('r_agency')}\n"
+        f"━━━━━━━━━━━━━━━━━━\n\n"
+        f"⚠️ **PENTING: DATA BELUM TERKIRIM!**\n"
+        f"Silakan cek kembali data di atas.\n"
+        f"👉 Klik tombol **✅ KIRIM SEKARANG** di bawah untuk menyelesaikan pendaftaran."
+    )
+    await update.message.reply_text(summary, reply_markup=ReplyKeyboardMarkup([["✅ KIRIM SEKARANG", "❌ ULANGI"]], one_time_keyboard=True), parse_mode='Markdown')
     return R_CONFIRM
 
 async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "✅ YA":
-        d = {"user_id": update.effective_user.id, "nama_lengkap": context.user_data['r_nama'], "no_hp": context.user_data['r_hp'], "email": context.user_data['r_email'], "alamat": context.user_data['r_kota'], "agency": context.user_data['r_agency'], "quota": 1000, "status": "pending"}
-        try:
-            supabase.table('users').insert(d).execute()
-            await update.message.reply_text("✅ Pendaftaran Terkirim. Tunggu verifikasi Admin.", reply_markup=ReplyKeyboardRemove())
-            kb = [[InlineKeyboardButton("✅ Acc", callback_data=f"appu_{d['user_id']}"), InlineKeyboardButton("❌ Rej", callback_data=f"reju_{d['user_id']}")]]
-            await context.bot.send_message(ADMIN_ID, f"🔔 **NEW USER**\n👤 {d['nama_lengkap']}", reply_markup=InlineKeyboardMarkup(kb))
-        except: await update.message.reply_text("❌ Gagal/Sudah Terdaftar.")
+    if update.message.text == "❌ ULANGI": 
+        await update.message.reply_text("🔄 Silakan ketik /register untuk mengisi ulang data.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+    
+    data = {
+        "user_id": update.effective_user.id,
+        "nama_lengkap": context.user_data.get('r_nama', '-'),
+        "no_hp": context.user_data.get('r_hp', '-'),
+        "email": context.user_data.get('r_email', '-'),
+        "alamat": context.user_data.get('r_kota', '-'), 
+        "nik": "-", 
+        "agency": context.user_data.get('r_agency', '-'),
+        "quota": 1000, 
+        "status": "pending"
+    }
+    try:
+        supabase.table('users').insert(data).execute()
+        await update.message.reply_text(
+            "✅ **PENDAFTARAN BERHASIL!**\n\n"
+            "Data Anda telah kami terima dan sedang dalam antrean verifikasi Admin.\n"
+            "Mohon tunggu notifikasi selanjutnya.", 
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='Markdown'
+        )
+        
+        # NOTIFIKASI ADMIN LENGKAP (REVISI v3.2)
+        # Menampilkan seluruh data user yang mendaftar agar Admin mudah memverifikasi
+        msg_admin = (
+            f"🔔 **PENDAFTARAN MITRA BARU**\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 **Nama:** {data['nama_lengkap']}\n"
+            f"🏢 **Agency:** {data['agency']}\n"
+            f"📍 **Kota:** {data['alamat']}\n"
+            f"📱 **HP:** {data['no_hp']}\n"
+            f"📧 **Email:** {data['email']}\n"
+            f"🆔 **ID:** `{data['user_id']}`\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👉 _Klik tombol di bawah untuk verifikasi._"
+        )
+        
+        kb = [[InlineKeyboardButton("✅ Terima", callback_data=f"appu_{data['user_id']}"), InlineKeyboardButton("❌ Tolak", callback_data=f"reju_{data['user_id']}")]]
+        
+        await context.bot.send_message(chat_id=ADMIN_ID, text=msg_admin, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Gagal menyimpan data / Sudah terdaftar.", reply_markup=ReplyKeyboardRemove())
+        
     return ConversationHandler.END
 
-# --- TAMBAH MANUAL ---
+# --- TAMBAH DATA (USER MANUAL) ---
 async def add_data_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not get_user(update.effective_user.id): return
-    await update.message.reply_text("➕ **NOPOL:**", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
+    u = get_user(update.effective_user.id)
+    if not u or u['status'] != 'active': return await update.message.reply_text("⛔ Akses ditolak.")
+    await update.message.reply_text("➕ **TAMBAH UNIT BARU**\n\n1️⃣ Masukkan **Nopol**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return A_NOPOL
 
 async def add_nopol(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['a_nopol'] = update.message.text.upper()
-    await update.message.reply_text("🚙 **UNIT:**")
+    context.user_data['a_nopol'] = update.message.text.upper().replace(" ", "")
+    await update.message.reply_text("2️⃣ Masukkan **Type Mobil**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return A_TYPE
 
 async def add_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['a_type'] = update.message.text
-    await update.message.reply_text("🏦 **LEASING:**")
+    await update.message.reply_text("3️⃣ Masukkan **Leasing**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return A_LEASING
 
 async def add_leasing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['a_leasing'] = update.message.text
-    await update.message.reply_text("📝 **KETERANGAN:**")
+    await update.message.reply_text("4️⃣ Masukkan **No Kiriman**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
     return A_NOKIR
 
 async def add_nokir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['a_nokir'] = update.message.text
-    await update.message.reply_text("✅ Kirim ke Admin?", reply_markup=ReplyKeyboardMarkup([["✅ YA", "❌ BATAL"]], one_time_keyboard=True))
+    summary = f"📋 **KONFIRMASI UNIT**\nNopol: {context.user_data['a_nopol']}\nUnit: {context.user_data['a_type']}"
+    await update.message.reply_text(summary, reply_markup=ReplyKeyboardMarkup([["✅ KIRIM KE ADMIN", "❌ BATAL"]], one_time_keyboard=True))
     return A_CONFIRM
 
 async def add_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "✅ YA":
-        n = context.user_data['a_nopol']
-        context.bot_data[f"prop_{n}"] = {"nopol": n, "type": context.user_data['a_type'], "finance": context.user_data['a_leasing'], "ovd": context.user_data['a_nokir']}
-        await update.message.reply_text("✅ Terkirim.", reply_markup=ReplyKeyboardRemove())
-        kb = [[InlineKeyboardButton("✅ Acc", callback_data=f"v_acc_{n}_{update.effective_user.id}")]]
-        await context.bot.send_message(ADMIN_ID, f"📥 **DATA BARU**\n🔢 {n}", reply_markup=InlineKeyboardMarkup(kb))
+    if update.message.text == "❌ BATAL": 
+        await update.message.reply_text("🚫 Tambah data dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+
+    n = context.user_data['a_nopol']
+    
+    context.bot_data[f"prop_{n}"] = {
+        "nopol": n, 
+        "type": context.user_data['a_type'], 
+        "finance": context.user_data['a_leasing'], 
+        "ovd": f"Kiriman: {context.user_data['a_nokir']}"
+    }
+    
+    u = get_user(update.effective_user.id)
+    
+    await update.message.reply_text("✅ Terkirim! Menunggu persetujuan Admin.", reply_markup=ReplyKeyboardRemove())
+    
+    kb = [[InlineKeyboardButton("✅ Terima Data", callback_data=f"v_acc_{n}_{update.effective_user.id}"), InlineKeyboardButton("❌ Tolak", callback_data="v_rej")]]
+    
+    admin_msg = (
+        f"📥 **USULAN DATA BARU (MANUAL)**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **Pengirim:** {u.get('nama_lengkap')}\n"
+        f"🏢 **Agency:** {u.get('agency')}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🔢 **Nopol:** `{n}`\n"
+        f"🚙 **Unit:** {context.user_data['a_type']}\n"
+        f"🏦 **Leasing:** {context.user_data['a_leasing']}\n"
+        f"📝 **Ket:** {context.user_data['a_nokir']}\n"
+        f"━━━━━━━━━━━━━━━━━━"
+    )
+    
+    await context.bot.send_message(ADMIN_ID, text=admin_msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
     return ConversationHandler.END
 
 
@@ -1162,8 +1327,14 @@ async def add_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ##############################################################################
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    info_text = f"\n📢 **INFO:** {GLOBAL_INFO}\n━━━━━━━━━━━━━━━━━━\n" if GLOBAL_INFO else ""
-    text = (
+    """
+    Handler untuk perintah /start.
+    """
+    info_text = ""
+    if GLOBAL_INFO:
+        info_text = f"\n📢 **INFO:** {GLOBAL_INFO}\n━━━━━━━━━━━━━━━━━━\n"
+
+    welcome_text = (
         f"{info_text}"
         "🤖 **Selamat Datang di Oneaspal_bot**\n\n"
         "**Salam Satu Aspal!** 👋\n"
@@ -1177,29 +1348,48 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "--- \n"
         "👉 Jalankan perintah /register untuk mendaftar."
     )
-    await update.message.reply_text(text, parse_mode='Markdown')
+    await update.message.reply_text(welcome_text, parse_mode='Markdown')
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handler Utama Pencarian Data (Wildcard Search).
+    """
     u = get_user(update.effective_user.id)
     if not u or u['status'] != 'active': return
     
-    if u.get('quota', 0) <= 0:
-        return await update.message.reply_text("⛔ **KUOTA HABIS!**\nSilakan hubungi Admin.")
+    # --- CEK KUOTA (SAFEGUARD) ---
+    quota = u.get('quota', 0)
+    if quota <= 0:
+        return await update.message.reply_text(
+            "⛔ **KUOTA HABIS!**\n\n"
+            "Sisa kuota pencarian Anda: **0**.\n"
+            "Silakan hubungi Admin untuk melakukan Top Up / Donasi Sukarela.\n\n"
+            "👉 Ketik `/admin Mohon info topup`",
+            parse_mode='Markdown'
+        )
 
+    # Bersihkan Input (Hanya Alfanumerik)
     kw = re.sub(r'[^a-zA-Z0-9]', '', update.message.text.upper())
-    if len(kw) < 3: return await update.message.reply_text("⚠️ Masukkan minimal 3 karakter.")
+    
+    if len(kw) < 3:
+        return await update.message.reply_text("⚠️ Masukkan minimal 3 karakter.")
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
     await asyncio.sleep(0.5) 
     
     try:
+        # WILDCARD SEARCH (SUFFIX MATCHING)
+        # Mencari Nopol/Noka/Nosin yang mengandung keyword input
         res = supabase.table('kendaraan').select("*").or_(f"nopol.ilike.%{kw}%,noka.eq.{kw},nosin.eq.{kw}").execute()
         
         if res.data:
             d = res.data[0]
-            update_quota_usage(u['user_id'], u['quota'])
+            # Potong Kuota (Hanya jika ketemu)
+            update_quota_usage(u['user_id'], u['quota']) 
             
-            txt = (
+            header_info = f"📢 **INFO:** {GLOBAL_INFO}\n━━━━━━━━━━━━━━━━━━\n" if GLOBAL_INFO else ""
+            text = (
+                f"{header_info}"
                 f"✅ **DATA DITEMUKAN**\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"🚙 **Unit:** {d.get('type','-')}\n"
@@ -1215,44 +1405,78 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🏢 **Branch:** {d.get('branch', '-')}\n"
                 f"━━━━━━━━━━━━━━━━━━\n\n"
                 f"⚠️ **CATATAN PENTING:**\n"
-                f"Ini bukan alat yang SAH untuk penarikan."
+                f"Ini bukan alat yang SAH untuk penarikan atau menyita aset kendaraan, "
+                f"Silahkan konfirmasi kepada PIC leasing terkait.\n"
+                f"Terima kasih."
             )
-            await update.message.reply_text(txt, parse_mode='Markdown')
+            await update.message.reply_text(text, parse_mode='Markdown')
+            
+            # Lapor ke Group Log
             await notify_hit_to_group(context, u, d)
         else:
-            await update.message.reply_text(f"❌ **DATA TIDAK DITEMUKAN**\n`{kw}`", parse_mode='Markdown')
+            header_info = f"📢 **INFO:** {GLOBAL_INFO}\n\n" if GLOBAL_INFO else ""
+            await update.message.reply_text(f"{header_info}❌ **DATA TIDAK DITEMUKAN**\n`{update.message.text}`", parse_mode='Markdown')
             
     except Exception as e:
         await update.message.reply_text("❌ Terjadi kesalahan database.")
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Menangani semua interaksi tombol Inline (Approve/Reject).
+    """
     q = update.callback_query
     await q.answer()
     data = q.data
     
+    # 1. Approval User
     if data.startswith("appu_"):
         uid = data.split("_")[1]
         update_user_status(uid, 'active')
         await q.edit_message_text(f"✅ User {uid} DISETUJUI.")
-        await context.bot.send_message(uid, "🎉 **AKUN ANDA TELAH AKTIF!**")
+        await context.bot.send_message(uid, "🎉 **AKUN ANDA TELAH AKTIF!**\nSelamat bekerja, Salam Satu Aspal!")
         
+    # 2. Reject User
     elif data.startswith("reju_"):
         uid = data.split("_")[1]
         update_user_status(uid, 'rejected')
         await q.edit_message_text(f"⛔ User {uid} DITOLAK.")
+        await context.bot.send_message(uid, "⛔ Pendaftaran Anda ditolak Admin.")
         
+    # 3. Approve Data Manual
     elif data.startswith("v_acc_"):
-        n = data.split("_")[2]
+        _, _, n, uid = data.split("_")
         item = context.bot_data.get(f"prop_{n}")
-        if item: supabase.table('kendaraan').upsert(item).execute()
-        await q.edit_message_text(f"✅ Data {n} Masuk Database.")
+        if item: 
+            supabase.table('kendaraan').upsert(item).execute()
+            await q.edit_message_text(f"✅ Data {n} Masuk Database.")
+            await context.bot.send_message(uid, f"🎊 Data `{n}` yang Anda kirim telah disetujui!")
+            
+    # 4. Reject Data Manual
+    elif data == "v_rej":
+        await q.edit_message_text("❌ Data Ditolak.")
         
+    # 5. Approve Lapor Hapus
     elif data.startswith("del_acc_"):
-        n = data.split("_")[2]
-        supabase.table('kendaraan').delete().eq('nopol', n).execute()
-        await q.edit_message_text(f"✅ `{n}` DIHAPUS.", parse_mode='Markdown')
+        parts = data.split("_")
+        nopol = parts[2]
+        uid_lapor = parts[3]
+        try: 
+            supabase.table('kendaraan').delete().eq('nopol', nopol).execute()
+            await q.edit_message_text(f"✅ `{nopol}` DIHAPUS.")
+            await context.bot.send_message(uid_lapor, f"✅ Laporan Hapus `{nopol}` DISETUJUI.")
+        except: 
+            await q.edit_message_text("❌ Gagal Hapus.")
+            
+    # 6. Reject Lapor Hapus
+    elif data.startswith("del_rej_"):
+        uid_lapor = data.split("_")[2]
+        await q.edit_message_text("❌ Ditolak.")
+        await context.bot.send_message(uid_lapor, "❌ Laporan Hapus DITOLAK.")
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Membatalkan percakapan (Conversation) apapun.
+    """
     await update.message.reply_text("🚫 Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
@@ -1267,9 +1491,9 @@ if __name__ == '__main__':
     # Build Application
     app = ApplicationBuilder().token(token).post_init(post_init).build()
     
-    # --- REGISTRASI HANDLERS ---
+    # --- REGISTRASI CONVERSATION HANDLERS ---
     
-    # 1. Registrasi
+    # 1. Registrasi User
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('register', register_start)],
         states={
@@ -1284,7 +1508,7 @@ if __name__ == '__main__':
         conversation_timeout=300
     ))
 
-    # 2. Tambah Data
+    # 2. Tambah Data Manual
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('tambah', add_data_start)],
         states={
@@ -1309,7 +1533,7 @@ if __name__ == '__main__':
         conversation_timeout=60
     ))
 
-    # 4. Hapus Manual
+    # 4. Hapus Manual Admin
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('hapus', delete_unit_start)],
         states={
@@ -1320,7 +1544,7 @@ if __name__ == '__main__':
         conversation_timeout=60
     ))
 
-    # 5. Smart Upload (STABLE MODE)
+    # 5. Smart Upload (STABLE MODE & KEYBOARD FIX)
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Document.ALL, upload_start)],
         states={
@@ -1332,7 +1556,7 @@ if __name__ == '__main__':
         conversation_timeout=120
     ))
 
-    # --- COMMAND HANDLERS ---
+    # --- REGISTRASI COMMAND HANDLERS ---
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('cekkuota', cek_kuota))
     app.add_handler(CommandHandler('topup', admin_topup))
@@ -1349,10 +1573,10 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('delinfo', del_info))
     app.add_handler(CommandHandler('admin', contact_admin))
 
-    # --- GENERIC HANDLERS ---
+    # --- REGISTRASI GENERIC HANDLERS ---
     app.add_handler(CallbackQueryHandler(callback_handler))
-    # Handle message text harus paling bawah agar tidak memakan command lain
+    # Handler pesan teks (harus paling akhir)
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - V3.1 (BLUEPRINT DOCUMENTATION)")
+    print("✅ ONEASPAL BOT ONLINE - V3.3 (LEGACY EDITION + NOTIFICATION FIX)")
     app.run_polling()
