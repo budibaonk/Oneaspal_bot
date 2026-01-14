@@ -242,59 +242,67 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     document = update.message.document
     file_name = document.file_name
 
-    # Cek Validitas User
     if not user_data or user_data['status'] != 'active':
-        if user_id != ADMIN_ID: 
-            return await update.message.reply_text("⛔ **AKSES DITOLAK**\nAnda belum terdaftar aktif.")
+        if user_id != ADMIN_ID: return await update.message.reply_text("⛔ **AKSES DITOLAK**\nAnda belum terdaftar aktif.")
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.UPLOAD_DOCUMENT)
-    
-    # Simpan file sementara
     context.user_data['upload_file_id'] = document.file_id
     context.user_data['upload_file_name'] = file_name
 
-    # ALUR 1: USER BIASA -> Minta Nama Leasing -> Forward ke Admin
+    # ALUR 1: USER BIASA
     if user_id != ADMIN_ID:
         await update.message.reply_text(
-            f"📄 File `{file_name}` diterima.\n\n"
-            "Satu langkah lagi: **Ini data dari Leasing/Finance apa?**\n"
-            "(Contoh: BCA, Mandiri, Adira, Balimor)",
-            parse_mode='Markdown',
-            reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True)
-        )
+            f"📄 File `{file_name}` diterima.\n\nSatu langkah lagi: **Ini data dari Leasing/Finance apa?**\n(Contoh: BCA, Mandiri, Adira)",
+            parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
         return U_LEASING_USER
-
-    # ALUR 2: ADMIN -> Smart Process -> Konfirmasi Leasing
+    
+    # ALUR 2: ADMIN (SMART UPLOAD)
     else:
         msg = await update.message.reply_text("⏳ **Menganalisa struktur file...**")
-        
         try:
-            # Download file
             new_file = await document.get_file()
             file_content = await new_file.download_as_bytearray()
             
-            # Baca Excel/CSV
+            # --- UPGRADE: LEBIH TANGGUH BACA CSV (AUTO-DETECT BOM) ---
             if file_name.lower().endswith('.csv'):
-                try: df = pd.read_csv(io.BytesIO(file_content), sep=';', dtype=str)
-                except: df = pd.read_csv(io.BytesIO(file_content), sep=None, engine='python', dtype=str)
+                try: 
+                    # Prioritas 1: Delimiter titik koma (;) dengan encoding utf-8-sig (Anti-BOM)
+                    df = pd.read_csv(io.BytesIO(file_content), sep=';', dtype=str, encoding='utf-8-sig')
+                    # Fallback: Jika jadi 1 kolom, coba koma (,)
+                    if len(df.columns) <= 1:
+                        df = pd.read_csv(io.BytesIO(file_content), sep=',', dtype=str, encoding='utf-8-sig')
+                except: 
+                    # Last Resort: Python engine auto-detect
+                    df = pd.read_csv(io.BytesIO(file_content), sep=None, engine='python', dtype=str, encoding='utf-8-sig')
             else:
+                # Excel Reader
                 df = pd.read_excel(io.BytesIO(file_content), dtype=str)
             
-            # --- THE BRAIN: SMART RENAME ---
+            # Smart Rename
             df, found_cols = smart_rename_columns(df)
-            
-            # Simpan dataframe di context
             context.user_data['df_records'] = df.to_dict(orient='records')
             
-            # Cek apakah kolom Nopol ketemu
+            # Validasi Kolom Nopol
             if 'nopol' not in df.columns:
-                await msg.edit_text(
-                    "❌ **ERROR SMART DETECT**\n"
-                    "Sistem tidak menemukan kolom yang mirip dengan **'Nopol'**.\n"
-                    f"Kolom terbaca: {', '.join(df.columns[:5])}...\n"
-                    "Mohon cek file Anda."
-                )
+                # Debug info untuk Admin jika gagal
+                cols_detected = ", ".join(df.columns[:5])
+                await msg.edit_text(f"❌ **ERROR SMART DETECT**\nSistem gagal menemukan kolom 'Nopol'.\n\n🔍 **Kolom terbaca:** {cols_detected}\n👉 Cek header file Anda.")
                 return ConversationHandler.END
+
+            has_finance = 'finance' in df.columns
+            report = (
+                f"✅ **SMART SCAN SELESAI**\n━━━━━━━━━━━━━━━━━━\n"
+                f"📊 **Kolom Terdeteksi:** {', '.join(found_cols)}\n"
+                f"📁 **Total Baris:** {len(df)}\n"
+                f"🏦 **Kolom Leasing:** {'✅ ADA' if has_finance else '⚠️ TIDAK ADA'}\n━━━━━━━━━━━━━━━━━━\n\n"
+                f"👉 **MASUKKAN NAMA LEASING:**\n_(Ketik 'SKIP' jika ingin pakai kolom dari file)_"
+            )
+            await msg.edit_text(report, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+            return U_LEASING_ADMIN
+            
+        except Exception as e:
+            await msg.edit_text(f"❌ Gagal baca file: {str(e)}")
+            return ConversationHandler.END
 
             # Cek keberadaan Leasing
             has_finance = 'finance' in df.columns
