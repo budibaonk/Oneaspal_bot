@@ -676,8 +676,8 @@ async def upload_leasing_admin(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Handler Admin: Eksekusi Upload ke Database dengan PROGRESS BAR LIVE.
-    Mengupdate status setiap 1000 data agar tidak terlihat stuck.
+    Handler Admin: Eksekusi Upload ke Database dengan PROGRESS BAR LIVE (REVISI v2.6).
+    Perbaikan: Menambahkan jeda agar UI tidak stuck karena limit Telegram.
     """
     choice = update.message.text
     
@@ -694,56 +694,60 @@ async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYP
     
     success_count = 0
     fail_count = 0
-    last_error_msg = "" # Variable untuk menangkap pesan error asli dari Supabase
-    BATCH_SIZE = 1000 # Upload per 1000 baris agar tidak timeout
+    last_error_msg = "" 
+    BATCH_SIZE = 1000 # Upload per 1000 baris
     
-    # Mulai Timer
     start_time = time.time()
     
     # Mulai Loop Batch Upload
     for i in range(0, total_rows, BATCH_SIZE):
         batch = final_data[i : i + BATCH_SIZE]
         try:
-            # Upsert: Insert or Update if exists
+            # Upsert Data
             supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
             success_count += len(batch)
         except Exception as e:
-            last_error_msg = str(e) # Tangkap error level batch
-            
-            # Jika batch besar gagal, coba retry satu per satu (Fallback Mode)
-            # Ini berguna untuk mencari tahu baris mana yang bikin error
+            last_error_msg = str(e)
+            # Fallback: Retry satu per satu jika batch gagal
             for item in batch:
                 try:
                     supabase.table('kendaraan').upsert([item], on_conflict='nopol').execute()
                     success_count += 1
                 except Exception as inner_e:
                     fail_count += 1
-                    last_error_msg = str(inner_e) # Tangkap error spesifik per baris
+                    last_error_msg = str(inner_e)
         
-        # --- UPDATE PROGRESS BAR ---
-        # Kita update pesan setiap 1 batch selesai
-        if i % 1000 == 0: 
-            percent = int((min(i + BATCH_SIZE, total_rows) / total_rows) * 100)
-            try:
-                # Bar visual: [▓▓▓░░░░░░░]
-                bar_len = 10
-                filled_len = int(bar_len * percent / 100)
-                bar = '▓' * filled_len + '░' * (bar_len - filled_len)
-                
-                await status_msg.edit_text(
-                    f"⏳ **UPLOADING... {percent}%**\n"
-                    f"[{bar}]\n\n"
-                    f"✅ Sukses: {success_count}\n"
-                    f"❌ Gagal: {fail_count}\n"
-                    f"📂 Proses: {min(i + BATCH_SIZE, total_rows)} / {total_rows}",
-                    parse_mode='Markdown'
-                )
-            except:
-                pass # Abaikan jika gagal edit (biasanya karena rate limit telegram)
+        # --- UPDATE PROGRESS BAR (REVISI) ---
+        # Hitung persentase real-time
+        current_processed = min(i + BATCH_SIZE, total_rows)
+        percent = int((current_processed / total_rows) * 100)
+        
+        try:
+            # Bar visual: [▓▓▓░░░░░░░]
+            bar_len = 10
+            filled_len = int(bar_len * percent / 100)
+            bar = '▓' * filled_len + '░' * (bar_len - filled_len)
+            
+            # Edit pesan status
+            await status_msg.edit_text(
+                f"⏳ **UPLOADING... {percent}%**\n"
+                f"[{bar}]\n\n"
+                f"✅ Masuk: {success_count}\n"
+                f"❌ Gagal: {fail_count}\n"
+                f"📂 Proses: {current_processed} / {total_rows}",
+                parse_mode='Markdown'
+            )
+            # PENTING: Jeda 1 detik agar Telegram tidak memblokir update UI
+            await asyncio.sleep(1) 
+            
+        except Exception as e:
+            # Jika gagal edit visual, biarkan proses jalan terus (jangan stop)
+            logging.error(f"UI Update Error: {e}")
+            pass 
 
     duration = round(time.time() - start_time, 2)
 
-    # Buat Laporan Akhir
+    # LAPORAN AKHIR
     if fail_count > 0:
         report = (
             f"❌ **SELESAI (DENGAN ERROR)**\n"
