@@ -537,7 +537,7 @@ async def admin_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ##############################################################################
 # ##############################################################################
 #
-#                 BAGIAN 5: SMART UPLOAD (EMERGENCY FIX v3.4)
+#                 BAGIAN 5: SMART UPLOAD (STABLE REVISED v3.6)
 #
 # ##############################################################################
 # ##############################################################################
@@ -730,7 +730,8 @@ async def upload_leasing_admin(update: Update, context: ContextTypes.DEFAULT_TYP
 async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handler Admin: Eksekusi Upload ke Database.
-    Menggunakan mode STABIL (Tanpa Update Live Bar) untuk mencegah Rate Limit Telegram.
+    REVISI v3.6: Menambahkan update status per batch (Heartbeat) agar bot tidak dianggap mati oleh Telegram
+    saat mengupload ribuan data, serta memastikan laporan akhir terkirim.
     """
     choice = update.message.text
     
@@ -741,11 +742,10 @@ async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYP
     
     # Kirim pesan awal progress
     status_msg = await update.message.reply_text(
-        "⏳ **SEDANG MENGUPLOAD DATA...**\n"
+        "⏳ **MEMULAI UPLOAD...**\n"
         "--------------------------------\n"
-        "⚠️ _Bot akan bekerja di latar belakang._\n"
-        "⚠️ _Status tidak akan update per detik agar lebih cepat & stabil._\n\n"
-        "☕ _Silakan tunggu, bot akan melapor jika sudah selesai._", 
+        "🚀 _Engine menyala..._\n"
+        "☕ _Mohon tunggu, jangan kirim pesan lain dulu..._", 
         reply_markup=ReplyKeyboardRemove(), 
         parse_mode='Markdown'
     )
@@ -760,16 +760,17 @@ async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYP
     BATCH_SIZE = 1000 
     
     start_time = time.time()
+    total_records = len(final_data)
     
     # Mulai Loop Batch Upload
-    for i in range(0, len(final_data), BATCH_SIZE):
+    for i in range(0, total_records, BATCH_SIZE):
         batch = final_data[i : i + BATCH_SIZE]
         try:
             # Upsert: Insert baru atau Update jika nopol sudah ada
             supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
             success_count += len(batch)
         except Exception as e:
-            last_error_msg = str(e) # Tangkap error umum
+            last_error_msg = str(e) # Tangkap error level batch
             
             # Fallback: Jika batch gagal, coba satu per satu
             for item in batch:
@@ -778,21 +779,37 @@ async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYP
                     success_count += 1
                 except Exception as inner_e:
                     fail_count += 1
-                    last_error_msg = str(inner_e) # Tangkap error spesifik
+                    last_error_msg = str(inner_e) # Tangkap error spesifik per baris
+        
+        # --- FITUR BARU v3.6: HEARTBEAT UPDATE ---
+        # Update status setiap 2000 data agar user tahu bot masih hidup
+        # dan mencegah Telegram menutup koneksi (timeout)
+        if (i + BATCH_SIZE) % 2000 == 0 or (i + BATCH_SIZE) >= total_records:
+            current_progress = min(i + BATCH_SIZE, total_records)
+            try:
+                await status_msg.edit_text(
+                    f"⏳ **SEDANG MENGUPLOAD...**\n"
+                    f"✅ Terproses: `{current_progress}` / `{total_records}`\n"
+                    f"⛔ Gagal: `{fail_count}`\n\n"
+                    f"🚀 _Mohon bersabar, data sedang masuk..._"
+                )
+                # Jeda sejenak agar Telegram server tidak menolak request (Rate Limit)
+                await asyncio.sleep(0.5) 
+            except Exception:
+                pass # Abaikan error edit message jika terjadi, lanjut upload
 
     duration = round(time.time() - start_time, 2)
 
-    # Buat Laporan Akhir (Hanya lapor sekali di akhir)
+    # Buat Laporan Akhir (PASTI DIKIRIM)
     if fail_count > 0:
         report = (
-            f"❌ **SELESAI DENGAN ERROR**\n"
+            f"❌ **SELESAI (DENGAN ERROR)**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"✅ Berhasil: {success_count}\n"
+            f"✅ Sukses: {success_count}\n"
             f"❌ Gagal: {fail_count}\n"
             f"⏱ Waktu: {duration} detik\n\n"
-            f"🔍 **LOG ERROR:**\n"
-            f"`{last_error_msg[:300]}...`\n\n"
-            f"💡 _Saran: Cek apakah format data di Excel sudah benar._"
+            f"🔍 **LOG ERROR TERAKHIR:**\n"
+            f"`{last_error_msg[:300]}...`"
         )
     else:
         report = (
@@ -803,10 +820,12 @@ async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYP
             f"⏱ **Waktu:** {duration} detik\n"
             f"🚀 **Status:** Database Updated Successfully!"
         )
-        
-    await status_msg.edit_text(report, parse_mode='Markdown')
     
-    # Bersihkan Memori Server
+    # Hapus pesan loading lama, kirim laporan baru agar notifikasi masuk
+    await status_msg.delete()
+    await update.message.reply_text(report, parse_mode='Markdown')
+    
+    # Bersihkan memori
     context.user_data.pop('final_data_records', None)
     return ConversationHandler.END
 
@@ -994,7 +1013,7 @@ async def contact_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     User mengirim pesan ke Admin.
     """
     u = get_user(update.effective_user.id)
-    if not u: return
+    if not u or u['status'] != 'active': return
     
     msg_content = " ".join(context.args)
     if not msg_content: 
@@ -1604,5 +1623,5 @@ if __name__ == '__main__':
     # Handler pesan teks (harus paling akhir agar tidak memakan command lain)
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - V3.5 (MASTERPIECE EDITION - FULL LINES)")
+    print("✅ ONEASPAL BOT ONLINE - V3.6 (COMMUNICATOR EDITION)")
     app.run_polling()
