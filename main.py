@@ -27,30 +27,36 @@ from supabase import create_client, Client
 
 # 1. Load Environment Variables
 # Membaca file .env untuk mengambil token dan kunci rahasia
+# Pastikan file .env ada di root folder proyek
 load_dotenv()
 
 # 2. Konfigurasi Logging System
 # Ini penting agar kita bisa melihat apa yang terjadi di terminal/log server
+# Level INFO akan menampilkan pesan status standar
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s', 
     level=logging.INFO
 )
 
 # 3. Ambil Credential dari Environment
+# Pastikan nama variabel di .env atau Railway SESUAI dengan ini
 url: str = os.environ.get("SUPABASE_URL")
 key: str = os.environ.get("SUPABASE_KEY")
 token: str = os.environ.get("TELEGRAM_TOKEN")
 
 # 4. Variable Global & Konstanta
 # Variable ini digunakan untuk menyimpan pesan sticky info dari Admin
+# Default kosong, diisi lewat command /setinfo
 GLOBAL_INFO = ""
 
 # ID Group Log untuk notifikasi jika ada unit ditemukan (HIT)
+# Bot akan mengirim pesan ke sini jika ada user yang mencari Nopol dan hasilnya ADA
 # Pastikan bot sudah dimasukkan ke group ini dan dijadikan Admin
 LOG_GROUP_ID = -1003627047676  
 
 # 5. Setup Admin ID
-# Mengambil ID Admin dari .env, jika tidak ada gunakan default
+# Mengambil ID Admin dari .env, jika tidak ada gunakan default (ID Bapak)
+# ID ini memiliki hak akses penuh (Superuser)
 DEFAULT_ADMIN_ID = 7530512170
 try:
     env_id = os.environ.get("ADMIN_ID")
@@ -68,6 +74,7 @@ if not url or not key or not token:
     exit()
 
 # 7. Inisialisasi Koneksi Database Supabase
+# Mencoba terhubung ke cloud database
 try:
     supabase: Client = create_client(url, key)
     print("✅ DATABASE: Koneksi ke Supabase Berhasil!")
@@ -80,54 +87,140 @@ except Exception as e:
 #                        BAGIAN 2: KAMUS DATA & STATE
 # ==============================================================================
 
-# --- KAMUS ALIAS KOLOM (NORMALISASI AGRESIF v2.2) ---
+# --- KAMUS ALIAS KOLOM (NORMALISASI AGRESIF v2.5) ---
 # Kamus ini berfungsi sebagai "Otak" bot untuk mengenali header Excel yang berantakan.
 # Semua alias ditulis dalam HURUF KECIL TANPA SPASI/TITIK/SIMBOL.
-# Contoh: "No. Polisi" -> dinormalisasi jadi "nopolisi" -> cocok dengan alias di bawah.
+# Ini ditulis memanjang ke bawah agar mudah diedit jika ada istilah baru.
 
 COLUMN_ALIASES = {
     'nopol': [
-        'nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'nomorplat', 
-        'nomorkendaraan', 'nokendaraan', 'nomer', 'tnkb', 'licenseplate', 
-        'plat', 'nopolisikendaraan', 'nopil', 'polisi', 'platnomor'
+        'nopolisi', 
+        'nomorpolisi', 
+        'nopol', 
+        'noplat', 
+        'nomorplat', 
+        'nomorkendaraan', 
+        'nokendaraan', 
+        'nomer', 
+        'tnkb', 
+        'licenseplate', 
+        'plat', 
+        'nopolisikendaraan', 
+        'nopil', 
+        'polisi', 
+        'platnomor'
     ],
     'type': [
-        'type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 
-        'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'brand',
-        'typedeskripsi', 'vehiclemodel', 'namaunit', 'kend', 'namakendaraan'
+        'type', 
+        'tipe', 
+        'unit', 
+        'model', 
+        'vehicle', 
+        'jenis', 
+        'deskripsiunit', 
+        'merk', 
+        'object', 
+        'kendaraan', 
+        'item', 
+        'brand',
+        'typedeskripsi', 
+        'vehiclemodel', 
+        'namaunit', 
+        'kend', 
+        'namakendaraan'
     ],
     'tahun': [
-        'tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture', 'thnrakit', 'manufacturingyear'
+        'tahun', 
+        'year', 
+        'thn', 
+        'rakitan', 
+        'th', 
+        'yearofmanufacture', 
+        'thnrakit', 
+        'manufacturingyear'
     ],
     'warna': [
-        'warna', 'color', 'colour', 'cat', 'kelir', 'warnakendaraan'
+        'warna', 
+        'color', 
+        'colour', 
+        'cat', 
+        'kelir', 
+        'warnakendaraan'
     ],
     'noka': [
-        'noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 
-        'vin', 'rangka', 'chassisno', 'norangka1', 'chasisno', 'vinno'
+        'noka', 
+        'norangka', 
+        'nomorrangka', 
+        'chassis', 
+        'chasis', 
+        'vin', 
+        'rangka', 
+        'chassisno', 
+        'norangka1', 
+        'chasisno', 
+        'vinno'
     ],
     'nosin': [
-        'nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 
-        'engineno', 'nomesin1', 'engineno', 'noengine'
+        'nosin', 
+        'nomesin', 
+        'nomormesin', 
+        'engine', 
+        'mesin', 
+        'engineno', 
+        'nomesin1', 
+        'engineno', 
+        'noengine'
     ],
     'finance': [
-        'finance', 'leasing', 'lising', 'multifinance', 'cabang', 
-        'partner', 'mitra', 'principal', 'company', 'client', 'financecompany',
-        'leasingname', 'keterangan', 'sumberdata'
+        'finance', 
+        'leasing', 
+        'lising', 
+        'multifinance', 
+        'cabang', 
+        'partner', 
+        'mitra', 
+        'principal', 
+        'company', 
+        'client', 
+        'financecompany',
+        'leasingname', 
+        'keterangan', 
+        'sumberdata'
     ],
     'ovd': [
-        'ovd', 'overdue', 'dpd', 'keterlambatan', 'hari', 
-        'telat', 'aging', 'od', 'bucket', 'daysoverdue', 'overduedays',
-        'kiriman', 'kolektibilitas', 'kol'
+        'ovd', 
+        'overdue', 
+        'dpd', 
+        'keterlambatan', 
+        'hari', 
+        'telat', 
+        'aging', 
+        'od', 
+        'bucket', 
+        'daysoverdue', 
+        'overduedays',
+        'kiriman', 
+        'kolektibilitas', 
+        'kol'
     ],
     'branch': [
-        'branch', 'area', 'kota', 'pos', 'cabang', 
-        'lokasi', 'wilayah', 'region', 'areaname', 'branchname', 'dealer'
+        'branch', 
+        'area', 
+        'kota', 
+        'pos', 
+        'cabang', 
+        'lokasi', 
+        'wilayah', 
+        'region', 
+        'areaname', 
+        'branchname', 
+        'dealer'
     ]
 }
 
 # --- DEFINISI STATE CONVERSATION HANDLER ---
-# Angka-angka ini adalah penanda "Posisi" user dalam percakapan
+# Angka-angka ini adalah penanda "Posisi" user dalam percakapan.
+# Setiap angka mewakili satu langkah.
 
 # 1. Registrasi User
 R_NAMA, R_HP, R_EMAIL, R_KOTA, R_AGENCY, R_CONFIRM = range(6)
@@ -153,6 +246,7 @@ async def post_init(application: Application):
     """
     Fungsi ini dipanggil otomatis SATU KALI saat bot pertama kali menyala.
     Tugasnya: Memasang tombol menu di samping kolom chat Telegram user.
+    Agar user tidak perlu mengetik command manual.
     """
     print("⏳ Sedang meng-set menu perintah Telegram...")
     await application.bot.set_my_commands([
@@ -169,8 +263,12 @@ async def post_init(application: Application):
 def get_user(user_id):
     """
     Mengambil data user dari tabel 'users' di Supabase.
-    Parameter: user_id (Telegram ID)
-    Return: Dictionary data user ATAU None jika tidak ditemukan.
+    
+    Parameter: 
+        user_id (int): ID Telegram User
+        
+    Return: 
+        Dictionary data user ATAU None jika tidak ditemukan.
     """
     try:
         response = supabase.table('users').select("*").eq('user_id', user_id).execute()
@@ -184,8 +282,8 @@ def get_user(user_id):
 
 def update_user_status(user_id, status):
     """
-    Mengubah status user di database.
-    Status bisa berupa: 'active', 'pending', atau 'rejected'.
+    Mengupdate status user (active/rejected/pending).
+    Digunakan saat Admin menekan tombol Approve/Reject.
     """
     try:
         supabase.table('users').update({'status': status}).eq('user_id', user_id).execute()
@@ -197,6 +295,7 @@ def update_quota_usage(user_id, current_quota):
     """
     Mengurangi kuota user sebanyak 1 poin.
     Hanya dipanggil jika pencarian menghasilkan DATA DITEMUKAN (HIT).
+    Jika hasil pencarian nihil (ZONK), kuota tidak berkurang.
     """
     try:
         new_quota = current_quota - 1
@@ -206,7 +305,11 @@ def update_quota_usage(user_id, current_quota):
 
 def topup_quota(user_id, amount):
     """
-    Fungsi khusus Admin untuk menambah kuota user.
+    Fungsi khusus Admin untuk menambah kuota user secara manual.
+    
+    Parameter:
+        user_id (int): ID Telegram User
+        amount (int): Jumlah kuota yang ditambahkan
     """
     try:
         user = get_user(user_id)
@@ -220,7 +323,7 @@ def topup_quota(user_id, amount):
         logging.error(f"❌ Error topup: {e}")
         return False, 0
 
-# --- FUNGSI PEMBERSIH TEKS (NUCLEAR NORMALIZER v2.2) ---
+# --- FUNGSI PEMBERSIH TEKS (NUCLEAR NORMALIZER) ---
 def normalize_text(text):
     """
     Fungsi krusial untuk membersihkan nama kolom Excel.
@@ -301,7 +404,7 @@ def read_file_robust(file_content, file_name):
     try:
         return pd.read_csv(io.BytesIO(file_content), sep=None, engine='python', dtype=str)
     except Exception as e:
-        raise ValueError("File rusak atau format tidak didukung sama sekali.")
+        raise ValueError("File tidak terbaca dengan semua metode encoding yang tersedia.")
 
 
 # ==============================================================================
@@ -381,17 +484,18 @@ async def admin_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==============================================================================
-#                 BAGIAN 5: SMART UPLOAD (DIAGNOSTIC & BUG FIX)
+#                 BAGIAN 5: SMART UPLOAD (PROGRESS BAR LIVE)
 # ==============================================================================
 
 async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handler pemicu saat user mengirim file dokumen.
+    Mendukung CSV dan Excel.
     """
     user_id = update.effective_user.id
     user_data = get_user(user_id)
     doc = update.message.document
-    file_name = document_name = doc.file_name
+    file_name = doc.file_name
 
     # Cek Validitas User
     if not user_data or user_data['status'] != 'active':
@@ -426,7 +530,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             new_file = await doc.get_file()
             file_content = await new_file.download_as_bytearray()
             
-            # 1. BACA FILE DENGAN FUNGSI ROBUST
+            # 1. BACA FILE DENGAN FUNGSI ROBUST (Anti-BOM & Anti-Encoding Error)
             df = read_file_robust(file_content, file_name)
             
             # 2. NORMALISASI HEADER (Anti-Spasi & Typo)
@@ -465,6 +569,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # --- FIX v2.1: DELETE OLD MESSAGE, SEND NEW WITH KEYBOARD ---
             # Telegram melarang edit_text disertai ReplyKeyboardMarkup.
+            # Jadi kita hapus pesan lama, lalu kirim pesan baru.
             await msg.delete()
             
             await update.message.reply_text(
@@ -571,7 +676,8 @@ async def upload_leasing_admin(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Handler Admin: Eksekusi Upload ke Database dengan DIAGNOSTIC REPORTING.
+    Handler Admin: Eksekusi Upload ke Database dengan PROGRESS BAR LIVE.
+    Mengupdate status setiap 1000 data agar tidak terlihat stuck.
     """
     choice = update.message.text
     
@@ -580,19 +686,22 @@ async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data.pop('final_data_records', None)
         return ConversationHandler.END
     
-    status_msg = await update.message.reply_text("⏳ **Sedang mengupload ke database...**\n_Mohon tunggu sebentar..._", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
+    # Kirim pesan awal progress
+    status_msg = await update.message.reply_text("⏳ **Memulai Upload... 0%**", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
     
     final_data = context.user_data.get('final_data_records')
+    total_rows = len(final_data)
     
     success_count = 0
     fail_count = 0
     last_error_msg = "" # Variable untuk menangkap pesan error asli dari Supabase
     BATCH_SIZE = 1000 # Upload per 1000 baris agar tidak timeout
     
-    # Mulai Loop Batch Upload
+    # Mulai Timer
     start_time = time.time()
     
-    for i in range(0, len(final_data), BATCH_SIZE):
+    # Mulai Loop Batch Upload
+    for i in range(0, total_rows, BATCH_SIZE):
         batch = final_data[i : i + BATCH_SIZE]
         try:
             # Upsert: Insert or Update if exists
@@ -610,27 +719,50 @@ async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYP
                 except Exception as inner_e:
                     fail_count += 1
                     last_error_msg = str(inner_e) # Tangkap error spesifik per baris
+        
+        # --- UPDATE PROGRESS BAR ---
+        # Kita update pesan setiap 1 batch selesai
+        if i % 1000 == 0: 
+            percent = int((min(i + BATCH_SIZE, total_rows) / total_rows) * 100)
+            try:
+                # Bar visual: [▓▓▓░░░░░░░]
+                bar_len = 10
+                filled_len = int(bar_len * percent / 100)
+                bar = '▓' * filled_len + '░' * (bar_len - filled_len)
+                
+                await status_msg.edit_text(
+                    f"⏳ **UPLOADING... {percent}%**\n"
+                    f"[{bar}]\n\n"
+                    f"✅ Sukses: {success_count}\n"
+                    f"❌ Gagal: {fail_count}\n"
+                    f"📂 Proses: {min(i + BATCH_SIZE, total_rows)} / {total_rows}",
+                    parse_mode='Markdown'
+                )
+            except:
+                pass # Abaikan jika gagal edit (biasanya karena rate limit telegram)
 
     duration = round(time.time() - start_time, 2)
 
     # Buat Laporan Akhir
     if fail_count > 0:
         report = (
-            f"❌ **ADA ERROR SAAT UPLOAD!**\n"
+            f"❌ **SELESAI (DENGAN ERROR)**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"✅ Sukses: {success_count}\n"
-            f"❌ Gagal: {fail_count}\n\n"
-            f"🔍 **DIAGNOSA ERROR DATABASE:**\n"
+            f"❌ Gagal: {fail_count}\n"
+            f"⏱ Waktu: {duration}s\n\n"
+            f"🔍 **LOG ERROR:**\n"
             f"`{last_error_msg[:300]}...`\n\n"
-            f"💡 _Tips: Jika errornya 'duplicate key' atau 'permission denied', cek settingan RLS dan Primary Key di Supabase._"
+            f"💡 _Tips: Cek apakah data duplikat atau format salah._"
         )
     else:
         report = (
-            f"✅ **UPLOAD SELESAI SEMPURNA!**\n"
+            f"✅ **UPLOAD SUKSES 100%!**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"📊 **Total Upload:** {success_count}\n"
+            f"📊 **Total Data:** {success_count}\n"
             f"❌ **Gagal:** 0\n"
-            f"⏱ **Waktu:** {duration} detik"
+            f"⏱ **Waktu:** {duration} detik\n"
+            f"🚀 **Status:** Database Updated!"
         )
         
     await status_msg.edit_text(report, parse_mode='Markdown')
@@ -820,7 +952,7 @@ async def panduan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==============================================================================
-#                 BAGIAN 8: HANDLER CONVERSATION (REGISTRASI & LAPOR)
+#                 BAGIAN 8: HANDLER CONVERSATION: LAPOR, HAPUS, REGISTER, TAMBAH
 # ==============================================================================
 
 # --- LAPOR HAPUS (USER) ---
@@ -1328,5 +1460,5 @@ if __name__ == '__main__':
     # Handler pesan teks (harus paling akhir)
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - V2.2 (FULL ENTERPRISE EDITION)")
+    print("✅ ONEASPAL BOT ONLINE - V2.5 (TITAN EDITION - FULL CODE)")
     app.run_polling()
