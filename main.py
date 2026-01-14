@@ -25,69 +25,50 @@ from supabase import create_client, Client
 #                        BAGIAN 1: KONFIGURASI SISTEM
 # ==============================================================================
 
-# ------------------------------------------------------------------------------
 # 1. Load Environment Variables
-# ------------------------------------------------------------------------------
-# Mengambil variabel rahasia dari file .env atau konfigurasi server (Railway)
+# Membaca file .env untuk mengambil token dan kunci rahasia
 load_dotenv()
 
-# ------------------------------------------------------------------------------
 # 2. Konfigurasi Logging System
-# ------------------------------------------------------------------------------
-# Mengatur format log agar mudah dibaca saat debugging di terminal
+# Ini penting agar kita bisa melihat apa yang terjadi di terminal/log server
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s', 
     level=logging.INFO
 )
 
-# ------------------------------------------------------------------------------
 # 3. Ambil Credential dari Environment
-# ------------------------------------------------------------------------------
-# URL Database Supabase
+# Pastikan nama variabel di .env atau Railway SESUAI dengan ini
 url: str = os.environ.get("SUPABASE_URL")
-# Service Role Key (Kunci Sakti untuk Admin)
 key: str = os.environ.get("SUPABASE_KEY")
-# Token Bot Telegram dari BotFather
 token: str = os.environ.get("TELEGRAM_TOKEN")
 
-# ------------------------------------------------------------------------------
 # 4. Variable Global & Konstanta
-# ------------------------------------------------------------------------------
-# Variable ini digunakan untuk menyimpan pesan info (Sticky Message)
+# Variable ini digunakan untuk menyimpan pesan sticky info dari Admin
 GLOBAL_INFO = ""
 
-# ID Group Log untuk notifikasi HIT (Unit Ditemukan)
-# Pastikan Bot sudah menjadi Admin di group ini
+# ID Group Log untuk notifikasi jika ada unit ditemukan (HIT)
+# Pastikan bot sudah dimasukkan ke group ini dan dijadikan Admin
 LOG_GROUP_ID = -1003627047676  
 
-# ------------------------------------------------------------------------------
 # 5. Setup Admin ID
-# ------------------------------------------------------------------------------
-# Mengambil ID Admin Utama. Jika tidak ada di .env, gunakan default.
+# Mengambil ID Admin dari .env, jika tidak ada gunakan default (ID Bapak)
 DEFAULT_ADMIN_ID = 7530512170
 try:
     env_id = os.environ.get("ADMIN_ID")
-    if env_id:
-        ADMIN_ID = int(env_id)
-    else:
-        ADMIN_ID = DEFAULT_ADMIN_ID
+    ADMIN_ID = int(env_id) if env_id else DEFAULT_ADMIN_ID
 except ValueError:
     ADMIN_ID = DEFAULT_ADMIN_ID
 
 print(f"✅ SYSTEM BOOT: ADMIN ID TERDETEKSI = {ADMIN_ID}")
 
-# ------------------------------------------------------------------------------
 # 6. Validasi Kelengkapan Credential
-# ------------------------------------------------------------------------------
-# Jika salah satu kunci kosong, matikan bot untuk mencegah error fatal
+# Jika salah satu kunci kosong, bot akan membatalkan start agar tidak error di tengah jalan
 if not url or not key or not token:
     print("❌ CRITICAL ERROR: Credential tidak lengkap!")
     print("👉 Pastikan file .env berisi: SUPABASE_URL, SUPABASE_KEY, TELEGRAM_TOKEN")
     exit()
 
-# ------------------------------------------------------------------------------
-# 7. Inisialisasi Koneksi Database
-# ------------------------------------------------------------------------------
+# 7. Inisialisasi Koneksi Database Supabase
 try:
     supabase: Client = create_client(url, key)
     print("✅ DATABASE: Koneksi ke Supabase Berhasil!")
@@ -100,11 +81,9 @@ except Exception as e:
 #                        BAGIAN 2: KAMUS DATA & STATE
 # ==============================================================================
 
-# ------------------------------------------------------------------------------
-# 1. KAMUS ALIAS KOLOM (NORMALISASI)
-# ------------------------------------------------------------------------------
-# Berfungsi untuk memetakan nama kolom Excel yang berantakan menjadi standar.
-# Ditulis secara vertikal agar mudah ditambahkan alias baru.
+# --- KAMUS ALIAS KOLOM (NORMALISASI AGRESIF) ---
+# Kamus ini berfungsi sebagai "Otak" bot untuk mengenali header Excel yang berantakan.
+# Semua alias ditulis dalam HURUF KECIL TANPA SPASI/TITIK/SIMBOL.
 
 COLUMN_ALIASES = {
     'nopol': [
@@ -232,24 +211,22 @@ COLUMN_ALIASES = {
     ]
 }
 
-# ------------------------------------------------------------------------------
-# 2. DEFINISI STATE CONVERSATION
-# ------------------------------------------------------------------------------
-# Konstanta angka untuk mengatur alur percakapan (ConversationHandler)
+# --- DEFINISI STATE CONVERSATION HANDLER ---
+# Angka-angka ini adalah penanda "Posisi" user dalam percakapan.
 
-# State: Registrasi User Baru
+# 1. Registrasi User
 R_NAMA, R_HP, R_EMAIL, R_KOTA, R_AGENCY, R_CONFIRM = range(6)
 
-# State: Tambah Data Manual
+# 2. Tambah Data Manual
 A_NOPOL, A_TYPE, A_LEASING, A_NOKIR, A_CONFIRM = range(6, 11)
 
-# State: Lapor Hapus Data (Oleh User)
+# 3. Lapor Hapus Data (User)
 L_NOPOL, L_CONFIRM = range(11, 13) 
 
-# State: Hapus Data Manual (Oleh Admin)
+# 4. Hapus Data Manual (Admin)
 D_NOPOL, D_CONFIRM = range(13, 15)
 
-# State: Smart Upload Excel (Oleh Admin/User)
+# 5. Smart Upload Excel/CSV
 U_LEASING_USER, U_LEASING_ADMIN, U_CONFIRM_UPLOAD = range(15, 18)
 
 
@@ -259,11 +236,10 @@ U_LEASING_USER, U_LEASING_ADMIN, U_CONFIRM_UPLOAD = range(15, 18)
 
 async def post_init(application: Application):
     """
-    Fungsi ini dipanggil satu kali saat bot startup.
-    Tugas: Mengatur tombol menu (Blue Menu Button) di Telegram.
+    Fungsi ini dipanggil otomatis SATU KALI saat bot pertama kali menyala.
+    Tugasnya: Memasang tombol menu di samping kolom chat Telegram user.
     """
-    print("⏳ System: Sedang mengkonfigurasi Menu Telegram...")
-    
+    print("⏳ Sedang meng-set menu perintah Telegram...")
     await application.bot.set_my_commands([
         ("start", "🔄 Restart / Menu Utama"),
         ("cekkuota", "💳 Cek Sisa Kuota"),
@@ -273,19 +249,12 @@ async def post_init(application: Application):
         ("admin", "📩 Hubungi Admin"),
         ("panduan", "📖 Petunjuk Penggunaan"),
     ])
-    
-    print("✅ System: Menu Perintah Berhasil Di-set!")
+    print("✅ TELEGRAM: Menu Perintah Berhasil Di-set!")
 
 def get_user(user_id):
     """
-    Mengambil profil user dari database Supabase.
-    
-    Args:
-        user_id (int): ID Telegram User
-        
-    Returns:
-        dict: Data user jika ditemukan
-        None: Jika user belum terdaftar
+    Mengambil data user dari tabel 'users' di Supabase.
+    Return: Dictionary data user ATAU None jika tidak ditemukan.
     """
     try:
         response = supabase.table('users').select("*").eq('user_id', user_id).execute()
@@ -299,22 +268,18 @@ def get_user(user_id):
 
 def update_user_status(user_id, status):
     """
-    Mengubah status user (Approve/Reject).
-    
-    Args:
-        user_id (int): ID Telegram User
-        status (str): 'active', 'rejected', atau 'pending'
+    Mengupdate status user (active/rejected/pending).
     """
     try:
         supabase.table('users').update({'status': status}).eq('user_id', user_id).execute()
-        logging.info(f"✅ User {user_id} status changed to {status}")
+        print(f"✅ User {user_id} status updated to {status}")
     except Exception as e: 
         logging.error(f"❌ Error update status: {e}")
 
 def update_quota_usage(user_id, current_quota):
     """
     Mengurangi kuota user sebanyak 1 poin.
-    Dipanggil saat pencarian menghasilkan HIT.
+    Hanya dipanggil jika pencarian menghasilkan HIT.
     """
     try:
         new_quota = current_quota - 1
@@ -324,14 +289,7 @@ def update_quota_usage(user_id, current_quota):
 
 def topup_quota(user_id, amount):
     """
-    Menambah kuota user (Fitur Admin).
-    
-    Args:
-        user_id (str): ID Telegram Target
-        amount (int): Jumlah kuota
-        
-    Returns:
-        (bool, int): Status sukses, Total kuota baru
+    Fungsi khusus Admin untuk menambah kuota user secara manual.
     """
     try:
         user = get_user(user_id)
@@ -345,13 +303,11 @@ def topup_quota(user_id, amount):
         logging.error(f"❌ Error topup: {e}")
         return False, 0
 
-# --- FUNGSI PEMBERSIH TEKS (NORMALISASI) ---
+# --- FUNGSI PEMBERSIH TEKS (NUCLEAR NORMALIZER) ---
 def normalize_text(text):
     """
-    Membersihkan string dari karakter aneh.
+    Membersihkan teks dari spasi, titik, koma, underscore, dan simbol lain.
     Hanya menyisakan huruf dan angka (alfanumerik) lowercase.
-    
-    Contoh: 'No. Polisi (Baru)' -> 'nopolisi'
     """
     if not isinstance(text, str): 
         return str(text).lower()
@@ -359,18 +315,19 @@ def normalize_text(text):
 
 def smart_rename_columns(df):
     """
-    Mencocokkan nama kolom di file Excel dengan standar Database.
-    Menggunakan kamus COLUMN_ALIASES.
+    Fungsi Cerdas untuk menstandarkan nama kolom DataFrame.
+    Mencocokkan header file user dengan KAMUS ALIAS.
     """
     new_cols = {}
     found_cols = []
     
+    # Loop setiap kolom asli dari file Excel
     for original_col in df.columns:
         # Bersihkan nama kolom asli
         clean_col = normalize_text(original_col)
         renamed = False
         
-        # Cek ke kamus
+        # Cek kecocokan di kamus alias
         for standard_name, aliases in COLUMN_ALIASES.items():
             if clean_col == standard_name or clean_col in aliases:
                 new_cols[original_col] = standard_name
@@ -387,39 +344,38 @@ def smart_rename_columns(df):
 
 def read_file_robust(file_content, file_name):
     """
-    Membaca file Excel/CSV dengan berbagai metode encoding.
-    Mengatasi error 'UnicodeDecodeError' pada file jadul.
+    Fungsi 'Tank Baja' untuk membaca file Excel/CSV apapun kondisinya.
+    Mencoba berbagai encoding (UTF-8, Latin1, CP1252) dan delimiter.
     """
-    # 1. Cek jika Excel (.xlsx)
+    # Strategi 1: Jika file Excel (.xlsx / .xls)
     if file_name.lower().endswith(('.xlsx', '.xls')):
         try:
             return pd.read_excel(io.BytesIO(file_content), dtype=str)
         except Exception as e:
             raise ValueError(f"Gagal baca Excel: {e}")
 
-    # 2. Cek jika CSV (Coba berbagai kombinasi)
+    # Strategi 2: Jika CSV, coba kombinasi encoding & separator
     encodings_to_try = ['utf-8-sig', 'utf-8', 'latin1', 'cp1252']
     separators_to_try = [';', ',', '\t', '|']
     
     for enc in encodings_to_try:
         for sep in separators_to_try:
             try:
-                # Reset pointer
+                # Reset pointer file stream
                 file_stream = io.BytesIO(file_content)
                 df = pd.read_csv(file_stream, sep=sep, dtype=str, encoding=enc)
                 
-                # Jika kolom > 1, kemungkinan berhasil
                 if len(df.columns) > 1:
-                    print(f"✅ File terbaca: Encoding={enc}, Sep={sep}")
+                    print(f"✅ DEBUG: File terbaca dengan encoding: {enc} dan separator: {sep}")
                     return df
             except:
                 continue
     
-    # 3. Last Resort (Python Engine)
+    # Strategi 3: Last Resort (Python Engine Auto-detect)
     try:
         return pd.read_csv(io.BytesIO(file_content), sep=None, engine='python', dtype=str)
     except Exception as e:
-        raise ValueError("File tidak terbaca. Pastikan format CSV/Excel benar.")
+        raise ValueError("File tidak terbaca dengan semua metode encoding yang tersedia.")
 
 
 # ==============================================================================
@@ -428,7 +384,8 @@ def read_file_robust(file_content, file_name):
 
 async def cek_kuota(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Menampilkan info profil dan sisa kuota user.
+    Handler command /cekkuota.
+    Menampilkan info user, agency, dan sisa kuota.
     """
     user_id = update.effective_user.id
     u = get_user(user_id)
@@ -451,11 +408,10 @@ async def cek_kuota(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def admin_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Fitur Admin untuk menambah kuota user.
-    Command: /topup [ID] [JUMLAH]
+    Handler command /topup (Khusus Admin).
     """
     if update.effective_user.id != ADMIN_ID: 
-        return # Silent fail jika bukan admin
+        return # Abaikan jika bukan admin
     
     try:
         args = context.args
@@ -487,7 +443,7 @@ async def admin_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except: 
                 pass
         else:
-            await update.message.reply_text("❌ Gagal. ID User tidak ditemukan.")
+            await update.message.reply_text("❌ Gagal. Pastikan ID User benar.")
             
     except ValueError:
         await update.message.reply_text("⚠️ Jumlah harus berupa angka.")
@@ -499,7 +455,7 @@ async def admin_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Handler saat file dokumen diterima.
+    Handler pemicu saat user mengirim file dokumen.
     """
     user_id = update.effective_user.id
     user_data = get_user(user_id)
@@ -509,7 +465,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Cek Validitas User
     if not user_data or user_data['status'] != 'active':
         if user_id != ADMIN_ID: 
-            return await update.message.reply_text("⛔ **AKSES DITOLAK**")
+            return await update.message.reply_text("⛔ **AKSES DITOLAK**\nAnda belum terdaftar aktif.")
 
     # Status Typing
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.UPLOAD_DOCUMENT)
@@ -518,7 +474,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['upload_file_id'] = doc.file_id
     context.user_data['upload_file_name'] = file_name
 
-    # ALUR 1: USER BIASA (Minta info leasing)
+    # ALUR 1: USER BIASA (Forward ke Admin)
     if user_id != ADMIN_ID:
         await update.message.reply_text(
             f"📄 File `{file_name}` diterima.\n\nSatu langkah lagi: **Ini data dari Leasing/Finance apa?**",
@@ -527,7 +483,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return U_LEASING_USER
 
-    # ALUR 2: ADMIN (Proses Baca File)
+    # ALUR 2: ADMIN (SMART PROCESSING)
     else:
         msg = await update.message.reply_text("⏳ **Membaca file (Mode: Robust)...**")
         
@@ -549,9 +505,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await msg.delete()
                 
                 await update.message.reply_text(
-                    f"❌ **GAGAL DETEKSI NOPOL**\n"
-                    f"Kolom terbaca: {det}\n"
-                    f"Pastikan ada kolom: 'No Polisi', 'Plat', atau 'TNKB'."
+                    f"❌ **GAGAL DETEKSI NOPOL**\nKolom terbaca: {det}\nPastikan ada kolom: 'No Polisi', 'Plat', atau 'TNKB'."
                 )
                 return ConversationHandler.END
 
@@ -569,7 +523,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"_(Ketik 'SKIP' jika ingin menggunakan kolom dari file)_"
             )
             
-            # FIX PENTING: Hapus pesan lama, kirim pesan baru (untuk menghindari error keyboard)
+            # Hapus pesan lama, kirim pesan baru (untuk menghindari error keyboard)
             await msg.delete()
             
             await update.message.reply_text(
@@ -656,7 +610,7 @@ async def upload_leasing_admin(update: Update, context: ContextTypes.DEFAULT_TYP
         f"━━━━━━━━━━━━━━━━━━\n"
         f"🏦 **Leasing:** {final_leasing_name}\n"
         f"📊 **Total Data:** {len(df)} Unit\n\n"
-        f"📝 **CONTOH BARIS PERTAMA:**\n"
+        f"📝 **CONTOH DATA BARIS PERTAMA:**\n"
         f"🔹 Nopol: `{sample['nopol']}`\n"
         f"🔹 Unit: {sample['type']}\n"
         f"🔹 Noka: {sample['noka']}\n"
@@ -729,7 +683,7 @@ async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYP
     duration = round(time.time() - start_time, 2)
 
     # 3. Laporan Akhir (Satu kali di akhir)
-    if fail_count > 0:
+    if fail > 0:
         report = (
             f"❌ **SELESAI DENGAN ERROR**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
@@ -763,34 +717,65 @@ async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Menampilkan statistik total data dan user.
+    Menampilkan statistik total data, user, dan JUMLAH LEASING UNIK.
     """
     if update.effective_user.id != ADMIN_ID: return
     
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
-    msg_wait = await update.message.reply_text("⏳ *Sedang menghitung seluruh data...*")
+    msg_wait = await update.message.reply_text("⏳ *Sedang menghitung seluruh data... (Mohon tunggu)*", parse_mode='Markdown')
 
     try:
-        # Hitung Total Unit
+        # 1. Hitung Total Unit (Cepat)
         res_total = supabase.table('kendaraan').select("*", count="exact", head=True).execute()
         total_unit = res_total.count if res_total.count else 0
 
-        # Hitung Total User
+        # 2. Hitung Total User (Cepat)
         res_users = supabase.table('users').select("*", count="exact", head=True).execute()
         total_user = res_users.count if res_users.count else 0
+
+        # 3. Hitung Jumlah Leasing Unik (Pagination Loop)
+        # Mengambil seluruh data finance secara bertahap untuk dihitung uniknya
+        raw_set = set()
+        offset = 0
+        batch_size = 1000
+        
+        while True:
+            # Ambil data kolom 'finance' saja
+            res_batch = supabase.table('kendaraan').select("finance").range(offset, offset + batch_size - 1).execute()
+            data = res_batch.data
+            
+            if not data: 
+                break
+            
+            for d in data:
+                f = d.get('finance')
+                if f:
+                    # Bersihkan nama leasing (uppercase & trim)
+                    clean_f = str(f).strip().upper()
+                    # Filter data sampah
+                    if len(clean_f) > 1 and clean_f not in ["-", "NAN", "NONE", "NULL", "UNKNOWN"]:
+                        raw_set.add(clean_f)
+            
+            if len(data) < batch_size: 
+                break
+            
+            offset += batch_size
+
+        total_leasing = len(raw_set)
 
         msg = (
             f"📊 **STATISTIK ONEASPAL**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"📂 **Total Data Kendaraan:** `{total_unit:,}` Unit\n"
             f"👥 **Total Mitra Terdaftar:** `{total_user:,}` User\n"
+            f"🏦 **Jumlah Leasing:** `{total_leasing}` Perusahaan\n"
             f"━━━━━━━━━━━━━━━━━━"
         )
         await msg_wait.edit_text(msg, parse_mode='Markdown')
 
     except Exception as e:
         logging.error(f"Stats Error: {e}")
-        await msg_wait.edit_text(f"❌ Error: {e}")
+        await msg_wait.edit_text(f"❌ Error mengambil statistik: {e}")
 
 async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -894,7 +879,7 @@ async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, veh
         f"━━━━━━━━━━━━━━━━━━\n"
         f"👤 **Penemu:** {user_data.get('nama_lengkap')} ({user_data.get('agency')})\n"
         f"📍 **Kota:** {user_data.get('kota', '-')}\n\n"
-        f"🚙 **Unit:** {vehicle_data.get('type', '-')}\n"
+        f"🚙 **Unit:** {vehicle_data.get('type')}\n"
         f"🔢 **Nopol:** `{vehicle_data.get('nopol', '-')}`\n"
         f"📅 **Tahun:** {vehicle_data.get('tahun', '-')}\n"
         f"🎨 **Warna:** {vehicle_data.get('warna', '-')}\n"
@@ -1273,5 +1258,5 @@ if __name__ == '__main__':
     # Handle message text harus paling bawah agar tidak memakan command lain
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - V2.8 (LEGACY FULL DOCUMENTATION)")
+    print("✅ ONEASPAL BOT ONLINE - V2.9 (TITAN EDITION - FULL STATS & STABLE UPLOAD)")
     app.run_polling()
