@@ -22,15 +22,17 @@ from telegram.ext import (
 from supabase import create_client, Client
 
 # ##############################################################################
+# ##############################################################################
 #
 #                        BAGIAN 1: KONFIGURASI SISTEM
 #
+# ##############################################################################
 # ##############################################################################
 
 # ------------------------------------------------------------------------------
 # 1. Load Environment Variables
 # ------------------------------------------------------------------------------
-# Membaca file .env untuk mengambil token dan kunci rahasia
+# Membaca file .env untuk mengambil token dan kunci rahasia.
 # Pastikan file .env ada di root folder proyek dan terisi dengan benar.
 load_dotenv()
 
@@ -38,7 +40,8 @@ load_dotenv()
 # 2. Konfigurasi Logging System
 # ------------------------------------------------------------------------------
 # Ini penting agar kita bisa melihat apa yang terjadi di terminal/log server.
-# Level INFO akan menampilkan pesan status standar (bukan debug yang terlalu detail).
+# Level INFO akan menampilkan pesan status standar.
+# Format waktu disertakan agar kita tahu kapan error terjadi.
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s', 
     level=logging.INFO
@@ -110,13 +113,15 @@ except Exception as e:
 
 
 # ##############################################################################
+# ##############################################################################
 #
 #                        BAGIAN 2: KAMUS DATA & STATE
 #
 # ##############################################################################
+# ##############################################################################
 
 # ------------------------------------------------------------------------------
-# KAMUS ALIAS KOLOM (NORMALISASI AGRESIF)
+# KAMUS ALIAS KOLOM (NORMALISASI AGRESIF - VERTIKAL MODE)
 # ------------------------------------------------------------------------------
 # Kamus ini berfungsi sebagai "Otak" bot untuk mengenali header Excel yang berantakan.
 # Semua alias ditulis dalam HURUF KECIL TANPA SPASI/TITIK/SIMBOL.
@@ -153,7 +158,7 @@ COLUMN_ALIASES = {
         'object', 
         'kendaraan', 
         'item', 
-        'brand',
+        'brand', 
         'typedeskripsi', 
         'vehiclemodel', 
         'namaunit', 
@@ -213,7 +218,7 @@ COLUMN_ALIASES = {
         'principal', 
         'company', 
         'client', 
-        'financecompany',
+        'financecompany', 
         'leasingname', 
         'keterangan', 
         'sumberdata'
@@ -272,17 +277,20 @@ U_LEASING_USER, U_LEASING_ADMIN, U_CONFIRM_UPLOAD = range(15, 18)
 
 
 # ##############################################################################
+# ##############################################################################
 #
 #                        BAGIAN 3: FUNGSI HELPER & DATABASE
 #
+# ##############################################################################
 # ##############################################################################
 
 async def post_init(application: Application):
     """
     Fungsi ini dipanggil otomatis SATU KALI saat bot pertama kali menyala.
     Tugasnya: Memasang tombol menu (Blue Menu Button) di samping kolom chat Telegram user.
+    Agar user tidak perlu mengetik command manual.
     """
-    print("⏳ Sedang meng-set menu perintah Telegram...")
+    print("⏳ System: Sedang meng-set menu perintah Telegram...")
     
     await application.bot.set_my_commands([
         ("start", "🔄 Restart / Menu Utama"),
@@ -294,7 +302,7 @@ async def post_init(application: Application):
         ("panduan", "📖 Petunjuk Penggunaan"),
     ])
     
-    print("✅ TELEGRAM: Menu Perintah Berhasil Di-set!")
+    print("✅ System: Menu Perintah Berhasil Di-set!")
 
 def get_user(user_id):
     """
@@ -384,20 +392,19 @@ def smart_rename_columns(df):
     
     # Loop setiap kolom asli dari file Excel
     for original_col in df.columns:
-        # 1. Bersihkan nama kolom asli seagresif mungkin
+        # Bersihkan nama kolom asli
         clean_col = normalize_text(original_col)
         renamed = False
         
-        # 2. Cek kecocokan di kamus alias
+        # Cek kecocokan di kamus alias
         for standard_name, aliases in COLUMN_ALIASES.items():
-            # Cek jika clean_col ada di dalam list alias
             if clean_col == standard_name or clean_col in aliases:
                 new_cols[original_col] = standard_name
                 found_cols.append(standard_name)
                 renamed = True
                 break
         
-        # 3. Jika tidak ada di alias, biarkan nama aslinya
+        # Jika tidak ada di kamus, biarkan nama aslinya
         if not renamed:
             new_cols[original_col] = original_col
 
@@ -409,16 +416,20 @@ def read_file_robust(file_content, file_name):
     """
     Fungsi 'Tank Baja' untuk membaca file Excel/CSV apapun kondisinya.
     Mencoba berbagai encoding (UTF-8, Latin1, CP1252) dan delimiter.
+    Juga mengatasi masalah library openpyxl yang kadang rewel.
     """
-    # Strategi 1: Jika file Excel (.xlsx / .xls)
+    # 1. Cek jika Excel (.xlsx / .xls)
     if file_name.lower().endswith(('.xlsx', '.xls')):
         try:
             return pd.read_excel(io.BytesIO(file_content), dtype=str)
         except Exception as e:
-            raise ValueError(f"Gagal baca Excel: {e}")
+            # Fallback: Coba panggil engine openpyxl secara eksplisit
+            try:
+                return pd.read_excel(io.BytesIO(file_content), dtype=str, engine='openpyxl')
+            except:
+                raise ValueError(f"Gagal baca Excel: {e}")
 
-    # Strategi 2: Jika CSV, coba kombinasi encoding & separator
-    # Kita coba urutan: UTF-8 Sig (Excel Modern), UTF-8, Latin1 (Excel Jadul/Windows), CP1252
+    # 2. Cek jika CSV (Coba berbagai kombinasi)
     encodings_to_try = ['utf-8-sig', 'utf-8', 'latin1', 'cp1252']
     separators_to_try = [';', ',', '\t', '|']
     
@@ -436,7 +447,7 @@ def read_file_robust(file_content, file_name):
             except:
                 continue
     
-    # Strategi 3: Last Resort (Python Engine Auto-detect)
+    # 3. Last Resort (Python Engine Auto-detect)
     try:
         return pd.read_csv(io.BytesIO(file_content), sep=None, engine='python', dtype=str)
     except Exception as e:
@@ -444,9 +455,11 @@ def read_file_robust(file_content, file_name):
 
 
 # ##############################################################################
+# ##############################################################################
 #
 #                        BAGIAN 4: HANDLER FITUR USER
 #
+# ##############################################################################
 # ##############################################################################
 
 async def cek_kuota(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -522,35 +535,48 @@ async def admin_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ##############################################################################
+# ##############################################################################
 #
-#                 BAGIAN 5: SMART UPLOAD (STABLE MODE - NO RATE LIMIT)
+#                 BAGIAN 5: SMART UPLOAD (EMERGENCY FIX v3.4)
 #
+# ##############################################################################
 # ##############################################################################
 
 async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handler pemicu saat user mengirim file dokumen.
-    Mendukung CSV dan Excel.
+    Fitur Penting: Memberikan respon instan "File diterima" agar user tahu bot tidak mati.
     """
     user_id = update.effective_user.id
+    
+    # 1. RESPON INSTAN (Agar user tahu bot hidup & merespon)
+    processing_msg = await update.message.reply_text(
+        "⏳ **File diterima, sedang menganalisa format...**", 
+        parse_mode='Markdown'
+    )
+
     user_data = get_user(user_id)
     doc = update.message.document
     file_name = doc.file_name
 
-    # Cek Validitas User
+    # 2. Cek Validitas User
     if not user_data or user_data['status'] != 'active':
         if user_id != ADMIN_ID: 
-            return await update.message.reply_text("⛔ **AKSES DITOLAK**\nAnda belum terdaftar aktif.")
+            await processing_msg.edit_text("⛔ **AKSES DITOLAK**\nAnda belum terdaftar aktif.")
+            return ConversationHandler.END
 
-    # Status Typing/Uploading
+    # Status Typing
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.UPLOAD_DOCUMENT)
     
-    # Simpan info file sementara di memory context
+    # Simpan info file sementara
     context.user_data['upload_file_id'] = doc.file_id
     context.user_data['upload_file_name'] = file_name
 
     # --- ALUR 1: USER BIASA (Forward ke Admin) ---
     if user_id != ADMIN_ID:
+        # Hapus pesan processing, ganti dengan menu
+        await processing_msg.delete()
+        
         await update.message.reply_text(
             f"📄 File `{file_name}` diterima.\n\n"
             "Satu langkah lagi: **Ini data dari Leasing/Finance apa?**\n"
@@ -562,38 +588,27 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- ALUR 2: ADMIN (SMART PROCESSING) ---
     else:
-        # Kirim pesan loading awal
-        msg = await update.message.reply_text("⏳ **Membaca file (Mode: Robust)...**")
-        
         try:
-            # Download file dari Telegram Server
+            # Download file
             new_file = await doc.get_file()
             file_content = await new_file.download_as_bytearray()
             
-            # 1. BACA FILE DENGAN FUNGSI ROBUST
+            # Baca & Normalisasi
             df = read_file_robust(file_content, file_name)
-            
-            # 2. NORMALISASI HEADER (Anti-Spasi & Typo)
             df, found_cols = smart_rename_columns(df)
-            
-            # Simpan dataframe ke context
             context.user_data['df_records'] = df.to_dict(orient='records')
             
-            # 3. VALIDASI KOLOM NOPOL (Wajib Ada)
+            # Validasi Kolom Nopol
             if 'nopol' not in df.columns:
                 det = ", ".join(df.columns[:5])
-                
-                # Hapus pesan loading dulu
-                await msg.delete()
-                
-                await update.message.reply_text(
-                    f"❌ **GAGAL DETEKSI KOLOM 'NOPOL'**\n\n"
+                await processing_msg.edit_text(
+                    f"❌ **GAGAL DETEKSI NOPOL**\n\n"
                     f"Kolom terbaca: {det}\n"
-                    "👉 Pastikan ada kolom: 'No Polisi', 'Plat', atau 'TNKB' di baris pertama file."
+                    "👉 Pastikan ada kolom: 'No Polisi', 'Plat', atau 'TNKB'."
                 )
                 return ConversationHandler.END
 
-            # Cek keberadaan kolom finance
+            # Cek kolom finance
             has_finance = 'finance' in df.columns
             
             report = (
@@ -607,10 +622,8 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"_(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)_"
             )
             
-            # --- FIX: DELETE OLD MESSAGE, SEND NEW WITH KEYBOARD ---
-            # Telegram melarang edit_text disertai ReplyKeyboardMarkup.
-            # Jadi kita hapus pesan lama, lalu kirim pesan baru.
-            await msg.delete()
+            # Hapus pesan lama, kirim pesan baru (untuk menghindari error keyboard)
+            await processing_msg.delete()
             
             await update.message.reply_text(
                 report, 
@@ -621,7 +634,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         except Exception as e:
             # Jika error baca file
-            await msg.edit_text(f"❌ Gagal memproses file: {str(e)}")
+            await processing_msg.edit_text(f"❌ **ERROR BACA FILE:**\n`{str(e)}`", parse_mode='Markdown')
             return ConversationHandler.END
 
 async def upload_leasing_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -717,7 +730,7 @@ async def upload_leasing_admin(update: Update, context: ContextTypes.DEFAULT_TYP
 async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handler Admin: Eksekusi Upload ke Database.
-    Menggunakan mode STABIL (Tanpa Live Progress Bar) untuk mencegah Rate Limit Telegram.
+    Menggunakan mode STABIL (Tanpa Update Live Bar) untuk mencegah Rate Limit Telegram.
     """
     choice = update.message.text
     
@@ -741,31 +754,31 @@ async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYP
     
     success_count = 0
     fail_count = 0
-    last_error_msg = "" # Variable untuk menangkap pesan error asli dari Supabase
-    BATCH_SIZE = 1000 # Upload per 1000 baris agar tidak timeout
+    last_error_msg = "" 
     
-    # Mulai Timer
+    # Batasan Upload per Batch (Supabase limit)
+    BATCH_SIZE = 1000 
+    
     start_time = time.time()
     
     # Mulai Loop Batch Upload
     for i in range(0, len(final_data), BATCH_SIZE):
         batch = final_data[i : i + BATCH_SIZE]
         try:
-            # Upsert: Insert atau Update jika nopol sudah ada
+            # Upsert: Insert baru atau Update jika nopol sudah ada
             supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
             success_count += len(batch)
         except Exception as e:
-            last_error_msg = str(e) # Tangkap error level batch
+            last_error_msg = str(e) # Tangkap error umum
             
-            # Jika batch besar gagal, coba retry satu per satu (Fallback Mode)
-            # Ini berguna untuk mencari tahu baris mana yang bikin error
+            # Fallback: Jika batch gagal, coba satu per satu
             for item in batch:
                 try:
                     supabase.table('kendaraan').upsert([item], on_conflict='nopol').execute()
                     success_count += 1
                 except Exception as inner_e:
                     fail_count += 1
-                    last_error_msg = str(inner_e) # Tangkap error spesifik per baris
+                    last_error_msg = str(inner_e) # Tangkap error spesifik
 
     duration = round(time.time() - start_time, 2)
 
@@ -774,7 +787,7 @@ async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYP
         report = (
             f"❌ **SELESAI DENGAN ERROR**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"✅ Sukses: {success_count}\n"
+            f"✅ Berhasil: {success_count}\n"
             f"❌ Gagal: {fail_count}\n"
             f"⏱ Waktu: {duration} detik\n\n"
             f"🔍 **LOG ERROR:**\n"
@@ -793,15 +806,17 @@ async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYP
         
     await status_msg.edit_text(report, parse_mode='Markdown')
     
-    # Bersihkan memori
+    # Bersihkan Memori Server
     context.user_data.pop('final_data_records', None)
     return ConversationHandler.END
 
 
 # ##############################################################################
+# ##############################################################################
 #
 #                 BAGIAN 6: FITUR ADMIN EKSKLUSIF (STATS, USER MANAGEMENT)
 #
+# ##############################################################################
 # ##############################################################################
 
 async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -824,7 +839,6 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_user = res_users.count if res_users.count else 0
 
         # 3. Hitung Jumlah Leasing Unik (Pagination Loop)
-        # Mengambil seluruh data finance secara bertahap untuk dihitung uniknya
         raw_set = set()
         offset = 0
         batch_size = 1000
@@ -846,7 +860,6 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if len(clean_f) > 1 and clean_f not in ["-", "NAN", "NONE", "NULL", "UNKNOWN"]:
                         raw_set.add(clean_f)
             
-            # Jika data kurang dari batch_size, berarti sudah habis
             if len(data) < batch_size: 
                 break
             
@@ -911,7 +924,6 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Cek Panjang Pesan (Telegram Max 4096 char)
         if len(msg) > 4000:
-            # Jika terlalu panjang, potong
             await update.message.reply_text(msg[:4000] + "\n\n⚠️ _(Daftar dipotong karena terlalu panjang)_", parse_mode='Markdown')
         else:
             await update.message.reply_text(msg, parse_mode='Markdown')
@@ -982,7 +994,7 @@ async def contact_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     User mengirim pesan ke Admin.
     """
     u = get_user(update.effective_user.id)
-    if not u or u['status'] != 'active': return
+    if not u: return
     
     msg_content = " ".join(context.args)
     if not msg_content: 
@@ -1055,9 +1067,11 @@ async def test_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ##############################################################################
+# ##############################################################################
 #
 #                 BAGIAN 8: HANDLER CONVERSATION (REGISTRASI & LAPOR)
 #
+# ##############################################################################
 # ##############################################################################
 
 # --- LAPOR HAPUS (USER) ---
@@ -1321,9 +1335,11 @@ async def add_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ##############################################################################
+# ##############################################################################
 #
 #                 BAGIAN 9: HANDLER UTAMA (START, MESSAGE, CALLBACK)
 #
+# ##############################################################################
 # ##############################################################################
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1482,18 +1498,36 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ##############################################################################
+# ##############################################################################
 #
-#                        BAGIAN 10: MAIN PROGRAM
+#                        BAGIAN 10: MAIN PROGRAM ENTRY POINT
 #
+# ##############################################################################
 # ##############################################################################
 
 if __name__ == '__main__':
     # Build Application
     app = ApplicationBuilder().token(token).post_init(post_init).build()
     
-    # --- REGISTRASI CONVERSATION HANDLERS ---
+    # --------------------------------------------------------------------------
+    # REGISTRASI CONVERSATION HANDLERS (PRIORITAS UTAMA)
+    # --------------------------------------------------------------------------
+    # Urutan sangat penting. Handler yang lebih spesifik harus di atas.
     
-    # 1. Registrasi User
+    # 1. SMART UPLOAD (Ditaruh paling atas agar tidak tertutup handler lain)
+    # Fitur: allow_reentry=True agar bisa di-restart kapan saja jika error.
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Document.ALL, upload_start)],
+        states={
+            U_LEASING_USER: [MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), upload_leasing_user)],
+            U_LEASING_ADMIN: [MessageHandler(filters.TEXT, upload_leasing_admin)],
+            U_CONFIRM_UPLOAD: [MessageHandler(filters.TEXT, upload_confirm_admin)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)],
+        allow_reentry=True
+    ))
+
+    # 2. Registrasi User
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('register', register_start)],
         states={
@@ -1508,7 +1542,7 @@ if __name__ == '__main__':
         conversation_timeout=300
     ))
 
-    # 2. Tambah Data Manual
+    # 3. Tambah Data Manual
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('tambah', add_data_start)],
         states={
@@ -1522,7 +1556,7 @@ if __name__ == '__main__':
         conversation_timeout=60
     ))
 
-    # 3. Lapor Hapus
+    # 4. Lapor Hapus
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('lapor', lapor_delete_start)],
         states={
@@ -1533,7 +1567,7 @@ if __name__ == '__main__':
         conversation_timeout=60
     ))
 
-    # 4. Hapus Manual Admin
+    # 5. Hapus Manual Admin
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('hapus', delete_unit_start)],
         states={
@@ -1544,19 +1578,9 @@ if __name__ == '__main__':
         conversation_timeout=60
     ))
 
-    # 5. Smart Upload (STABLE MODE & KEYBOARD FIX)
-    app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Document.ALL, upload_start)],
-        states={
-            U_LEASING_USER: [MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), upload_leasing_user)],
-            U_LEASING_ADMIN: [MessageHandler(filters.TEXT, upload_leasing_admin)],
-            U_CONFIRM_UPLOAD: [MessageHandler(filters.TEXT, upload_confirm_admin)]
-        },
-        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)],
-        conversation_timeout=120
-    ))
-
-    # --- REGISTRASI COMMAND HANDLERS ---
+    # --------------------------------------------------------------------------
+    # REGISTRASI COMMAND HANDLERS
+    # --------------------------------------------------------------------------
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('cekkuota', cek_kuota))
     app.add_handler(CommandHandler('topup', admin_topup))
@@ -1573,10 +1597,12 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('delinfo', del_info))
     app.add_handler(CommandHandler('admin', contact_admin))
 
-    # --- REGISTRASI GENERIC HANDLERS ---
+    # --------------------------------------------------------------------------
+    # REGISTRASI GENERIC HANDLERS
+    # --------------------------------------------------------------------------
     app.add_handler(CallbackQueryHandler(callback_handler))
-    # Handler pesan teks (harus paling akhir)
+    # Handler pesan teks (harus paling akhir agar tidak memakan command lain)
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - V3.3 (LEGACY EDITION + NOTIFICATION FIX)")
+    print("✅ ONEASPAL BOT ONLINE - V3.5 (MASTERPIECE EDITION - FULL LINES)")
     app.run_polling()
