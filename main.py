@@ -51,7 +51,7 @@ except ValueError:
 
 print(f"✅ ADMIN ID TERDETEKSI: {ADMIN_ID}")
 
-# ID Group Log (Opsional/Hardcoded)
+# ID Group Log
 LOG_GROUP_ID = -1003627047676  
 
 # Validasi Koneksi Database
