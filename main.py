@@ -144,7 +144,9 @@ COLUMN_ALIASES = {
         'nopolisikendaraan', 
         'nopil', 
         'polisi', 
-        'platnomor'
+        'platnomor',
+        'platkendaraan',  # <--- DITAMBAHKAN KHUSUS (Case: data_base_dki_oto)
+        'nomerpolisi'
     ],
     'type': [
         'type', 
@@ -163,7 +165,9 @@ COLUMN_ALIASES = {
         'vehiclemodel', 
         'namaunit', 
         'kend', 
-        'namakendaraan'
+        'namakendaraan',
+        'merktype',       # <--- DITAMBAHKAN
+        'objek'
     ],
     'tahun': [
         'tahun', 
@@ -221,7 +225,8 @@ COLUMN_ALIASES = {
         'financecompany', 
         'leasingname', 
         'keterangan', 
-        'sumberdata'
+        'sumberdata',
+        'financetype' # <--- DITAMBAHKAN
     ],
     'ovd': [
         'ovd', 
@@ -382,6 +387,40 @@ def normalize_text(text):
     # Regex: Ganti semua karakter NON-ALFANUMERIK dengan string kosong
     return re.sub(r'[^a-zA-Z0-9]', '', text).lower()
 
+def fix_header_position(df):
+    """
+    FITUR BARU v3.7: SMART HEADER DETECTOR (THE DETECTIVE)
+    Fungsi ini akan mencari di mana sebenarnya baris header berada.
+    Berguna untuk file Excel yang 3-5 baris pertamanya berisi "Judul Laporan".
+    
+    Cara kerja:
+    1. Scan 20 baris pertama.
+    2. Jika menemukan baris yang mengandung kata kunci NOPOL (misal: 'no polisi', 'plat'),
+       maka baris itu dianggap sebagai HEADER.
+    3. Hapus baris-baris di atasnya (Judul Laporan).
+    """
+    target_aliases = COLUMN_ALIASES['nopol']
+    
+    # Loop scanning 20 baris pertama
+    for i in range(min(20, len(df))):
+        # Ambil baris ke-i, konversi ke string, dan bersihkan teksnya
+        row_values = [normalize_text(str(x)) for x in df.iloc[i].values]
+        
+        # Cek apakah ada satu pun kata kunci 'nopol' di baris ini
+        # Misal: Apakah 'nopolisi' ada di ['no', 'finance', 'nopolisi', 'unit']? -> YA
+        if any(alias in row_values for alias in target_aliases):
+            print(f"✅ SMART HEADER: Ditemukan di baris ke-{i}")
+            
+            # Jadikan baris ini sebagai nama kolom (Header)
+            df.columns = df.iloc[i] 
+            
+            # Ambil data mulai dari baris setelahnya (i+1) sampai habis
+            df = df.iloc[i+1:].reset_index(drop=True) 
+            return df
+            
+    # Jika tidak ketemu apa-apa dalam 20 baris, kembalikan apa adanya (mungkin formatnya standar)
+    return df
+
 def smart_rename_columns(df):
     """
     Fungsi Cerdas untuk menstandarkan nama kolom DataFrame.
@@ -537,7 +576,7 @@ async def admin_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ##############################################################################
 # ##############################################################################
 #
-#                 BAGIAN 5: SMART UPLOAD (STABLE REVISED v3.6)
+#                 BAGIAN 5: SMART UPLOAD (INTELLIGENT DETECTIVE v3.7)
 #
 # ##############################################################################
 # ##############################################################################
@@ -593,12 +632,21 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             new_file = await doc.get_file()
             file_content = await new_file.download_as_bytearray()
             
-            # Baca & Normalisasi
+            # 1. BACA FILE (ROBUST MODE)
             df = read_file_robust(file_content, file_name)
+            
+            # 2. DETEKSI POSISI HEADER (New Feature v3.7)
+            # Fungsi ini akan mencari baris yang berisi 'nopol'/'plat' 
+            # jika header tenggelam karena ada judul laporan di baris 1-5.
+            df = fix_header_position(df)
+            
+            # 3. Normalisasi Nama Kolom
             df, found_cols = smart_rename_columns(df)
+            
+            # Simpan dataframe ke context
             context.user_data['df_records'] = df.to_dict(orient='records')
             
-            # Validasi Kolom Nopol
+            # 4. Validasi Kolom Nopol (Wajib Ada)
             if 'nopol' not in df.columns:
                 det = ", ".join(df.columns[:5])
                 await processing_msg.edit_text(
@@ -612,7 +660,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             has_finance = 'finance' in df.columns
             
             report = (
-                f"✅ **SMART SCAN SUKSES**\n"
+                f"✅ **SMART SCAN SUKSES (v3.7)**\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"📊 **Kolom Dikenali:** {', '.join(found_cols)}\n"
                 f"📁 **Total Baris:** {len(df)}\n"
@@ -1623,5 +1671,5 @@ if __name__ == '__main__':
     # Handler pesan teks (harus paling akhir agar tidak memakan command lain)
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - V3.6 (COMMUNICATOR EDITION)")
+    print("✅ ONEASPAL BOT ONLINE - V3.7 (SMART DETECTIVE & FULL LEGACY)")
     app.run_polling()
