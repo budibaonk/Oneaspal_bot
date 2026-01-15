@@ -185,7 +185,8 @@ COLUMN_ALIASES = {
         'rakitan', 
         'th', 
         'yearofmanufacture', 
-        'thnrakit', 
+        'thnrakit',
+        'tahunkendaraan', 
         'manufacturingyear'
     ],
     
@@ -256,7 +257,8 @@ COLUMN_ALIASES = {
         'keterlambatan', 
         'hari', 
         'telat', 
-        'aging', 
+        'aging',
+        'code', 
         'od', 
         'bucket', 
         'daysoverdue', 
