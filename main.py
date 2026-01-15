@@ -6,6 +6,7 @@ import numpy as np
 import time
 import re
 import asyncio 
+import csv # Ditambahkan untuk sniffing format file teks
 from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, constants
@@ -32,15 +33,15 @@ from supabase import create_client, Client
 # ------------------------------------------------------------------------------
 # 1. Load Environment Variables
 # ------------------------------------------------------------------------------
-# Membaca file .env untuk mengambil token dan kunci rahasia.
-# Pastikan file .env ada di root folder proyek dan terisi dengan benar.
+# Fungsi ini bertugas membaca file .env yang ada di server.
+# File .env berisi kunci rahasia yang tidak boleh disebar ke publik.
 load_dotenv()
 
 # ------------------------------------------------------------------------------
 # 2. Konfigurasi Logging System
 # ------------------------------------------------------------------------------
-# Ini penting agar kita bisa melihat apa yang terjadi di terminal/log server.
-# Level INFO akan menampilkan pesan status standar.
+# Logging adalah "Kotak Hitam" pesawat.
+# Ini mencatat semua aktivitas dan error yang terjadi di terminal server.
 # Format waktu disertakan agar kita tahu kapan error terjadi.
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s', 
@@ -50,13 +51,13 @@ logging.basicConfig(
 # ------------------------------------------------------------------------------
 # 3. Ambil Credential dari Environment
 # ------------------------------------------------------------------------------
-# Pastikan nama variabel di .env atau Railway SESUAI dengan ini.
-# Jika salah satu tidak ada, bot tidak akan bisa jalan.
+# Mengambil nilai variabel dari environment server (Railway/Local).
+# Pastikan nama variabel di sini SAMA PERSIS dengan di settingan server.
 
 # URL Database Supabase Project
 url: str = os.environ.get("SUPABASE_URL")
 
-# Service Role Key (Kunci Sakti untuk Admin Database)
+# Service Role Key (Kunci Sakti untuk Admin Database - Bisa Read/Write/Delete)
 key: str = os.environ.get("SUPABASE_KEY")
 
 # Token Bot Telegram dari BotFather
@@ -65,21 +66,26 @@ token: str = os.environ.get("TELEGRAM_TOKEN")
 # ------------------------------------------------------------------------------
 # 4. Variable Global & Konstanta
 # ------------------------------------------------------------------------------
-# Variable ini digunakan untuk menyimpan pesan sticky info dari Admin.
+# Variable ini bersifat dinamis dan disimpan di memori RAM server sementara.
+
+# Menyimpan pesan sticky info dari Admin (Running Text di /start).
 # Default kosong, diisi lewat command /setinfo.
 GLOBAL_INFO = ""
 
 # ID Group Log untuk notifikasi jika ada unit ditemukan (HIT).
 # Bot akan mengirim pesan ke sini jika ada user yang mencari Nopol dan hasilnya ADA.
 # Pastikan bot sudah dimasukkan ke group ini dan dijadikan Admin.
+# Ganti angka ini dengan ID Group Log Bapak yang sebenarnya.
 LOG_GROUP_ID = -1003627047676  
 
 # ------------------------------------------------------------------------------
 # 5. Setup Admin ID
 # ------------------------------------------------------------------------------
-# Mengambil ID Admin dari .env, jika tidak ada gunakan default (ID Bapak).
+# Mengambil ID Admin Utama dari .env.
+# Jika tidak ada di .env, gunakan default (ID Bapak) untuk mencegah error.
 # ID ini memiliki hak akses penuh (Superuser) untuk ACC user, Upload, dan Delete.
 DEFAULT_ADMIN_ID = 7530512170
+
 try:
     env_id = os.environ.get("ADMIN_ID")
     if env_id:
@@ -94,7 +100,8 @@ print(f"✅ SYSTEM BOOT: ADMIN ID TERDETEKSI = {ADMIN_ID}")
 # ------------------------------------------------------------------------------
 # 6. Validasi Kelengkapan Credential
 # ------------------------------------------------------------------------------
-# Jika salah satu kunci kosong, matikan bot untuk mencegah error fatal.
+# Ini adalah "Pre-Flight Check".
+# Jika salah satu kunci kosong, matikan bot segera untuk mencegah error fatal di tengah jalan.
 if not url or not key or not token:
     print("❌ CRITICAL ERROR: Credential tidak lengkap!")
     print("👉 Pastikan file .env berisi: SUPABASE_URL, SUPABASE_KEY, TELEGRAM_TOKEN")
@@ -103,7 +110,7 @@ if not url or not key or not token:
 # ------------------------------------------------------------------------------
 # 7. Inisialisasi Koneksi Database Supabase
 # ------------------------------------------------------------------------------
-# Mencoba terhubung ke cloud database.
+# Mencoba membuat jalur komunikasi ke cloud database.
 try:
     supabase: Client = create_client(url, key)
     print("✅ DATABASE: Koneksi ke Supabase Berhasil!")
@@ -123,12 +130,12 @@ except Exception as e:
 # ------------------------------------------------------------------------------
 # KAMUS ALIAS KOLOM (NORMALISASI AGRESIF - VERTIKAL MODE)
 # ------------------------------------------------------------------------------
-# Kamus ini berfungsi sebagai "Otak" bot untuk mengenali header Excel yang berantakan.
-# Semua alias ditulis dalam HURUF KECIL TANPA SPASI/TITIK/SIMBOL.
-# NOTE: Tambahkan kata kunci baru di sini jika ada format excel baru.
+# Kamus ini berfungsi sebagai "Otak" bot untuk mengenali header Excel/CSV yang berantakan.
+# Bot akan mencocokkan nama kolom di file user dengan kunci di sini.
 # Ditulis memanjang ke bawah (Vertical) agar mudah dibaca dan diedit satu per satu.
 
 COLUMN_ALIASES = {
+    # Alias untuk Kolom NOPOL (Nomor Polisi)
     'nopol': [
         'nopolisi', 
         'nomorpolisi', 
@@ -145,9 +152,13 @@ COLUMN_ALIASES = {
         'nopil', 
         'polisi', 
         'platnomor',
-        'platkendaraan',  # <--- DITAMBAHKAN KHUSUS (Case: data_base_dki_oto)
-        'nomerpolisi'
+        'platkendaraan',  # Support file data_base_dki_oto
+        'nomerpolisi',
+        'no.polisi',      # Support file dengan titik
+        'nopol.'          # Support file dengan titik akhir
     ],
+    
+    # Alias untuk Kolom UNIT / TYPE KENDARAAN
     'type': [
         'type', 
         'tipe', 
@@ -166,9 +177,12 @@ COLUMN_ALIASES = {
         'namaunit', 
         'kend', 
         'namakendaraan',
-        'merktype',       # <--- DITAMBAHKAN
-        'objek'
+        'merktype',       # Support file gabungan merk+type
+        'objek',
+        'jenisobjek'
     ],
+    
+    # Alias untuk Kolom TAHUN PERAKITAN
     'tahun': [
         'tahun', 
         'year', 
@@ -179,6 +193,8 @@ COLUMN_ALIASES = {
         'thnrakit', 
         'manufacturingyear'
     ],
+    
+    # Alias untuk Kolom WARNA
     'warna': [
         'warna', 
         'color', 
@@ -187,6 +203,8 @@ COLUMN_ALIASES = {
         'kelir', 
         'warnakendaraan'
     ],
+    
+    # Alias untuk Kolom NO RANGKA (Chassis)
     'noka': [
         'noka', 
         'norangka', 
@@ -200,6 +218,8 @@ COLUMN_ALIASES = {
         'chasisno', 
         'vinno'
     ],
+    
+    # Alias untuk Kolom NO MESIN (Engine)
     'nosin': [
         'nosin', 
         'nomesin', 
@@ -211,6 +231,8 @@ COLUMN_ALIASES = {
         'engineno', 
         'noengine'
     ],
+    
+    # Alias untuk Kolom LEASING / FINANCE
     'finance': [
         'finance', 
         'leasing', 
@@ -226,8 +248,10 @@ COLUMN_ALIASES = {
         'leasingname', 
         'keterangan', 
         'sumberdata',
-        'financetype' # <--- DITAMBAHKAN
+        'financetype'
     ],
+    
+    # Alias untuk Kolom OVERDUE / KETERLAMBATAN
     'ovd': [
         'ovd', 
         'overdue', 
@@ -242,8 +266,11 @@ COLUMN_ALIASES = {
         'overduedays', 
         'kiriman', 
         'kolektibilitas', 
-        'kol'
+        'kol',
+        'kolek'
     ],
+    
+    # Alias untuk Kolom CABANG / WILAYAH
     'branch': [
         'branch', 
         'area', 
@@ -262,8 +289,8 @@ COLUMN_ALIASES = {
 # ------------------------------------------------------------------------------
 # DEFINISI STATE CONVERSATION HANDLER
 # ------------------------------------------------------------------------------
-# Angka-angka ini adalah penanda "Posisi" user dalam percakapan.
-# Jangan diubah urutannya kecuali Anda paham alurnya.
+# Angka-angka ini adalah "Alamat" posisi user dalam percakapan.
+# Jangan diubah urutannya sembarangan.
 
 # 1. State untuk Registrasi User Baru
 R_NAMA, R_HP, R_EMAIL, R_KOTA, R_AGENCY, R_CONFIRM = range(6)
@@ -293,7 +320,6 @@ async def post_init(application: Application):
     """
     Fungsi ini dipanggil otomatis SATU KALI saat bot pertama kali menyala.
     Tugasnya: Memasang tombol menu (Blue Menu Button) di samping kolom chat Telegram user.
-    Agar user tidak perlu mengetik command manual.
     """
     print("⏳ System: Sedang meng-set menu perintah Telegram...")
     
@@ -313,7 +339,7 @@ def get_user(user_id):
     """
     Mengambil data user dari tabel 'users' di Supabase.
     
-    Parameter: 
+    Args:
         user_id (int): ID Telegram User
         
     Returns: 
@@ -344,7 +370,6 @@ def update_quota_usage(user_id, current_quota):
     """
     Mengurangi kuota user sebanyak 1 poin.
     Hanya dipanggil jika pencarian menghasilkan DATA DITEMUKAN (HIT).
-    Jika hasil pencarian nihil (ZONK), kuota tidak berkurang.
     """
     try:
         new_quota = current_quota - 1
@@ -355,10 +380,6 @@ def update_quota_usage(user_id, current_quota):
 def topup_quota(user_id, amount):
     """
     Fungsi khusus Admin untuk menambah kuota user secara manual.
-    
-    Parameter:
-        user_id (int): ID Telegram User
-        amount (int): Jumlah kuota yang ditambahkan
     """
     try:
         user = get_user(user_id)
@@ -378,9 +399,6 @@ def normalize_text(text):
     Fungsi krusial untuk membersihkan nama kolom Excel.
     Menghapus spasi, titik, koma, underscore, dan karakter aneh.
     Hanya menyisakan huruf dan angka lowercase.
-    
-    Contoh: 'No. Polisi ' -> 'nopolisi'
-    Contoh: 'Type_Kendaraan' -> 'typekendaraan'
     """
     if not isinstance(text, str): 
         return str(text).lower()
@@ -389,15 +407,13 @@ def normalize_text(text):
 
 def fix_header_position(df):
     """
-    FITUR BARU v3.7: SMART HEADER DETECTOR (THE DETECTIVE)
-    Fungsi ini akan mencari di mana sebenarnya baris header berada.
-    Berguna untuk file Excel yang 3-5 baris pertamanya berisi "Judul Laporan".
+    SMART HEADER DETECTOR v3.7
+    Mencari baris header yang benar jika file Excel/CSV memiliki judul di atas tabel.
     
-    Cara kerja:
+    Logika:
     1. Scan 20 baris pertama.
-    2. Jika menemukan baris yang mengandung kata kunci NOPOL (misal: 'no polisi', 'plat'),
-       maka baris itu dianggap sebagai HEADER.
-    3. Hapus baris-baris di atasnya (Judul Laporan).
+    2. Cari baris yang mengandung salah satu alias 'nopol'.
+    3. Jika ketemu, potong dataframe mulai dari baris itu.
     """
     target_aliases = COLUMN_ALIASES['nopol']
     
@@ -407,7 +423,6 @@ def fix_header_position(df):
         row_values = [normalize_text(str(x)) for x in df.iloc[i].values]
         
         # Cek apakah ada satu pun kata kunci 'nopol' di baris ini
-        # Misal: Apakah 'nopolisi' ada di ['no', 'finance', 'nopolisi', 'unit']? -> YA
         if any(alias in row_values for alias in target_aliases):
             print(f"✅ SMART HEADER: Ditemukan di baris ke-{i}")
             
@@ -418,7 +433,7 @@ def fix_header_position(df):
             df = df.iloc[i+1:].reset_index(drop=True) 
             return df
             
-    # Jika tidak ketemu apa-apa dalam 20 baris, kembalikan apa adanya (mungkin formatnya standar)
+    # Jika tidak ketemu apa-apa dalam 20 baris, kembalikan apa adanya
     return df
 
 def smart_rename_columns(df):
@@ -453,11 +468,11 @@ def smart_rename_columns(df):
 
 def read_file_robust(file_content, file_name):
     """
-    Fungsi 'Tank Baja' untuk membaca file Excel/CSV apapun kondisinya.
-    Mencoba berbagai encoding (UTF-8, Latin1, CP1252) dan delimiter.
-    Juga mengatasi masalah library openpyxl yang kadang rewel.
+    Fungsi 'OMNIVORA' (v3.8) - Pemakan Segala Format File.
+    Mampu membaca Excel (.xlsx), CSV, dan TXT dengan berbagai encoding.
+    Support khusus untuk file BAF (Tab Separated, UTF-16).
     """
-    # 1. Cek jika Excel (.xlsx / .xls)
+    # STRATEGI 1: JIKA FORMAT EXCEL (.XLSX / .XLS)
     if file_name.lower().endswith(('.xlsx', '.xls')):
         try:
             return pd.read_excel(io.BytesIO(file_content), dtype=str)
@@ -468,29 +483,60 @@ def read_file_robust(file_content, file_name):
             except:
                 raise ValueError(f"Gagal baca Excel: {e}")
 
-    # 2. Cek jika CSV (Coba berbagai kombinasi)
-    encodings_to_try = ['utf-8-sig', 'utf-8', 'latin1', 'cp1252']
-    separators_to_try = [';', ',', '\t', '|']
+    # STRATEGI 2: JIKA FORMAT CSV ATAU TXT
+    # Kita harus mencoba berbagai kombinasi Encoding dan Separator (Pemisah)
     
+    # Daftar encoding yang sering dipakai di Indonesia/Corporate
+    encodings_to_try = [
+        'utf-8-sig',  # Modern CSV dengan BOM
+        'utf-8',      # Standar Web
+        'cp1252',     # Windows Default (Excel CSV)
+        'latin1',     # Western Europe
+        'utf-16',     # PENTING: Sering dipakai di file BAF / System Dump lama
+        'utf-16le',   # UTF-16 Little Endian
+        'utf-16be'    # UTF-16 Big Endian
+    ]
+    
+    # Daftar pemisah (Separator)
+    separators_to_try = [
+        None, # Biarkan Python Auto-Detect (Sniffer)
+        ';',  # Titik koma (Standard Excel Indonesia)
+        ',',  # Koma (Standard International)
+        '\t', # TAB (PENTING: File BAF menggunakan ini)
+        '|'   # Pipa (Jarang tapi ada)
+    ]
+    
+    # Loop percobaan membaca file
     for enc in encodings_to_try:
         for sep in separators_to_try:
             try:
-                # Reset pointer file stream agar dibaca dari awal
+                # Reset pointer file stream agar dibaca dari awal setiap loop
                 file_stream = io.BytesIO(file_content)
-                df = pd.read_csv(file_stream, sep=sep, dtype=str, encoding=enc)
                 
-                # Validasi sederhana: Jika kolomnya > 1, kemungkinan berhasil baca
+                # Gunakan engine python agar lebih flexible
+                df = pd.read_csv(
+                    file_stream, 
+                    sep=sep, 
+                    dtype=str, 
+                    encoding=enc, 
+                    engine='python',
+                    on_bad_lines='skip' # Lewati baris yang rusak/error
+                )
+                
+                # Validasi Keberhasilan:
+                # File dianggap terbaca jika memiliki lebih dari 1 kolom
+                # Atau 1 kolom tapi namanya valid
                 if len(df.columns) > 1:
-                    print(f"✅ DEBUG: File terbaca dengan encoding: {enc} dan separator: {sep}")
+                    print(f"✅ OMNIVORA SUCCESS: Encoding={enc}, Separator={sep}")
                     return df
             except:
                 continue
     
-    # 3. Last Resort (Python Engine Auto-detect)
+    # STRATEGI 3: LAST RESORT (BACA APA ADANYA)
     try:
         return pd.read_csv(io.BytesIO(file_content), sep=None, engine='python', dtype=str)
     except Exception as e:
-        raise ValueError("File tidak terbaca dengan semua metode encoding yang tersedia.")
+        raise ValueError("File tidak terbaca dengan semua metode encoding. Pastikan file tidak rusak atau terenkripsi.")
 
 
 # ##############################################################################
@@ -522,7 +568,7 @@ async def cek_kuota(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"━━━━━━━━━━━━━━━━━━\n"
         f"🔋 **SISA KUOTA:** `{u.get('quota', 0)}` HIT\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"💡 _Catatan: Kuota hanya berkurang jika data ditemukan (HIT). Pencarian ZONK tidak memotong kuota._"
+        f"💡 _Catatan: Kuota hanya berkurang jika data ditemukan (HIT)._"
     )
     await update.message.reply_text(msg, parse_mode='Markdown')
 
@@ -576,7 +622,7 @@ async def admin_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ##############################################################################
 # ##############################################################################
 #
-#                 BAGIAN 5: SMART UPLOAD (INTELLIGENT DETECTIVE v3.7)
+#                 BAGIAN 5: SMART UPLOAD (OMNIVORA v3.8)
 #
 # ##############################################################################
 # ##############################################################################
@@ -632,12 +678,12 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             new_file = await doc.get_file()
             file_content = await new_file.download_as_bytearray()
             
-            # 1. BACA FILE (ROBUST MODE)
+            # 1. BACA FILE (ROBUST MODE v3.8)
+            # Menggunakan logika Omnivora (Cek Excel, CSV, TXT, Tab, UTF-16, dll)
             df = read_file_robust(file_content, file_name)
             
-            # 2. DETEKSI POSISI HEADER (New Feature v3.7)
-            # Fungsi ini akan mencari baris yang berisi 'nopol'/'plat' 
-            # jika header tenggelam karena ada judul laporan di baris 1-5.
+            # 2. DETEKSI POSISI HEADER (Smart Detective v3.7)
+            # Mencari baris header jika file memiliki judul laporan di baris atas
             df = fix_header_position(df)
             
             # 3. Normalisasi Nama Kolom
@@ -660,7 +706,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             has_finance = 'finance' in df.columns
             
             report = (
-                f"✅ **SMART SCAN SUKSES (v3.7)**\n"
+                f"✅ **SMART SCAN SUKSES (v3.8)**\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"📊 **Kolom Dikenali:** {', '.join(found_cols)}\n"
                 f"📁 **Total Baris:** {len(df)}\n"
@@ -1314,7 +1360,6 @@ async def register_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         # NOTIFIKASI ADMIN LENGKAP (REVISI v3.2)
-        # Menampilkan seluruh data user yang mendaftar agar Admin mudah memverifikasi
         msg_admin = (
             f"🔔 **PENDAFTARAN MITRA BARU**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
@@ -1462,7 +1507,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         # WILDCARD SEARCH (SUFFIX MATCHING)
-        # Mencari Nopol/Noka/Nosin yang mengandung keyword input
         res = supabase.table('kendaraan').select("*").or_(f"nopol.ilike.%{kw}%,noka.eq.{kw},nosin.eq.{kw}").execute()
         
         if res.data:
@@ -1579,7 +1623,6 @@ if __name__ == '__main__':
     # --------------------------------------------------------------------------
     # REGISTRASI CONVERSATION HANDLERS (PRIORITAS UTAMA)
     # --------------------------------------------------------------------------
-    # Urutan sangat penting. Handler yang lebih spesifik harus di atas.
     
     # 1. SMART UPLOAD (Ditaruh paling atas agar tidak tertutup handler lain)
     # Fitur: allow_reentry=True agar bisa di-restart kapan saja jika error.
@@ -1671,5 +1714,5 @@ if __name__ == '__main__':
     # Handler pesan teks (harus paling akhir agar tidak memakan command lain)
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - V3.7 (SMART DETECTIVE & FULL LEGACY)")
+    print("✅ ONEASPAL BOT ONLINE - V3.8 (OMNIVORA - ULTIMATE BLUE BOOK EDITION)")
     app.run_polling()
