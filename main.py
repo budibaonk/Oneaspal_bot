@@ -7,7 +7,7 @@ import time
 import re
 import asyncio 
 import csv 
-import zipfile # <--- SENJATA BARU: LIBRARY ZIP
+import zipfile 
 from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, constants
@@ -125,7 +125,7 @@ except Exception as e:
 # ------------------------------------------------------------------------------
 # KAMUS ALIAS KOLOM (NORMALISASI AGRESIF - VERTIKAL MODE)
 # ------------------------------------------------------------------------------
-# Kamus ini berfungsi sebagai "Otak" bot untuk mengenali header Excel/CSV yang berantakan.
+# Kamus ini berfungsi sebagai "Otak" bot untuk mengenali header Excel yang berantakan.
 # Semua alias ditulis dalam HURUF KECIL TANPA SPASI/TITIK/SIMBOL.
 # Ditulis memanjang ke bawah (Vertical) agar mudah dibaca dan diedit satu per satu.
 
@@ -211,7 +211,8 @@ COLUMN_ALIASES = {
         'chassisno', 
         'norangka1', 
         'chasisno', 
-        'vinno'
+        'vinno',
+        'norang' # <--- NEW v3.10: Support file Syembara
     ],
     
     # Alias untuk Kolom NO MESIN (Engine)
@@ -224,7 +225,8 @@ COLUMN_ALIASES = {
         'engineno', 
         'nomesin1', 
         'engineno', 
-        'noengine'
+        'noengine',
+        'nomes' # <--- NEW v3.10: Support file Syembara
     ],
     
     # Alias untuk Kolom LEASING / FINANCE
@@ -410,15 +412,13 @@ def normalize_text(text):
 
 def fix_header_position(df):
     """
-    FITUR SMART HEADER DETECTOR (v3.7)
-    Fungsi ini akan mencari di mana sebenarnya baris header berada.
-    Berguna untuk file Excel yang 3-5 baris pertamanya berisi "Judul Laporan".
+    SMART HEADER DETECTOR v3.7
+    Mencari baris header yang benar jika file Excel/CSV memiliki judul di atas tabel.
     
-    Cara kerja:
+    Logika:
     1. Scan 20 baris pertama.
-    2. Jika menemukan baris yang mengandung kata kunci NOPOL (misal: 'no polisi', 'plat'),
-       maka baris itu dianggap sebagai HEADER.
-    3. Hapus baris-baris di atasnya (Judul Laporan).
+    2. Cari baris yang mengandung salah satu alias 'nopol'.
+    3. Jika ketemu, potong dataframe mulai dari baris itu.
     """
     target_aliases = COLUMN_ALIASES['nopol']
     
@@ -438,7 +438,7 @@ def fix_header_position(df):
             df = df.iloc[i+1:].reset_index(drop=True) 
             return df
             
-    # Jika tidak ketemu apa-apa dalam 20 baris, kembalikan apa adanya (mungkin formatnya standar)
+    # Jika tidak ketemu apa-apa dalam 20 baris, kembalikan apa adanya
     return df
 
 def smart_rename_columns(df):
@@ -473,25 +473,23 @@ def smart_rename_columns(df):
 
 def read_file_robust(file_content, file_name):
     """
-    Fungsi 'ZIP MASTER & OMNIVORA' (v3.9).
-    Fungsi ini adalah inti dari kemampuan upload bot.
+    Fungsi 'ADAPTIVE POLYGLOT' (v3.10) - The Ultimate File Reader.
     
-    KEMAMPUAN:
-    1. ZIP EXTRACT: Membuka file .zip di memori server dan mengambil file data pertamanya.
-    2. EXCEL READER: Membaca .xlsx / .xls menggunakan engine yang tersedia.
-    3. TEXT READER: Membaca .csv / .txt dengan berbagai encoding (UTF-16, Latin1, CP1252)
-       dan berbagai separator (Koma, Titik Koma, TAB).
+    Kemampuan:
+    1. ZIP EXTRACT: Otomatis ekstrak file .zip.
+    2. EXCEL READER: Baca .xlsx/.xls. 
+       NEW: Jika gagal baca Excel (misal file CSV yang dinamai .xls), otomatis fallback ke Text Reader.
+    3. TEXT READER (Omnivora): Coba baca .csv/.txt dengan segala macam encoding dan separator.
     """
     
     # --------------------------------------------------------------------------
-    # STEP 0: DETEKSI & EKSTRAK ZIP (New Feature v3.9)
+    # STEP 0: DETEKSI & EKSTRAK ZIP
     # --------------------------------------------------------------------------
     if file_name.lower().endswith('.zip'):
         try:
             print("📦 ZIP FILE DETECTED: Mencoba ekstrak...")
             with zipfile.ZipFile(io.BytesIO(file_content)) as z:
                 # Cari file yang valid di dalam zip (Excel/CSV/TXT)
-                # Filter file sistem MacOS (__MACOSX)
                 valid_files = [
                     f for f in z.namelist() 
                     if not f.startswith('__MACOSX') and f.lower().endswith(('.csv', '.xlsx', '.xls', '.txt'))
@@ -517,11 +515,15 @@ def read_file_robust(file_content, file_name):
         try:
             return pd.read_excel(io.BytesIO(file_content), dtype=str)
         except Exception as e:
-            # Fallback: Coba panggil engine openpyxl secara eksplisit
+            # Coba engine alternatif
             try:
                 return pd.read_excel(io.BytesIO(file_content), dtype=str, engine='openpyxl')
-            except:
-                raise ValueError(f"Gagal baca Excel: {e}")
+            except Exception:
+                # UPDATE v3.10: FALLBACK STRATEGY!
+                # Jangan raise Error dulu. Ada kemungkinan ini file CSV yang "menyamar" jadi .xls
+                # Biarkan kode lanjut ke Step 2 (Text Reader)
+                print(f"⚠️ Gagal baca Excel murni. Mencoba baca sebagai Text/CSV (Fake Excel check)...")
+                pass 
 
     # --------------------------------------------------------------------------
     # STEP 2: JIKA FORMAT CSV ATAU TXT (Omnivora Logic)
@@ -666,7 +668,7 @@ async def admin_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ##############################################################################
 # ##############################################################################
 #
-#                 BAGIAN 5: SMART UPLOAD (ZIP SUPPORT v3.9)
+#                 BAGIAN 5: SMART UPLOAD (ADAPTIVE POLYGLOT v3.10)
 #
 # ##############################################################################
 # ##############################################################################
@@ -722,8 +724,8 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             new_file = await doc.get_file()
             file_content = await new_file.download_as_bytearray()
             
-            # 1. BACA FILE (ZIP/ROBUST MODE v3.9)
-            # Menggunakan logika Zip Master + Omnivora
+            # 1. BACA FILE (ADAPTIVE MODE v3.10)
+            # Menggunakan logika Omnivora + Zip + Fake Excel Fallback
             df = read_file_robust(file_content, file_name)
             
             # 2. DETEKSI POSISI HEADER (Smart Detective v3.7)
@@ -750,7 +752,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             has_finance = 'finance' in df.columns
             
             report = (
-                f"✅ **SCAN SUKSES (v3.9 ZIP)**\n"
+                f"✅ **SCAN SUKSES (v3.10)**\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"📊 **Kolom Dikenali:** {', '.join(found_cols)}\n"
                 f"📁 **Total Baris:** {len(df)}\n"
@@ -778,7 +780,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "❌ **FILE TERLALU BESAR (>20MB)**\n\n"
                     "💡 **SOLUSI:**\n"
                     "Silakan **COMPRESS / ZIP** file tersebut di komputer/HP Anda, lalu upload file `.zip`-nya ke sini.\n"
-                    "Bot v3.9 sudah bisa membaca ZIP otomatis! 🚀",
+                    "Bot v3.10 sudah bisa membaca ZIP otomatis! 🚀",
                     parse_mode='Markdown'
                 )
             else:
@@ -854,7 +856,7 @@ async def upload_leasing_admin(update: Update, context: ContextTypes.DEFAULT_TYP
     
     # Tampilkan Preview
     preview_msg = (
-        f"🔎 **PREVIEW DATA (v3.9)**\n"
+        f"🔎 **PREVIEW DATA (v3.10)**\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"🏦 **Leasing:** {final_leasing_name}\n"
         f"📊 **Total Data:** {len(df)} Unit\n\n"
@@ -1770,5 +1772,5 @@ if __name__ == '__main__':
     # Handler pesan teks (harus paling akhir agar tidak memakan command lain)
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ ONEASPAL BOT ONLINE - V3.9 (ZIP SUPPORT ENABLED)")
+    print("✅ ONEASPAL BOT ONLINE - V3.10 (ADAPTIVE POLYGLOT)")
     app.run_polling()
