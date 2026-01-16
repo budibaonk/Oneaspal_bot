@@ -1231,7 +1231,24 @@ if __name__ == '__main__':
 
     app.add_handler(ConversationHandler(entry_points=[MessageHandler(filters.Document.ALL, upload_start)], states={U_LEASING_USER: [MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), upload_leasing_user)], U_LEASING_ADMIN: [MessageHandler(filters.TEXT, upload_leasing_admin)], U_CONFIRM_UPLOAD: [MessageHandler(filters.TEXT, upload_confirm_admin)]}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)], allow_reentry=True))
     app.add_handler(ConversationHandler(entry_points=[CommandHandler('register', register_start)], states={R_NAMA:[MessageHandler(filters.TEXT, register_nama)], R_HP:[MessageHandler(filters.TEXT, register_hp)], R_EMAIL:[MessageHandler(filters.TEXT, register_email)], R_KOTA:[MessageHandler(filters.TEXT, register_kota)], R_AGENCY:[MessageHandler(filters.TEXT, register_agency)], R_CONFIRM:[MessageHandler(filters.TEXT, register_confirm)]}, fallbacks=[CommandHandler('cancel', cancel)]))
-    app.add_handler(ConversationHandler(entry_points=[CommandHandler('tambah', add_data_start)], states={A_NOPOL:[MessageHandler(filters.TEXT, add_nopol)], A_TYPE:[MessageHandler(filters.TEXT, add_type)], A_LEASING:[MessageHandler(filters.TEXT, add_leasing)], A_NOKIR:[MessageHandler(filters.TEXT, add_nokir)], A_CONFIRM:[MessageHandler(filters.TEXT, add_confirm)]}, fallbacks=[CommandHandler('cancel', cancel)]))
+    
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('tambah', add_data_start)],
+        states={
+            # FIX: Pasang filter (~filters.Regex) di SETIAP STEP
+            # Artinya: "Terima teks apapun KECUALI kata '❌ BATAL'"
+            # Jika user kirim BATAL, maka akan dilempar ke 'fallbacks' (cancel)
+            A_NOPOL:   [MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), add_nopol)],
+            A_TYPE:    [MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), add_type)],
+            A_LEASING: [MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), add_leasing)],
+            A_NOKIR:   [MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), add_nokir)],
+            A_CONFIRM: [MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), add_confirm)]
+        },
+        # Fallback akan menangkap '❌ BATAL' dan langsung mematikan percakapan
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)],
+        conversation_timeout=60
+    ))
+
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('lapor', lapor_delete_start)], 
         states={
