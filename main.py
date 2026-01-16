@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.9 (UPLOAD UI RESTORED & BUG FIXES)           #
+#                      VERSION: 4.9.1 (STABILITY PATCH)                        #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -297,7 +297,7 @@ async def reject_complete(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ##############################################################################
-# BAGIAN 7: FITUR ADMIN - USER MANAGER & PANEL (FIX CRASH)
+# BAGIAN 7: FITUR ADMIN - USER MANAGER (FIX CRASH & PAGINATION)
 # ##############################################################################
 
 async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -325,7 +325,7 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Menampilkan daftar user dengan SHORTCUT LINK (/m_ID).
-    FIX: Ditambahkan escape_markdown() agar tidak crash saat ada karakter aneh.
+    FIX: Pagination Logic agar tidak crash jika text > 4000 karakter.
     """
     if update.effective_user.id != ADMIN_ID: return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
@@ -333,24 +333,29 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         res = supabase.table('users').select("*").execute()
         active_list = [u for u in res.data if u.get('status') == 'active']
         
-        msg = f"📋 **DAFTAR MITRA AKTIF ({len(active_list)})**\nKlik command di samping nama untuk aksi.\n━━━━━━━━━━━━━━━━━━\n"
+        header = f"📋 **DAFTAR MITRA AKTIF ({len(active_list)})**\nKlik command di samping nama untuk aksi.\n━━━━━━━━━━━━━━━━━━\n"
+        msg = header
+        
         for i, u in enumerate(active_list, 1):
-            # FIX CRASH: Bersihkan nama dari karakter Markdown yang bikin error
             nama_raw = u.get('nama_lengkap') or "Tanpa Nama"
-            nama_clean = escape_markdown(nama_raw[:15]) # Potong 15 huruf & Escape
-            
-            agency_raw = u.get('agency') or "-"
-            agency_clean = escape_markdown(agency_raw)
-            
+            nama_clean = escape_markdown(nama_raw[:15])
+            agency_clean = escape_markdown(u.get('agency') or "-")
             uid = u.get('user_id')
             
-            # Link Magic tetap aman karena ID adalah angka
-            msg += f"{i}. 👤 **{nama_clean}** ({agency_clean})\n   👉 Atur: /m_{uid}\n\n"
+            entry = f"{i}. 👤 **{nama_clean}** ({agency_clean})\n   👉 Atur: /m_{uid}\n\n"
+            
+            # CEK PANJANG PESAN. Jika mau limit (4000), kirim dulu, lalu reset.
+            if len(msg) + len(entry) > 3800:
+                await update.message.reply_text(msg, parse_mode='Markdown')
+                msg = entry # Reset msg dengan entry yang belum masuk
+            else:
+                msg += entry
         
-        if len(msg) > 4000: await update.message.reply_text(msg[:4000] + "\n⚠️ _(Terpotong)_", parse_mode='Markdown')
-        else: await update.message.reply_text(msg, parse_mode='Markdown')
+        # Kirim sisa pesan
+        if msg:
+            await update.message.reply_text(msg, parse_mode='Markdown')
+            
     except Exception as e: 
-        # Error handling lebih baik
         await update.message.reply_text(f"❌ Error List Users: {str(e)}")
 
 async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -361,7 +366,6 @@ async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         u = get_user(target_uid)
         if not u: return await update.message.reply_text("❌ User tidak ditemukan.")
         
-        # Escape nama user di panel ini juga
         nama_safe = escape_markdown(u.get('nama_lengkap', '-'))
         agency_safe = escape_markdown(u.get('agency', '-'))
         
@@ -475,7 +479,6 @@ async def panduan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(text_panduan, parse_mode='Markdown')
 
-# FUNGSI NOTIFIKASI GROUP LENGKAP & PROFESIONAL
 async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, vehicle_data):
     hp_raw = user_data.get('no_hp', '-')
     hp_wa = '62' + hp_raw[1:] if hp_raw.startswith('0') else hp_raw
@@ -532,7 +535,7 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 # ==============================================================================
-# BAGIAN 10: FITUR UPLOAD (SMART SYSTEM - RESTORED UI v4.9)
+# BAGIAN 10: FITUR UPLOAD (SMART SYSTEM - FIX PROGRESS & REPORT)
 # ==============================================================================
 
 async def upload_start(update, context):
@@ -561,9 +564,8 @@ async def upload_start(update, context):
         fin = 'finance' in df.columns
         await msg.delete()
         
-        # RESTORED UI: Detailed Scan Report
         report = (
-            f"✅ **SCAN SUKSES (v4.9)**\n"
+            f"✅ **SCAN SUKSES (v4.9.1)**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"📊 **Kolom Dikenali:** {', '.join(found)}\n"
             f"📁 **Total Baris:** {len(df)}\n"
@@ -605,9 +607,8 @@ async def upload_leasing_admin(update, context):
     sample = df.iloc[0] # Ambil sampel untuk preview
     context.user_data['final_data_records'] = df[valid].to_dict(orient='records')
     
-    # RESTORED UI: Detailed Preview
     preview_msg = (
-        f"🔎 **PREVIEW DATA (v4.9)**\n"
+        f"🔎 **PREVIEW DATA (v4.9.1)**\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"🏦 **Leasing:** {fin}\n"
         f"📊 **Total Data:** {len(df)} Unit\n\n"
@@ -636,33 +637,47 @@ async def upload_confirm_admin(update, context):
     suc = 0; fail = 0; BATCH = 1000
     start_time = time.time()
     
-    for i in range(0, len(data), BATCH):
-        batch = data[i:i+BATCH]
-        try: supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute(); suc+=len(batch)
-        except: 
-            for x in batch: 
-                try: supabase.table('kendaraan').upsert([x], on_conflict='nopol').execute(); suc+=1
-                except: fail+=1
-        
-        # RESTORED UI: Heartbeat Progress
-        if (i+BATCH)%5000==0: 
-            await status_msg.edit_text(f"⏳ **MENGUPLOAD...**\n✅ {i+BATCH}/{len(data)} data terproses...")
-            await asyncio.sleep(0.5)
+    try:
+        for i in range(0, len(data), BATCH):
+            batch = data[i:i+BATCH]
+            try: 
+                supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
+                suc+=len(batch)
+            except: 
+                for x in batch: 
+                    try: supabase.table('kendaraan').upsert([x], on_conflict='nopol').execute(); suc+=1
+                    except: fail+=1
+            
+            # FIX PROGRESS: Update setiap 2000 data
+            if (i+BATCH)%2000==0: 
+                try:
+                    await status_msg.edit_text(f"⏳ **MENGUPLOAD...**\n✅ {i+BATCH}/{len(data)} data terproses...")
+                except: pass
+                await asyncio.sleep(0.1)
 
-    duration = round(time.time() - start_time, 2)
+        duration = round(time.time() - start_time, 2)
+        
+        # FIX REPORT: EDIT MESSAGE LANGSUNG (ANTI GANTUNG)
+        report = (
+            f"✅ **UPLOAD SUKSES 100%!**\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"📊 **Total Data:** {suc}\n"
+            f"❌ **Gagal:** {fail}\n"
+            f"⏱ **Waktu:** {duration} detik\n"
+            f"🚀 **Status:** Database Updated Successfully!"
+        )
+        
+        # Coba edit pesan loading menjadi pesan sukses
+        try:
+            await status_msg.edit_text(report, parse_mode='Markdown')
+        except:
+            # Jika edit gagal (misal pesan terhapus), kirim pesan baru
+            await update.message.reply_text(report, parse_mode='Markdown')
+            
+    except Exception as e:
+        await update.message.reply_text(f"❌ **CRASH SAAT UPLOAD:**\n{str(e)}", parse_mode='Markdown')
     
-    # RESTORED UI: Detailed Success Report
-    report = (
-        f"✅ **UPLOAD SUKSES 100%!**\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"📊 **Total Data:** {suc}\n"
-        f"❌ **Gagal:** {fail}\n"
-        f"⏱ **Waktu:** {duration} detik\n"
-        f"🚀 **Status:** Database Updated Successfully!"
-    )
-    
-    await status_msg.delete()
-    await update.message.reply_text(report, parse_mode='Markdown')
+    context.user_data.pop('final_data_records', None)
     return ConversationHandler.END
 
 
@@ -804,7 +819,7 @@ async def callback_handler(update, context):
 # ==============================================================================
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.9 (UPLOAD UI RESTORED) STARTING...")
+    print("🚀 ONEASPAL BOT v4.9.1 (STABILITY PATCH) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     # Handlers Conversation (Prioritas Utama)
@@ -892,5 +907,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.9 - Upload & Users Fix)")
+    print("✅ BOT ONLINE! (v4.9.1 - Stability Patch)")
     app.run_polling()
