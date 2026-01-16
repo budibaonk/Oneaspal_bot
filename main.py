@@ -1014,8 +1014,22 @@ async def test_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- LAPOR ---
 async def lapor_delete_start(update, context): 
+    # Cek apakah user terdaftar
     if not get_user(update.effective_user.id): return
-    await update.message.reply_text("🗑️ **LAPOR UNIT SELESAI**\nMasukkan Nopol:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
+    
+    # Pesan Sesuai Request (Format Markdown)
+    msg = (
+        "🗑️ **LAPOR UNIT SELESAI/AMAN**\n\n"
+        "Anda melaporkan bahwa unit sudah **Selesai/Lunas** dari Leasing.\n"
+        "Admin akan memverifikasi laporan ini sebelum data dihapus.\n\n"
+        "👉 Masukkan **Nomor Polisi (Nopol)** unit:"
+    )
+    
+    await update.message.reply_text(
+        msg, 
+        reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True),
+        parse_mode='Markdown'
+    )
     return L_NOPOL
 async def lapor_delete_check(update, context):
     n = update.message.text.upper().replace(" ", "")
