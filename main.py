@@ -1087,26 +1087,28 @@ async def add_confirm(update, context):
 # ##############################################################################
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Menggunakan HTML Mode agar lebih stabil dan anti-crash
+    # Global Info check
     global GLOBAL_INFO
-    
     info_section = ""
     if GLOBAL_INFO:
         info_section = f"📢 <b>INFO:</b> {GLOBAL_INFO}\n━━━━━━━━━━━━━━━━━━\n\n"
 
+    # Pesan Sesuai Request Bapak (Format HTML)
     welcome_msg = (
         f"{info_section}"
-        f"🤖 <b>Selamat Datang di Oneaspal_bot</b>\n\n"
+        f"🤖 <b>Selamat Datang di Oneaspalbot</b>\n\n"
         f"<b>Salam Satu Aspal!</b> 👋\n"
         f"Halo, Rekan Mitra Lapangan.\n\n"
-        f"Cari data kendaraan dengan cepat melalui:\n"
-        f"✅ <b>Nomor Polisi (Nopol)</b>\n"
-        f"✅ <b>Nomor Rangka/Mesin</b>\n\n"
-        f"⚠️ <b>PENTING:</b> Akses bot ini bersifat PRIVATE.\n\n"
-        f"👉 Silakan ketik /register untuk mendaftar sebagai mitra."
+        f"<b>Oneaspalbot</b> adalah asisten digital profesional untuk mempermudah pencarian data kendaraan secara real-time.\n\n"
+        f"Cari data melalui:\n"
+        f"✅ Nomor Polisi (Nopol)\n"
+        f"✅ Nomor Rangka (Noka)\n"
+        f"✅ Nomor Mesin (Nosin)\n\n"
+        f"⚠️ <b>PENTING:</b> Akses bersifat PRIVATE. Anda wajib mendaftar dan menunggu verifikasi Admin.\n\n"
+        f"--- 👉 Jalankan perintah /register untuk mendaftar."
     )
     
-    # Gunakan constants.ParseMode.HTML
+    # Kirim pesan dengan mode HTML
     await update.message.reply_text(welcome_msg, parse_mode=constants.ParseMode.HTML)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
