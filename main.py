@@ -1048,10 +1048,32 @@ async def lapor_delete_start(update, context):
         parse_mode='Markdown'
     )
     return L_NOPOL
+
 async def lapor_delete_check(update, context):
+    # Cek jika user mengetik BATAL manual (Safety Net)
+    if update.message.text == "❌ BATAL": 
+        return await cancel(update, context)
+
     n = update.message.text.upper().replace(" ", "")
-    if not supabase.table('kendaraan').select("*").eq('nopol', n).execute().data: await update.message.reply_text("❌ Nopol tidak ditemukan."); return ConversationHandler.END
-    context.user_data['lapor_nopol'] = n; await update.message.reply_text(f"⚠️ Lapor Hapus `{n}`?", reply_markup=ReplyKeyboardMarkup([["✅ KIRIM LAPORAN", "❌ BATAL"]])); return L_CONFIRM
+    
+    # Cek Database
+    if not supabase.table('kendaraan').select("*").eq('nopol', n).execute().data: 
+        # FIX: Tambahkan reply_markup=ReplyKeyboardRemove() agar tombol hilang
+        await update.message.reply_text(
+            f"❌ Nopol `{n}` tidak ditemukan.", 
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='Markdown'
+        )
+        return ConversationHandler.END
+        
+    context.user_data['lapor_nopol'] = n
+    await update.message.reply_text(
+        f"⚠️ Lapor Hapus `{n}`?", 
+        reply_markup=ReplyKeyboardMarkup([["✅ KIRIM LAPORAN", "❌ BATAL"]], resize_keyboard=True),
+        parse_mode='Markdown'
+    )
+    return L_CONFIRM
+
 async def lapor_delete_confirm(update, context):
     if update.message.text == "✅ KIRIM LAPORAN":
         n = context.user_data['lapor_nopol']; u = get_user(update.effective_user.id)
@@ -1210,8 +1232,25 @@ if __name__ == '__main__':
     app.add_handler(ConversationHandler(entry_points=[MessageHandler(filters.Document.ALL, upload_start)], states={U_LEASING_USER: [MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), upload_leasing_user)], U_LEASING_ADMIN: [MessageHandler(filters.TEXT, upload_leasing_admin)], U_CONFIRM_UPLOAD: [MessageHandler(filters.TEXT, upload_confirm_admin)]}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)], allow_reentry=True))
     app.add_handler(ConversationHandler(entry_points=[CommandHandler('register', register_start)], states={R_NAMA:[MessageHandler(filters.TEXT, register_nama)], R_HP:[MessageHandler(filters.TEXT, register_hp)], R_EMAIL:[MessageHandler(filters.TEXT, register_email)], R_KOTA:[MessageHandler(filters.TEXT, register_kota)], R_AGENCY:[MessageHandler(filters.TEXT, register_agency)], R_CONFIRM:[MessageHandler(filters.TEXT, register_confirm)]}, fallbacks=[CommandHandler('cancel', cancel)]))
     app.add_handler(ConversationHandler(entry_points=[CommandHandler('tambah', add_data_start)], states={A_NOPOL:[MessageHandler(filters.TEXT, add_nopol)], A_TYPE:[MessageHandler(filters.TEXT, add_type)], A_LEASING:[MessageHandler(filters.TEXT, add_leasing)], A_NOKIR:[MessageHandler(filters.TEXT, add_nokir)], A_CONFIRM:[MessageHandler(filters.TEXT, add_confirm)]}, fallbacks=[CommandHandler('cancel', cancel)]))
-    app.add_handler(ConversationHandler(entry_points=[CommandHandler('lapor', lapor_delete_start)], states={L_NOPOL:[MessageHandler(filters.TEXT, lapor_delete_check)], L_CONFIRM:[MessageHandler(filters.TEXT, lapor_delete_confirm)]}, fallbacks=[CommandHandler('cancel', cancel)]))
-    app.add_handler(ConversationHandler(entry_points=[CommandHandler('hapus', delete_unit_start)], states={D_NOPOL:[MessageHandler(filters.TEXT, delete_unit_check)], D_CONFIRM:[MessageHandler(filters.TEXT, delete_unit_confirm)]}, fallbacks=[CommandHandler('cancel', cancel)]))
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('lapor', lapor_delete_start)], 
+        states={
+            # FIX: Tambahkan filter (~filters.Regex) agar tombol BATAL tidak dianggap sebagai Nopol
+            L_NOPOL:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), lapor_delete_check)], 
+            L_CONFIRM:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), lapor_delete_confirm)]
+        }, 
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+    ))
+    
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('hapus', delete_unit_start)], 
+        states={
+            # FIX: Tambahkan filter (~filters.Regex)
+            D_NOPOL:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), delete_unit_check)], 
+            D_CONFIRM:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), delete_unit_confirm)]
+        }, 
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+    ))
 
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('cekkuota', cek_kuota))
