@@ -1,21 +1,3 @@
-Siap, Pak CEO! 🫡
-
-Saya sudah menerima dan menganalisa file `main.py` dari GitHub yang Bapak lampirkan (versi **3e1950f**). Saya sudah menghafal struktur aslinya: Kamus Data Vertikal, Komentar Penjelasan yang detail, dan UI yang sangat sopan/profesional.
-
-Sekarang, saya akan melakukan **MERGER SEMPURNA (FUSION)**.
-Saya akan menggabungkan:
-
-1. **BASE KODE:** Struktur "Gemuk" (Verbose), UI Profesional, Disclaimer Hukum, dan Notifikasi Lengkap dari kode asli Bapak.
-2. **FITUR BARU:** Fix Pagination Leasing (baca 650k data), Reject Reasoning, Admin Panel (`/m_ID`), dan Fix Tombol Batal Melayang.
-
-Ini adalah **VERSION 4.6 (THE ULTIMATE FAT EDITION)**.
-Strukturnya saya buat sangat jelas dengan **14 BAGIAN**, dan barisnya tidak saya singkat-singkat agar mudah diedit.
-
-Silakan **Copy Semua** dan **Replace All** di `main.py` Bapak.
-
-### 📄 File: `main.py` (v4.6 ULTIMATE COMPLETE)
-
-```python
 """
 ################################################################################
 #                                                                              #
@@ -25,28 +7,6 @@ Silakan **Copy Semua** dan **Replace All** di `main.py` Bapak.
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
 ################################################################################
-
-[DESKRIPSI SISTEM]
-Bot Telegram High-Performance untuk manajemen data kendaraan (Matel).
-Sistem ini dirancang untuk skalabilitas tinggi, keamanan data, dan kemudahan penggunaan
-bagi mitra lapangan maupun admin back-office.
-
-[STRUKTUR KODE]
-1.  KONFIGURASI & LIBRARY ............. (Baris 40)
-2.  DATABASE CONNECTION ............... (Baris 80)
-3.  KAMUS DATA (DICTIONARY) ........... (Baris 110)
-4.  DEFINISI STATE CONVERSATION ....... (Baris 300)
-5.  FUNGSI HELPER UTAMA ............... (Baris 320)
-6.  ENGINE FILE (ADAPTIVE POLYGLOT) ... (Baris 400)
-7.  FITUR ADMIN: REASONING REJECT ..... (Baris 550)
-8.  FITUR ADMIN: USER MANAGER ......... (Baris 600)
-9.  FITUR ADMIN: AUDIT & STATS ........ (Baris 700)
-10. FITUR USER: KUOTA & TOPUP ......... (Baris 800)
-11. FITUR UPLOAD (SMART SYSTEM) ....... (Baris 880)
-12. HANDLER CONVERSATION (REG/ADD) .... (Baris 1050)
-13. MAIN HANDLER (SEARCH ENGINE) ...... (Baris 1250)
-14. SYSTEM RUNNER (ENTRY POINT) ....... (Baris 1350)
-
 """
 
 # ==============================================================================
@@ -138,193 +98,51 @@ except Exception as e:
 # ==============================================================================
 # BAGIAN 3: KAMUS DATA (DICTIONARY - VERTIKAL MODE)
 # ==============================================================================
-# Kamus ini dibuat vertikal agar mudah dibaca dan diedit manual.
 
 COLUMN_ALIASES = {
-    # ------------------------------------
-    # Alias untuk Kolom NOPOL (Plat Nomor)
-    # ------------------------------------
     'nopol': [
-        'nopolisi', 
-        'nomorpolisi', 
-        'nopol', 
-        'noplat', 
-        'nomorplat', 
-        'nomorkendaraan', 
-        'nokendaraan', 
-        'nomer', 
-        'tnkb', 
-        'licenseplate', 
-        'plat', 
-        'nopolisikendaraan', 
-        'nopil', 
-        'polisi', 
-        'platnomor',
-        'platkendaraan', 
-        'nomerpolisi',
-        'no.polisi', 
-        'nopol.',
-        'no_pol',
-        'police_no',
-        'vehicle_no'
+        'nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'nomorplat', 
+        'nomorkendaraan', 'nokendaraan', 'nomer', 'tnkb', 'licenseplate', 
+        'plat', 'nopolisikendaraan', 'nopil', 'polisi', 'platnomor', 
+        'platkendaraan', 'nomerpolisi', 'no.polisi', 'nopol.', 'no_pol', 'police_no'
     ],
-    
-    # ------------------------------------
-    # Alias untuk Kolom UNIT / TYPE
-    # ------------------------------------
     'type': [
-        'type', 
-        'tipe', 
-        'unit', 
-        'model', 
-        'vehicle', 
-        'jenis', 
-        'deskripsiunit', 
-        'merk', 
-        'object', 
-        'kendaraan', 
-        'item', 
-        'brand', 
-        'typedeskripsi', 
-        'vehiclemodel', 
-        'namaunit', 
-        'kend', 
-        'namakendaraan',
-        'merktype', 
-        'objek',
-        'jenisobjek',
-        'item_description',
+        'type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 
+        'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 
+        'brand', 'typedeskripsi', 'vehiclemodel', 'namaunit', 'kend', 
+        'namakendaraan', 'merktype', 'objek', 'jenisobjek', 'item_description',
         'vehicle_desc'
     ],
-    
-    # ------------------------------------
-    # Alias untuk Kolom TAHUN
-    # ------------------------------------
     'tahun': [
-        'tahun', 
-        'year', 
-        'thn', 
-        'rakitan', 
-        'th', 
-        'yearofmanufacture', 
-        'thnrakit', 
-        'manufacturingyear',
-        'tahun_pembuatan',
-        'model_year'
+        'tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture', 
+        'thnrakit', 'manufacturingyear', 'tahun_pembuatan', 'model_year'
     ],
-    
-    # ------------------------------------
-    # Alias untuk Kolom WARNA
-    # ------------------------------------
     'warna': [
-        'warna', 
-        'color', 
-        'colour', 
-        'cat', 
-        'kelir', 
-        'warnakendaraan',
-        'body_color'
+        'warna', 'color', 'colour', 'cat', 'kelir', 'warnakendaraan', 'body_color'
     ],
-    
-    # ------------------------------------
-    # Alias untuk Kolom NOKA (Chassis)
-    # ------------------------------------
     'noka': [
-        'noka', 
-        'norangka', 
-        'nomorrangka', 
-        'chassis', 
-        'chasis', 
-        'vin', 
-        'rangka', 
-        'chassisno', 
-        'norangka1', 
-        'chasisno', 
-        'vinno',
-        'norang',
-        'no_rangka',
-        'serial_number'
+        'noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 
+        'rangka', 'chassisno', 'norangka1', 'chasisno', 'vinno', 'norang',
+        'no_rangka', 'serial_number'
     ],
-    
-    # ------------------------------------
-    # Alias untuk Kolom NOSIN (Engine)
-    # ------------------------------------
     'nosin': [
-        'nosin', 
-        'nomesin', 
-        'nomormesin', 
-        'engine', 
-        'mesin', 
-        'engineno', 
-        'nomesin1', 
-        'engineno', 
-        'noengine',
-        'nomes',
-        'no_mesin',
-        'engine_number'
+        'nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'engineno', 
+        'nomesin1', 'engineno', 'noengine', 'nomes', 'no_mesin', 'engine_number'
     ],
-    
-    # ------------------------------------
-    # Alias untuk Kolom LEASING (Finance)
-    # ------------------------------------
     'finance': [
-        'finance', 
-        'leasing', 
-        'lising', 
-        'multifinance', 
-        'cabang', 
-        'partner', 
-        'mitra', 
-        'principal', 
-        'company', 
-        'client', 
-        'financecompany', 
-        'leasingname', 
-        'keterangan', 
-        'sumberdata',
-        'financetype',
-        'nama_leasing',
-        'nama_finance'
+        'finance', 'leasing', 'lising', 'multifinance', 'cabang', 
+        'partner', 'mitra', 'principal', 'company', 'client', 
+        'financecompany', 'leasingname', 'keterangan', 'sumberdata', 
+        'financetype', 'nama_leasing', 'nama_finance'
     ],
-    
-    # ------------------------------------
-    # Alias untuk Kolom OVD (Terlambat)
-    # ------------------------------------
     'ovd': [
-        'ovd', 
-        'overdue', 
-        'dpd', 
-        'keterlambatan', 
-        'hari', 
-        'telat', 
-        'aging', 
-        'od', 
-        'bucket', 
-        'daysoverdue', 
-        'overduedays', 
-        'kiriman', 
-        'kolektibilitas', 
-        'kol',
-        'kolek',
-        'bucket_od'
+        'ovd', 'overdue', 'dpd', 'keterlambatan', 'hari', 'telat', 
+        'aging', 'od', 'bucket', 'daysoverdue', 'overduedays', 
+        'kiriman', 'kolektibilitas', 'kol', 'kolek', 'bucket_od'
     ],
-    
-    # ------------------------------------
-    # Alias untuk Kolom CABANG (Branch)
-    # ------------------------------------
     'branch': [
-        'branch', 
-        'area', 
-        'kota', 
-        'pos', 
-        'cabang', 
-        'lokasi', 
-        'wilayah', 
-        'region', 
-        'areaname', 
-        'branchname', 
-        'dealer',
-        'nama_cabang'
+        'branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 
+        'wilayah', 'region', 'areaname', 'branchname', 'dealer', 'nama_cabang'
     ]
 }
 
@@ -333,22 +151,11 @@ COLUMN_ALIASES = {
 # BAGIAN 4: DEFINISI STATE CONVERSATION
 # ==============================================================================
 
-# A. State untuk Registrasi User (/register)
 R_NAMA, R_HP, R_EMAIL, R_KOTA, R_AGENCY, R_CONFIRM = range(6)
-
-# B. State untuk Tambah Data Manual (/tambah)
 A_NOPOL, A_TYPE, A_LEASING, A_NOKIR, A_CONFIRM = range(6, 11)
-
-# C. State untuk Lapor Hapus Data (/lapor)
 L_NOPOL, L_CONFIRM = range(11, 13) 
-
-# D. State untuk Admin Hapus Manual (/hapus)
 D_NOPOL, D_CONFIRM = range(13, 15)
-
-# E. State untuk Smart Upload (File)
 U_LEASING_USER, U_LEASING_ADMIN, U_CONFIRM_UPLOAD = range(15, 18)
-
-# F. State untuk Admin Reasoning Reject
 REJECT_REASON = 18
 
 
@@ -793,18 +600,6 @@ async def add_confirm(update, context):
     await context.bot.send_message(ADMIN_ID, f"📥 **DATA BARU**\nNopol: `{n}`", reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
     return ConversationHandler.END
 
-# --- HAPUS MANUAL ---
-async def delete_unit_start(update, context):
-    if update.effective_user.id != ADMIN_ID: return
-    await update.message.reply_text("🗑️ **HAPUS MANUAL**\nNopol:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]])); return D_NOPOL
-async def delete_unit_check(update, context):
-    if update.message.text == "❌ BATAL": return await cancel(update, context)
-    n = update.message.text.upper().replace(" ", "")
-    context.user_data['del_nopol'] = n; await update.message.reply_text(f"Hapus `{n}`?", reply_markup=ReplyKeyboardMarkup([["✅ YA, HAPUS", "❌ BATAL"]])); return D_CONFIRM
-async def delete_unit_confirm(update, context):
-    if update.message.text == "✅ YA, HAPUS": supabase.table('kendaraan').delete().eq('nopol', context.user_data['del_nopol']).execute(); await update.message.reply_text("✅ Terhapus.", reply_markup=ReplyKeyboardRemove())
-    return ConversationHandler.END
-
 
 # ==============================================================================
 # BAGIAN 13: MAIN HANDLER (SEARCH & CALLBACK)
@@ -961,5 +756,3 @@ if __name__ == '__main__':
     
     print("✅ BOT ONLINE! (v4.6 - Ready to Serve)")
     app.run_polling()
-
-```
