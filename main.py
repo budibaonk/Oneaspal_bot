@@ -986,7 +986,24 @@ async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, veh
     except: pass
 
 async def panduan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text_panduan = "📖 **PANDUAN ONEASPAL**\n\n1️⃣ **CARI DATA**\nKetik Nopol/Noka/Nosin.\n✅ Contoh: `B1234ABC`\n\n2️⃣ **CEK KUOTA:** `/cekkuota`\n3️⃣ **TAMBAH DATA:** `/tambah`\n4️⃣ **LAPOR SELESAI:** `/lapor`\n5️⃣ **KONTAK ADMIN:** `/admin [pesan]`\n6️⃣ **UPLOAD:** Kirim file Excel."
+    text_panduan = (
+        "📖 **PANDUAN PENGGUNAAN ONEASPAL**\n\n"
+        "1️⃣ **Cari Data Kendaraan**\n"
+        "   - Ketik Nopol secara lengkap atau sebagian.\n"
+        "   - Contoh: `B 1234 ABC` atau `1234`\n\n"
+        "2️⃣ **Upload File (Mitra)**\n"
+        "   - Kirim file Excel/CSV/ZIP ke bot ini.\n"
+        "   - Bot akan membaca otomatis.\n\n"
+        "3️⃣ **Upload Satuan / Kiriman**\n"
+        "   - Gunakan perintah `/tambah` untuk input data manual.\n"
+        "   - Cocok untuk data kiriman harian.\n\n"
+        "4️⃣ **Lapor Unit Selesai**\n"
+        "   - Gunakan perintah `/lapor` jika unit sudah ditarik/selesai.\n\n"
+        "5️⃣ **Cek Kuota**\n"
+        "   - Ketik `/cekkuota` untuk melihat sisa HIT.\n\n"
+        "6️⃣ **Bantuan Admin**\n"
+        "   - Ketik `/admin [pesan]` untuk menghubungi support."
+    )
     await update.message.reply_text(text_panduan, parse_mode='Markdown')
 
 async def add_agency(update: Update, context: ContextTypes.DEFAULT_TYPE):
