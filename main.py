@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.7 (STABLE RELEASE)                           #
+#                      VERSION: 4.7.1 (EMERGENCY FIX)                          #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -407,7 +407,6 @@ async def get_leasing_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(rpt, parse_mode='Markdown')
     except: await msg.edit_text("❌ Error.")
 
-# FUNGSI YANG SEMPAT HILANG - SUDAH DIKEMBALIKAN DISINI
 async def set_info(update, context):
     global GLOBAL_INFO; 
     if update.effective_user.id==ADMIN_ID: GLOBAL_INFO = " ".join(context.args); await update.message.reply_text(f"✅ Info: {GLOBAL_INFO}")
@@ -428,15 +427,34 @@ async def contact_admin(update, context):
     if u and context.args: await context.bot.send_message(ADMIN_ID, f"📩 **MITRA:** {u['nama_lengkap']}\n💬 {' '.join(context.args)}"); await update.message.reply_text("✅ Terkirim.")
 
 async def test_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Fitur Test Notifikasi Group (FIXED).
-    """
     if update.effective_user.id != ADMIN_ID: return
     try: 
         await context.bot.send_message(chat_id=LOG_GROUP_ID, text="🔔 **TES NOTIFIKASI GROUP OK!**"); 
         await update.message.reply_text("✅ Koneksi Group Log OK.")
     except Exception as e: 
         await update.message.reply_text(f"❌ Gagal kirim ke group: {e}")
+
+# FUNGSI PANDUAN YANG HILANG (SUDAH DIKEMBALIKAN DISINI)
+async def panduan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text_panduan = (
+        "📖 **PANDUAN PENGGUNAAN ONEASPAL**\n\n"
+        "1️⃣ **Cari Data Kendaraan**\n"
+        "   - Ketik Nopol secara lengkap atau sebagian.\n"
+        "   - Contoh: `B 1234 ABC` atau `1234`\n\n"
+        "2️⃣ **Upload File (Mitra)**\n"
+        "   - Kirim file Excel/CSV/ZIP ke bot ini.\n"
+        "   - Bot akan membaca otomatis.\n\n"
+        "3️⃣ **Upload Satuan / Kiriman**\n"
+        "   - Gunakan perintah `/tambah` untuk input data manual.\n"
+        "   - Cocok untuk data kiriman harian.\n\n"
+        "4️⃣ **Lapor Unit Selesai**\n"
+        "   - Gunakan perintah `/lapor` jika unit sudah ditarik/selesai.\n\n"
+        "5️⃣ **Cek Kuota**\n"
+        "   - Ketik `/cekkuota` untuk melihat sisa HIT.\n\n"
+        "6️⃣ **Bantuan Admin**\n"
+        "   - Ketik `/admin [pesan]` untuk menghubungi support."
+    )
+    await update.message.reply_text(text_panduan, parse_mode='Markdown')
 
 
 # ==============================================================================
@@ -604,7 +622,6 @@ async def add_confirm(update, context):
     return ConversationHandler.END
 
 # --- HAPUS MANUAL ---
-# FIX: NAMA FUNGSI DIUBAH AGAR SESUAI DENGAN HANDLER
 async def delete_unit_start(update, context):
     if update.effective_user.id != ADMIN_ID: return
     await update.message.reply_text("🗑️ **HAPUS MANUAL**\nNopol:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]])); return D_NOPOL
@@ -682,7 +699,7 @@ async def callback_handler(update, context):
 # ==============================================================================
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.7 (FINAL STABLE) STARTING...")
+    print("🚀 ONEASPAL BOT v4.7.1 (EMERGENCY FIX) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     # Handlers Conversation (Prioritas Utama)
@@ -757,7 +774,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('unban', unban_user))
     app.add_handler(CommandHandler('delete', delete_user))
     app.add_handler(CommandHandler('testgroup', test_group)) 
-    app.add_handler(CommandHandler('panduan', panduan))
+    app.add_handler(CommandHandler('panduan', panduan)) # SUDAH ADA
     app.add_handler(CommandHandler('setinfo', set_info)) 
     app.add_handler(CommandHandler('delinfo', del_info)) 
     app.add_handler(CommandHandler('admin', contact_admin))
@@ -770,5 +787,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.7 - Stable Release)")
+    print("✅ BOT ONLINE! (v4.7.1 - Ready to Serve)")
     app.run_polling()
