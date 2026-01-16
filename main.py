@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.7.1 (EMERGENCY FIX)                          #
+#                      VERSION: 4.8 (PROFESSIONAL NOTIF & FIX USERS)           #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -327,7 +327,10 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         msg = f"📋 **DAFTAR MITRA AKTIF ({len(active_list)})**\nKlik command di samping nama untuk aksi.\n━━━━━━━━━━━━━━━━━━\n"
         for i, u in enumerate(active_list, 1):
-            nama = u.get('nama_lengkap', 'Tanpa Nama')[:15]
+            # FIX: Gagal Error -> Handle Nama None
+            raw_nama = u.get('nama_lengkap')
+            nama = str(raw_nama if raw_nama else "Tanpa Nama")[:15]
+            
             uid = u.get('user_id')
             agency = u.get('agency', '-')
             # INI DIA MAGIC LINK-NYA (/m_ID)
@@ -335,7 +338,10 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if len(msg) > 4000: await update.message.reply_text(msg[:4000] + "\n⚠️ _(Terpotong)_", parse_mode='Markdown')
         else: await update.message.reply_text(msg, parse_mode='Markdown')
-    except: await update.message.reply_text("❌ Gagal.")
+    
+    except Exception as e: 
+        # FIX: Tampilkan Error Asli agar tau kenapa Gagal
+        await update.message.reply_text(f"❌ Error List Users: {str(e)}")
 
 async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk Magic Link /m_ID."""
@@ -434,7 +440,6 @@ async def test_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e: 
         await update.message.reply_text(f"❌ Gagal kirim ke group: {e}")
 
-# FUNGSI PANDUAN YANG HILANG (SUDAH DIKEMBALIKAN DISINI)
 async def panduan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text_panduan = (
         "📖 **PANDUAN PENGGUNAAN ONEASPAL**\n\n"
@@ -455,6 +460,33 @@ async def panduan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "   - Ketik `/admin [pesan]` untuk menghubungi support."
     )
     await update.message.reply_text(text_panduan, parse_mode='Markdown')
+
+# FUNGSI NOTIFIKASI GROUP LENGKAP & PROFESIONAL
+async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, vehicle_data):
+    hp_raw = user_data.get('no_hp', '-')
+    hp_wa = '62' + hp_raw[1:] if hp_raw.startswith('0') else hp_raw
+    
+    report_text = (
+        f"🚨 **UNIT DITEMUKAN! (HIT)**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **Penemu:** {user_data.get('nama_lengkap')} ({user_data.get('agency')})\n"
+        f"📍 **Kota:** {user_data.get('kota', '-')}\n\n"
+        f"🚙 **Unit:** {vehicle_data.get('type', '-')}\n"
+        f"🔢 **Nopol:** `{vehicle_data.get('nopol', '-')}`\n"
+        f"📅 **Tahun:** {vehicle_data.get('tahun', '-')}\n"
+        f"🎨 **Warna:** {vehicle_data.get('warna', '-')}\n"
+        f"----------------------------------\n"
+        f"🔧 **Noka:** `{vehicle_data.get('noka', '-')}`\n"
+        f"⚙️ **Nosin:** `{vehicle_data.get('nosin', '-')}`\n"
+        f"----------------------------------\n"
+        f"⚠️ **OVD:** {vehicle_data.get('ovd', '-')}\n"
+        f"🏦 **Finance:** {vehicle_data.get('finance', '-')}\n"
+        f"🏢 **Branch:** {vehicle_data.get('branch', '-')}\n"
+        f"━━━━━━━━━━━━━━━━━━"
+    )
+    keyboard = [[InlineKeyboardButton("📞 Hubungi Penemu (WA)", url=f"https://wa.me/{hp_wa}")]]
+    try: await context.bot.send_message(chat_id=LOG_GROUP_ID, text=report_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    except: pass
 
 
 # ==============================================================================
@@ -661,12 +693,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             txt = (f"{info}✅ **DATA DITEMUKAN**\n━━━━━━━━━━━━━━━━━━\n🚙 **Unit:** {d.get('type','-')}\n🔢 **Nopol:** `{d.get('nopol','-')}`\n📅 **Tahun:** {d.get('tahun','-')}\n🎨 **Warna:** {d.get('warna','-')}\n----------------------------------\n🔧 **Noka:** `{d.get('noka','-')}`\n⚙️ **Nosin:** `{d.get('nosin','-')}`\n----------------------------------\n⚠️ **OVD:** {d.get('ovd', '-')}\n🏦 **Finance:** {d.get('finance', '-')}\n🏢 **Branch:** {d.get('branch', '-')}\n━━━━━━━━━━━━━━━━━━\n⚠️ **CATATAN PENTING:**\nIni bukan alat yang SAH untuk penarikan. Konfirmasi ke PIC leasing.")
             await update.message.reply_text(txt, parse_mode='Markdown')
             
-            # Notify Group
-            hp = u.get('no_hp', '-'); hp_wa = '62' + hp[1:] if hp.startswith('0') else hp
-            rpt = (f"🚨 **UNIT DITEMUKAN! (HIT)**\n━━━━━━━━━━━━━━━━━━\n👤 **Penemu:** {u.get('nama_lengkap')} ({u.get('agency')})\n📍 **Kota:** {u.get('kota', '-')}\n\n🚙 **Unit:** {d.get('type', '-')}\n🔢 **Nopol:** `{d.get('nopol', '-')}`\n🏦 **Finance:** {d.get('finance', '-')}\n━━━━━━━━━━━━━━━━━━")
-            kb = [[InlineKeyboardButton("📞 Hubungi Penemu (WA)", url=f"https://wa.me/{hp_wa}")]]
-            try: await context.bot.send_message(LOG_GROUP_ID, rpt, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
-            except: pass
+            # FIX: Panggil Notifikasi Group yang LENGKAP & PROFESIONAL
+            await notify_hit_to_group(context, u, d)
+            
         else:
             info = f"📢 **INFO:** {GLOBAL_INFO}\n\n" if GLOBAL_INFO else ""
             await update.message.reply_text(f"{info}❌ **DATA TIDAK DITEMUKAN**\n`{kw}`", parse_mode='Markdown')
@@ -699,7 +728,7 @@ async def callback_handler(update, context):
 # ==============================================================================
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.7.1 (EMERGENCY FIX) STARTING...")
+    print("🚀 ONEASPAL BOT v4.8 (PROFESSIONAL FIX) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     # Handlers Conversation (Prioritas Utama)
@@ -774,7 +803,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('unban', unban_user))
     app.add_handler(CommandHandler('delete', delete_user))
     app.add_handler(CommandHandler('testgroup', test_group)) 
-    app.add_handler(CommandHandler('panduan', panduan)) # SUDAH ADA
+    app.add_handler(CommandHandler('panduan', panduan))
     app.add_handler(CommandHandler('setinfo', set_info)) 
     app.add_handler(CommandHandler('delinfo', del_info)) 
     app.add_handler(CommandHandler('admin', contact_admin))
@@ -787,5 +816,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.7.1 - Ready to Serve)")
+    print("✅ BOT ONLINE! (v4.8 - Fixed Notif & Users)")
     app.run_polling()
