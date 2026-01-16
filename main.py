@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.6.1 (STABLE NAME FIX)                        #
+#                      VERSION: 4.7 (STABLE RELEASE)                           #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -45,7 +45,7 @@ from telegram.ext import (
 from supabase import create_client, Client
 
 # ##############################################################################
-#BAGIAN 1: KONFIGURASI SISTEM
+# BAGIAN 1: KONFIGURASI SISTEM
 # ##############################################################################
 
 load_dotenv()
@@ -284,7 +284,6 @@ async def reject_complete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target_uid = context.user_data.get('reject_target_uid')
     update_user_status(target_uid, 'rejected')
     
-    # Kirim ke User
     try: await context.bot.send_message(target_uid, f"⛔ **PENDAFTARAN DITOLAK**\n\nAlasan: {reason}", parse_mode='Markdown')
     except: pass
     
@@ -313,6 +312,7 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⚙️ **SYSTEM**\n"
         "• `/setinfo [Pesan]` : Pasang Info\n"
         "• `/delinfo` : Hapus Info\n"
+        "• `/testgroup` : Cek Group Log\n"
         "• `/addagency` : Tambah B2B"
     )
     await update.message.reply_text(msg, parse_mode='Markdown')
@@ -371,9 +371,9 @@ async def delete_user(update, context):
     if update.effective_user.id==ADMIN_ID: supabase.table('users').delete().eq('user_id', context.args[0]).execute(); await update.message.reply_text("🗑️ Deleted.")
 
 
-# ##############################################################################
+# ==============================================================================
 # BAGIAN 8: FITUR ADMIN - AUDIT & SYSTEM
-# ##############################################################################
+# ==============================================================================
 
 async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
@@ -385,7 +385,6 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except: await msg_wait.edit_text("❌ Error.")
 
 async def get_leasing_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Audit Leasing (Fix Pagination)."""
     if update.effective_user.id != ADMIN_ID: return
     msg = await update.message.reply_text("⏳ *Mengaudit... (Mohon tunggu)*", parse_mode='Markdown')
     try:
@@ -408,26 +407,41 @@ async def get_leasing_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(rpt, parse_mode='Markdown')
     except: await msg.edit_text("❌ Error.")
 
+# FUNGSI YANG SEMPAT HILANG - SUDAH DIKEMBALIKAN DISINI
 async def set_info(update, context):
     global GLOBAL_INFO; 
     if update.effective_user.id==ADMIN_ID: GLOBAL_INFO = " ".join(context.args); await update.message.reply_text(f"✅ Info: {GLOBAL_INFO}")
+
 async def del_info(update, context):
     global GLOBAL_INFO; 
     if update.effective_user.id==ADMIN_ID: GLOBAL_INFO = ""; await update.message.reply_text("🗑️ Info Deleted.")
+
 async def add_agency(update, context):
     if update.effective_user.id==ADMIN_ID:
         try:
             a = update.message.text.split(); supabase.table('agencies').insert({"name": " ".join(a[1:-2]), "group_id": int(a[-2]), "admin_id": int(a[-1])}).execute()
             await update.message.reply_text("✅ Agency Added.")
         except: await update.message.reply_text("⚠️ Format Error.")
+
 async def contact_admin(update, context):
     u=get_user(update.effective_user.id); 
     if u and context.args: await context.bot.send_message(ADMIN_ID, f"📩 **MITRA:** {u['nama_lengkap']}\n💬 {' '.join(context.args)}"); await update.message.reply_text("✅ Terkirim.")
 
+async def test_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Fitur Test Notifikasi Group (FIXED).
+    """
+    if update.effective_user.id != ADMIN_ID: return
+    try: 
+        await context.bot.send_message(chat_id=LOG_GROUP_ID, text="🔔 **TES NOTIFIKASI GROUP OK!**"); 
+        await update.message.reply_text("✅ Koneksi Group Log OK.")
+    except Exception as e: 
+        await update.message.reply_text(f"❌ Gagal kirim ke group: {e}")
 
-# ##############################################################################
+
+# ==============================================================================
 # BAGIAN 9: FITUR USER - KUOTA & TOPUP
-# ##############################################################################
+# ==============================================================================
 
 async def cek_kuota(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = get_user(update.effective_user.id)
@@ -453,9 +467,9 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await context.bot.send_photo(ADMIN_ID, update.message.photo[-1].file_id, caption=msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
 
 
-# ##############################################################################
+# ==============================================================================
 # BAGIAN 10: FITUR UPLOAD (SMART SYSTEM)
-# ##############################################################################
+# ==============================================================================
 
 async def upload_start(update, context):
     uid = update.effective_user.id
@@ -668,7 +682,7 @@ async def callback_handler(update, context):
 # ==============================================================================
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.6.1 (STABLE NAME FIX) STARTING...")
+    print("🚀 ONEASPAL BOT v4.7 (FINAL STABLE) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     # Handlers Conversation (Prioritas Utama)
@@ -742,7 +756,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('ban', ban_user))
     app.add_handler(CommandHandler('unban', unban_user))
     app.add_handler(CommandHandler('delete', delete_user))
-    app.add_handler(CommandHandler('testgroup', test_group))
+    app.add_handler(CommandHandler('testgroup', test_group)) 
     app.add_handler(CommandHandler('panduan', panduan))
     app.add_handler(CommandHandler('setinfo', set_info)) 
     app.add_handler(CommandHandler('delinfo', del_info)) 
@@ -756,5 +770,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.6.1 - Ready to Serve)")
+    print("✅ BOT ONLINE! (v4.7 - Stable Release)")
     app.run_polling()
