@@ -697,12 +697,22 @@ async def upload_leasing_admin(update, context):
     context.user_data['final_data_records'] = df[valid].to_dict(orient='records')
     s = df.iloc[0]
     
-    # Preview dengan info Leasing
-    await update.message.reply_text(
-        f"🔎 **PREVIEW (v4.15)**\n🏦 {fin_display}\n📊 {len(df)} Data\n\n📝 **SAMPEL:**\n🔹 Leasing: {s['finance']}\n🔹 Nopol: {s['nopol']}\n🔹 Unit: {s['type']}", 
-        reply_markup=ReplyKeyboardMarkup([["🚀 EKSEKUSI", "❌ BATAL"]]), 
-        parse_mode='Markdown'
+    # Preview dengan info Leasing & Format v4.15
+    preview_msg = (
+        f"🔎 **PREVIEW DATA (v4.15)**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🏦 **Mode:** {fin_display}\n"
+        f"📊 **Total:** {len(df)} Data\n\n"
+        f"📝 **SAMPEL DATA BARIS 1:**\n"
+        f"🔹 Leasing: {s['finance']}\n"
+        f"🔹 Nopol: `{s['nopol']}`\n"
+        f"🔹 Unit: {s['type']}\n"
+        f"🔹 Noka: {s['noka']}\n"
+        f"🔹 OVD: {s['ovd']}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"⚠️ Klik **EKSEKUSI** untuk lanjut."
     )
+    await update.message.reply_text(preview_msg, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["🚀 EKSEKUSI", "❌ BATAL"]], one_time_keyboard=True))
     return U_CONFIRM_UPLOAD
 
 async def upload_confirm_admin(update, context):
