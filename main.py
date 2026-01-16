@@ -667,19 +667,20 @@ async def upload_leasing_admin(update, context):
     sample = df.iloc[0] 
     context.user_data['final_data_records'] = df[valid].to_dict(orient='records')
     
+    # REVISI: Menambahkan kolom LEASING di preview
     preview_msg = (
-        f"🔎 **PREVIEW DATA (v4.13)**\n"
+        f"🔎 **PREVIEW DATA (v4.14)**\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"🏦 **Leasing:** {fin}\n"
-        f"📊 **Total Data:** {len(df)} Unit\n\n"
-        f"📝 **CONTOH DATA BARIS PERTAMA:**\n"
+        f"🏦 **Mode:** {fin}\n"
+        f"📊 **Total:** {len(df)} Data\n\n"
+        f"📝 **SAMPEL DATA BARIS 1:**\n"
+        f"🔹 Leasing: {sample['finance']}\n"  # <-- INI TAMBAHANNYA
         f"🔹 Nopol: `{sample['nopol']}`\n"
         f"🔹 Unit: {sample['type']}\n"
         f"🔹 Noka: {sample['noka']}\n"
         f"🔹 OVD: {sample['ovd']}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"⚠️ Klik **EKSEKUSI** untuk memulai upload.\n"
-        f"⚠️ Klik **BATAL** jika ada yang salah."
+        f"⚠️ Klik **EKSEKUSI** untuk lanjut."
     )
     await update.message.reply_text(preview_msg, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["🚀 EKSEKUSI", "❌ BATAL"]], one_time_keyboard=True))
     return U_CONFIRM_UPLOAD
