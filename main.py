@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.12 (HTML STABILITY UPDATE)                   #
+#                      VERSION: 4.13 (MASTERPIECE STANDARD)                    #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -19,7 +19,7 @@ import re
 import asyncio 
 import csv 
 import zipfile 
-import html # Added for HTML escaping
+import html
 from collections import Counter
 from datetime import datetime
 from dotenv import load_dotenv
@@ -138,15 +138,29 @@ COLUMN_ALIASES = {
 
 
 # ##############################################################################
-# BAGIAN 3: DEFINISI STATE
+# BAGIAN 3: DEFINISI STATE CONVERSATION
 # ##############################################################################
 
+# A. Registrasi
 R_NAMA, R_HP, R_EMAIL, R_KOTA, R_AGENCY, R_CONFIRM = range(6)
+
+# B. Tambah Data
 A_NOPOL, A_TYPE, A_LEASING, A_NOKIR, A_CONFIRM = range(6, 11)
+
+# C. Lapor Hapus
 L_NOPOL, L_CONFIRM = range(11, 13) 
+
+# D. Hapus Manual (Admin)
 D_NOPOL, D_CONFIRM = range(13, 15)
+
+# E. Upload File
 U_LEASING_USER, U_LEASING_ADMIN, U_CONFIRM_UPLOAD = range(15, 18)
+
+# F. Admin Reasoning (Reject Registration)
 REJECT_REASON = 18
+
+# G. Admin Action Reason (Ban/Unban/Delete User)
+ADMIN_ACT_REASON = 19
 
 
 # ##############################################################################
@@ -154,21 +168,20 @@ REJECT_REASON = 18
 # ##############################################################################
 
 async def post_init(application: Application):
-    """Mengatur Menu Command saat bot start."""
+    """
+    Mengatur Menu Command.
+    REVISI v4.13: Hanya menampilkan menu untuk USER BIASA. Menu Admin disembunyikan.
+    """
     await application.bot.set_my_commands([
         ("start", "🔄 Restart / Menu"),
         ("cekkuota", "💳 Cek Sisa Kuota"),
         ("tambah", "➕ Input Manual"),
         ("lapor", "🗑️ Lapor Unit Selesai"),
         ("register", "📝 Daftar Mitra"),
-        ("stats", "📊 Statistik Global"),
-        ("leasing", "🏦 Audit Leasing Detail"),
-        ("setinfo", "📢 Set Info Broadcast"),
-        ("delinfo", "🗑️ Hapus Info Broadcast"),
         ("admin", "📩 Hubungi Admin"),
         ("panduan", "📖 Buku Panduan"),
     ])
-    print("✅ [INIT] Command List Updated!")
+    print("✅ [INIT] Command List Updated (User Focused)!")
 
 def get_user(user_id):
     try:
@@ -210,6 +223,11 @@ def clean_text(text):
     """Membersihkan text agar aman untuk HTML."""
     if not text: return "-"
     return html.escape(str(text))
+
+def escape_markdown(text):
+    """Fungsi Anti-Crash untuk teks Markdown."""
+    if not text: return ""
+    return str(text).replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`")
 
 
 # ##############################################################################
@@ -267,18 +285,14 @@ def read_file_robust(content, fname):
 
 
 # ##############################################################################
-# BAGIAN 6: FITUR ADMIN - REASONING REJECT
+# BAGIAN 6: FITUR ADMIN - REASONING REJECT & ACTION
 # ##############################################################################
 
+# --- A. REJECT PENDAFTARAN ---
 async def reject_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
     context.user_data['reject_target_uid'] = query.data.split("_")[1]
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text="📝 **KONFIRMASI PENOLAKAN**\n\nSilakan ketik **ALASAN PENOLAKAN**:",
-        parse_mode='Markdown',
-        reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)
-    )
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="📝 **KONFIRMASI PENOLAKAN**\n\nKetik **ALASAN**:", parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True))
     return REJECT_REASON
 
 async def reject_complete(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -286,23 +300,73 @@ async def reject_complete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if reason == "❌ BATAL": 
         await update.message.reply_text("🚫 Batal.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
-    
     target_uid = context.user_data.get('reject_target_uid')
     update_user_status(target_uid, 'rejected')
-    
     try: await context.bot.send_message(target_uid, f"⛔ **PENDAFTARAN DITOLAK**\n\nAlasan: {reason}", parse_mode='Markdown')
     except: pass
-    
     await update.message.reply_text(f"✅ User Ditolak. Alasan: {reason}", reply_markup=ReplyKeyboardRemove())
+    return ConversationHandler.END
+
+# --- B. ADMIN ACTION (BAN/UNBAN/DELETE) DENGAN ALASAN ---
+async def admin_action_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query; await query.answer()
+    data_parts = query.data.split("_")
+    action = data_parts[1] # ban, unban, del
+    target_uid = data_parts[2]
+    
+    context.user_data['adm_act_type'] = action
+    context.user_data['adm_act_uid'] = target_uid
+    
+    act_name = "BAN" if action == "ban" else "UNBAN" if action == "unban" else "HAPUS PERMANEN"
+    
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f"🛡️ **TINDAKAN: {act_name}**\nTarget ID: `{target_uid}`\n\nSilakan ketik **ALASAN / CATATAN** untuk user ini:",
+        parse_mode='Markdown',
+        reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)
+    )
+    return ADMIN_ACT_REASON
+
+async def admin_action_complete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    reason = update.message.text
+    if reason == "❌ BATAL": 
+        await update.message.reply_text("🚫 Tindakan Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+        
+    action = context.user_data.get('adm_act_type')
+    uid = context.user_data.get('adm_act_uid')
+    
+    if action == "ban":
+        update_user_status(uid, 'rejected')
+        msg_user = f"⛔ **AKUN ANDA DIBEKUKAN (BANNED)**\n\n📝 Alasan: {reason}\nHubungi Admin untuk banding."
+        msg_adm = f"⛔ User `{uid}` berhasil di-BAN.\nAlasan: {reason}"
+        
+    elif action == "unban":
+        update_user_status(uid, 'active')
+        msg_user = f"✅ **AKUN ANDA DIPULIHKAN (UNBANNED)**\n\n📝 Catatan: {reason}\nSelamat bekerja kembali!"
+        msg_adm = f"✅ User `{uid}` berhasil di-UNBAN.\nCatatan: {reason}"
+        
+    elif action == "del":
+        supabase.table('users').delete().eq('user_id', uid).execute()
+        msg_user = f"🗑️ **AKUN ANDA DIHAPUS**\n\n📝 Alasan: {reason}\nData Anda telah dihapus dari sistem."
+        msg_adm = f"🗑️ User `{uid}` berhasil DIHAPUS PERMANEN.\nAlasan: {reason}"
+    
+    # Notifikasi
+    try: await context.bot.send_message(uid, msg_user, parse_mode='Markdown')
+    except: pass
+    
+    await update.message.reply_text(msg_adm, reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
     return ConversationHandler.END
 
 
 # ##############################################################################
-# BAGIAN 7: FITUR ADMIN - USER MANAGER (HTML MODE - ANTI CRASH)
+# BAGIAN 7: FITUR ADMIN - USER MANAGER & PANEL
 # ##############################################################################
 
 async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Cheat Sheet Perintah Admin."""
+    """
+    Cheat Sheet Perintah Admin (Semua fitur admin ada disini).
+    """
     if update.effective_user.id != ADMIN_ID: return
     msg = (
         "🔐 **ADMIN CONTROL PANEL**\n━━━━━━━━━━━━━━━━━━\n\n"
@@ -324,50 +388,35 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Menampilkan daftar user dengan HTML Mode (Anti-Crash) dan Pagination.
-    """
+    """Menampilkan daftar user dengan HTML Mode & Pagination."""
     if update.effective_user.id != ADMIN_ID: return
-    
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
-    
     try:
         res = supabase.table('users').select("*").execute()
         active_list = [u for u in res.data if u.get('status') == 'active']
         
-        if not active_list:
-            return await update.message.reply_text("📂 Belum ada user aktif.")
+        if not active_list: return await update.message.reply_text("📂 Belum ada user aktif.")
 
-        # Gunakan HTML agar tidak crash kena karakter aneh
         msg_header = "📋 <b>DAFTAR MITRA AKTIF (" + str(len(active_list)) + ")</b>\nKlik command di samping nama untuk aksi.\n━━━━━━━━━━━━━━━━━━\n"
         current_msg = msg_header
         
         for i, u in enumerate(active_list, 1):
-            # Clean text using HTML escape
             nama = clean_text(u.get('nama_lengkap'))
             pt = clean_text(u.get('agency'))
             kota = clean_text(u.get('alamat'))
             uid = u.get('user_id')
             
-            entry = (
-                f"{i}. 👤 <b>{nama}</b>\n"
-                f"   📍 {kota} | 🏢 {pt}\n"
-                f"   👉 Manage: /m_{uid}\n\n"
-            )
+            entry = f"{i}. 👤 <b>{nama}</b>\n   📍 {kota} | 🏢 {pt}\n   👉 Manage: /m_{uid}\n\n"
             
-            # Pagination Logic
             if len(current_msg) + len(entry) > 3800:
                 await update.message.reply_text(current_msg, parse_mode='HTML')
                 current_msg = entry 
             else:
                 current_msg += entry
         
-        # Kirim sisa pesan
-        if current_msg:
-            await update.message.reply_text(current_msg, parse_mode='HTML')
+        if current_msg: await update.message.reply_text(current_msg, parse_mode='HTML')
             
-    except Exception as e: 
-        await update.message.reply_text(f"❌ Error List Users: {str(e)}")
+    except Exception as e: await update.message.reply_text(f"❌ Error List Users: {str(e)}")
 
 async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk Magic Link /m_ID."""
@@ -389,21 +438,15 @@ async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🛡️ <b>Status:</b> {str(u.get('status')).upper()}\n"
             f"━━━━━━━━━━━━━━━━━━\n👇 <b>Pilih Tindakan:</b>"
         )
+        # REVISI: Tombol Ban/Unban/Del sekarang men-trigger ConversationHandler (adm_...)
         kb = [
             [InlineKeyboardButton("💰 +50 HIT", callback_data=f"adm_topup_{target_uid}_50"), InlineKeyboardButton("💰 +100 HIT", callback_data=f"adm_topup_{target_uid}_100")],
-            [InlineKeyboardButton("⛔ BAN", callback_data=f"adm_ban_{target_uid}"), InlineKeyboardButton("✅ UNBAN", callback_data=f"adm_unban_{target_uid}")],
-            [InlineKeyboardButton("🗑️ HAPUS PERMANEN", callback_data=f"adm_del_{target_uid}")]
+            [InlineKeyboardButton("⛔ BAN (Reason)", callback_data=f"adm_ban_{target_uid}"), InlineKeyboardButton("✅ UNBAN (Reason)", callback_data=f"adm_unban_{target_uid}")],
+            [InlineKeyboardButton("🗑️ HAPUS (Reason)", callback_data=f"adm_del_{target_uid}")],
+            [InlineKeyboardButton("❌ TUTUP PANEL", callback_data="close_panel")]
         ]
         await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
     except: await update.message.reply_text("❌ Error ID.")
-
-# Backup Command Manual
-async def ban_user(update, context): 
-    if update.effective_user.id==ADMIN_ID: update_user_status(context.args[0], 'rejected'); await update.message.reply_text("⛔ Banned.")
-async def unban_user(update, context):
-    if update.effective_user.id==ADMIN_ID: update_user_status(context.args[0], 'active'); await update.message.reply_text("✅ Unbanned.")
-async def delete_user(update, context):
-    if update.effective_user.id==ADMIN_ID: supabase.table('users').delete().eq('user_id', context.args[0]).execute(); await update.message.reply_text("🗑️ Deleted.")
 
 
 # ==============================================================================
@@ -493,10 +536,8 @@ async def panduan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, vehicle_data):
     hp_raw = user_data.get('no_hp', '-')
     hp_wa = '62' + hp_raw[1:] if hp_raw.startswith('0') else hp_raw
-    
     report_text = (
-        f"🚨 **UNIT DITEMUKAN! (HIT)**\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🚨 **UNIT DITEMUKAN! (HIT)**\n━━━━━━━━━━━━━━━━━━\n"
         f"👤 **Penemu:** {user_data.get('nama_lengkap')} ({user_data.get('agency')})\n"
         f"📍 **Kota:** {user_data.get('kota', '-')}\n\n"
         f"🚙 **Unit:** {vehicle_data.get('type', '-')}\n"
@@ -509,11 +550,10 @@ async def notify_hit_to_group(context: ContextTypes.DEFAULT_TYPE, user_data, veh
         f"----------------------------------\n"
         f"⚠️ **OVD:** {vehicle_data.get('ovd', '-')}\n"
         f"🏦 **Finance:** {vehicle_data.get('finance', '-')}\n"
-        f"🏢 **Branch:** {vehicle_data.get('branch', '-')}\n"
-        f"━━━━━━━━━━━━━━━━━━"
+        f"🏢 **Branch:** {vehicle_data.get('branch', '-')}\n━━━━━━━━━━━━━━━━━━"
     )
-    keyboard = [[InlineKeyboardButton("📞 Hubungi Penemu (WA)", url=f"https://wa.me/{hp_wa}")]]
-    try: await context.bot.send_message(chat_id=LOG_GROUP_ID, text=report_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    kb = [[InlineKeyboardButton("📞 Hubungi Penemu (WA)", url=f"https://wa.me/{hp_wa}")]]
+    try: await context.bot.send_message(chat_id=LOG_GROUP_ID, text=report_text, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
     except: pass
 
 
@@ -546,7 +586,7 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 # ==============================================================================
-# BAGIAN 10: FITUR UPLOAD (SMART SYSTEM - HTML REPORT)
+# BAGIAN 10: FITUR UPLOAD (SMART SYSTEM - FIX PROGRESS & REPORT)
 # ==============================================================================
 
 async def upload_start(update, context):
@@ -576,7 +616,7 @@ async def upload_start(update, context):
         await msg.delete()
         
         report = (
-            f"✅ **SCAN SUKSES (v4.12)**\n"
+            f"✅ **SCAN SUKSES (v4.13)**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"📊 **Kolom Dikenali:** {', '.join(found)}\n"
             f"📁 **Total Baris:** {len(df)}\n"
@@ -586,11 +626,7 @@ async def upload_start(update, context):
             f"_(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)_"
         )
         
-        await update.message.reply_text(
-            report, 
-            parse_mode='Markdown', 
-            reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True)
-        )
+        await update.message.reply_text(report, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True))
         return U_LEASING_ADMIN
     except Exception as e: await msg.edit_text(f"❌ Error: {e}")
     return ConversationHandler.END
@@ -615,11 +651,11 @@ async def upload_leasing_admin(update, context):
     for c in valid: 
         if c not in df.columns: df[c] = None
     
-    sample = df.iloc[0] # Ambil sampel untuk preview
+    sample = df.iloc[0] 
     context.user_data['final_data_records'] = df[valid].to_dict(orient='records')
     
     preview_msg = (
-        f"🔎 **PREVIEW DATA (v4.12)**\n"
+        f"🔎 **PREVIEW DATA (v4.13)**\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"🏦 **Leasing:** {fin}\n"
         f"📊 **Total Data:** {len(df)} Unit\n\n"
@@ -632,12 +668,7 @@ async def upload_leasing_admin(update, context):
         f"⚠️ Klik **EKSEKUSI** untuk memulai upload.\n"
         f"⚠️ Klik **BATAL** jika ada yang salah."
     )
-    
-    await update.message.reply_text(
-        preview_msg, 
-        parse_mode='Markdown', 
-        reply_markup=ReplyKeyboardMarkup([["🚀 EKSEKUSI", "❌ BATAL"]], one_time_keyboard=True)
-    )
+    await update.message.reply_text(preview_msg, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["🚀 EKSEKUSI", "❌ BATAL"]], one_time_keyboard=True))
     return U_CONFIRM_UPLOAD
 
 async def upload_confirm_admin(update, context):
@@ -658,32 +689,22 @@ async def upload_confirm_admin(update, context):
                 for x in batch: 
                     try: supabase.table('kendaraan').upsert([x], on_conflict='nopol').execute(); suc+=1
                     except: fail+=1
-            
-            # Update status secara berkala (Heartbeat) - HTML MODE
             if (i+BATCH)%2000==0: 
-                try:
-                    await status_msg.edit_text(f"⏳ <b>MENGUPLOAD...</b>\n✅ {i+BATCH}/{len(data)} data terproses...", parse_mode='HTML')
+                try: await status_msg.edit_text(f"⏳ **MENGUPLOAD...**\n✅ {i+BATCH}/{len(data)} data terproses...", parse_mode='HTML')
                 except: pass
                 await asyncio.sleep(0.1)
 
         duration = round(time.time() - start_time, 2)
-        
-        # FINAL REPORT - HTML MODE (Anti-Crash)
         report = (
-            f"✅ <b>UPLOAD SUKSES 100%!</b>\n"
+            f"✅ **UPLOAD SUKSES 100%!**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"📊 <b>Total Data:</b> {suc}\n"
-            f"❌ <b>Gagal:</b> {fail}\n"
-            f"⏱ <b>Waktu:</b> {duration} detik\n"
-            f"🚀 <b>Status:</b> Database Updated Successfully!"
+            f"📊 **Total Data:** {suc}\n"
+            f"❌ **Gagal:** {fail}\n"
+            f"⏱ **Waktu:** {duration} detik\n"
+            f"🚀 **Status:** Database Updated Successfully!"
         )
-        
-        # Edit pesan status terakhir agar tidak gantung
-        try:
-            await status_msg.edit_text(report, parse_mode='HTML')
-        except:
-            await update.message.reply_text(report, parse_mode='HTML')
-            
+        try: await status_msg.edit_text(report, parse_mode='HTML')
+        except: await update.message.reply_text(report, parse_mode='HTML')
     except Exception as e:
         await update.message.reply_text(f"❌ **CRASH SAAT UPLOAD:**\n{str(e)}", parse_mode='Markdown')
     
@@ -793,10 +814,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             info = f"📢 **INFO:** {GLOBAL_INFO}\n━━━━━━━━━━━━━━━━━━\n" if GLOBAL_INFO else ""
             txt = (f"{info}✅ **DATA DITEMUKAN**\n━━━━━━━━━━━━━━━━━━\n🚙 **Unit:** {d.get('type','-')}\n🔢 **Nopol:** `{d.get('nopol','-')}`\n📅 **Tahun:** {d.get('tahun','-')}\n🎨 **Warna:** {d.get('warna','-')}\n----------------------------------\n🔧 **Noka:** `{d.get('noka','-')}`\n⚙️ **Nosin:** `{d.get('nosin','-')}`\n----------------------------------\n⚠️ **OVD:** {d.get('ovd', '-')}\n🏦 **Finance:** {d.get('finance', '-')}\n🏢 **Branch:** {d.get('branch', '-')}\n━━━━━━━━━━━━━━━━━━\n⚠️ **CATATAN PENTING:**\nIni bukan alat yang SAH untuk penarikan. Konfirmasi ke PIC leasing.")
             await update.message.reply_text(txt, parse_mode='Markdown')
-            
-            # NOTIFIKASI LENGKAP KE GROUP (RESTORED v4.9)
             await notify_hit_to_group(context, u, d)
-            
         else:
             info = f"📢 **INFO:** {GLOBAL_INFO}\n\n" if GLOBAL_INFO else ""
             await update.message.reply_text(f"{info}❌ **DATA TIDAK DITEMUKAN**\n`{kw}`", parse_mode='Markdown')
@@ -806,12 +824,14 @@ async def cancel(update, context): await update.message.reply_text("🚫 Dibatal
 
 async def callback_handler(update, context):
     q = update.callback_query; await q.answer(); d = q.data
-    # Admin Panel
-    if d.startswith("adm_topup_"): topup_quota(int(d.split("_")[2]), int(d.split("_")[3])); await q.edit_message_text("✅ Topup Sukses.")
-    elif d.startswith("adm_ban_"): update_user_status(d.split("_")[2], 'rejected'); await q.edit_message_text("⛔ User DI-BAN.")
-    elif d.startswith("adm_unban_"): update_user_status(d.split("_")[2], 'active'); await q.edit_message_text("✅ User DI-UNBAN.")
-    elif d.startswith("adm_del_"): supabase.table('users').delete().eq('user_id', d.split("_")[2]).execute(); await q.edit_message_text("🗑️ User DIHAPUS.")
-    # Standard
+    
+    # --- ADMIN CONTROL PANEL (REVISI v4.13) ---
+    if d.startswith("adm_topup_"):
+        topup_quota(int(d.split("_")[2]), int(d.split("_")[3])); await q.edit_message_text("✅ Topup Sukses.")
+    elif d == "close_panel":
+        await q.delete_message()
+    
+    # --- STANDARD FITUR ---
     elif d.startswith("topup_"):
         parts = d.split("_"); uid = int(parts[1])
         if parts[2] == "rej": await context.bot.send_message(uid, "❌ Topup DITOLAK."); await q.edit_message_caption("❌ Ditolak.")
@@ -829,16 +849,24 @@ async def callback_handler(update, context):
 # ==============================================================================
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.12 (HTML STABLE) STARTING...")
+    print("🚀 ONEASPAL BOT v4.13 (MASTERPIECE STANDARD) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
-    # Handlers Conversation (Prioritas Utama)
+    # 1. ADMIN ACTION REASONING HANDLER (PRIORITAS TERTINGGI)
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(admin_action_start, pattern='^adm_(ban|unban|del)_')], 
+        states={ADMIN_ACT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_action_complete)]}, 
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+    ))
+
+    # 2. REJECT REGISTRATION REASONING
     app.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(reject_start, pattern='^reju_')], 
         states={REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, reject_complete)]}, 
         fallbacks=[CommandHandler('cancel', cancel)]
     ))
 
+    # 3. UPLOAD HANDLER
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Document.ALL, upload_start)], 
         states={
@@ -850,6 +878,7 @@ if __name__ == '__main__':
         allow_reentry=True
     ))
 
+    # 4. REGISTER HANDLER
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('register', register_start)], 
         states={
@@ -863,6 +892,7 @@ if __name__ == '__main__':
         fallbacks=[CommandHandler('cancel', cancel)]
     ))
     
+    # 5. TAMBAH DATA HANDLER
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('tambah', add_data_start)],
         states={
@@ -875,6 +905,7 @@ if __name__ == '__main__':
         fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
     ))
 
+    # 6. LAPOR HANDLER
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('lapor', lapor_delete_start)], 
         states={
@@ -884,6 +915,7 @@ if __name__ == '__main__':
         fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
     ))
     
+    # 7. HAPUS MANUAL HANDLER
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('hapus', delete_unit_start)], 
         states={
@@ -893,16 +925,16 @@ if __name__ == '__main__':
         fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
     ))
 
-    # Handlers Perintah
+    # COMMANDS
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('cekkuota', cek_kuota))
     app.add_handler(CommandHandler('topup', admin_topup))
     app.add_handler(CommandHandler('stats', get_stats))
     app.add_handler(CommandHandler('leasing', get_leasing_list)) 
     app.add_handler(CommandHandler('users', list_users))
-    app.add_handler(CommandHandler('ban', ban_user))
-    app.add_handler(CommandHandler('unban', unban_user))
-    app.add_handler(CommandHandler('delete', delete_user))
+    # app.add_handler(CommandHandler('ban', ban_user)) # Disabled manual cmd
+    # app.add_handler(CommandHandler('unban', unban_user)) 
+    # app.add_handler(CommandHandler('delete', delete_user)) 
     app.add_handler(CommandHandler('testgroup', test_group)) 
     app.add_handler(CommandHandler('panduan', panduan))
     app.add_handler(CommandHandler('setinfo', set_info)) 
@@ -911,11 +943,11 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('addagency', add_agency)) 
     app.add_handler(CommandHandler('adminhelp', admin_help)) 
     
-    # Handlers Lainnya
+    # MEDIA & CALLBACKS
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo_topup))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.12 - HTML Stability)")
+    print("✅ BOT ONLINE! (v4.13 - Masterpiece Standard)")
     app.run_polling()
