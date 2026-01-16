@@ -2,16 +2,13 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.6 (THE ULTIMATE FAT EDITION)                 #
+#                      VERSION: 4.6.1 (STABLE NAME FIX)                        #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
 ################################################################################
 """
 
-# ==============================================================================
-# BAGIAN 1: KONFIGURASI & LIBRARY
-# ==============================================================================
 import os
 import logging
 import pandas as pd
@@ -26,7 +23,6 @@ from collections import Counter
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Telegram Bot SDK
 from telegram import (
     Update, 
     InlineKeyboardButton, 
@@ -46,29 +42,27 @@ from telegram.ext import (
     ConversationHandler
 )
 
-# Database Driver
 from supabase import create_client, Client
 
-# Load Environment Variables
+# ##############################################################################
+#BAGIAN 1: KONFIGURASI SISTEM
+# ##############################################################################
+
 load_dotenv()
 
-# Konfigurasi Logging
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(name)s - %(message)s', 
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Ambil Credential
 URL = os.environ.get("SUPABASE_URL")
 KEY = os.environ.get("SUPABASE_KEY")
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
-# Variable Global
 GLOBAL_INFO = ""
 LOG_GROUP_ID = -1003627047676  
 
-# Setup Admin ID
 DEFAULT_ADMIN_ID = 7530512170
 try:
     env_id = os.environ.get("ADMIN_ID")
@@ -78,15 +72,10 @@ except ValueError:
 
 print(f"✅ [BOOT] SYSTEM STARTING... ADMIN ID: {ADMIN_ID}")
 
-# Validasi Credential
 if not URL or not KEY or not TOKEN:
     print("❌ [CRITICAL] Credential tidak lengkap! Cek .env")
     exit()
 
-
-# ==============================================================================
-# BAGIAN 2: DATABASE CONNECTION
-# ==============================================================================
 try:
     supabase: Client = create_client(URL, KEY)
     print("✅ [BOOT] KONEKSI DATABASE BERHASIL!")
@@ -95,9 +84,9 @@ except Exception as e:
     exit()
 
 
-# ==============================================================================
-# BAGIAN 3: KAMUS DATA (DICTIONARY - VERTIKAL MODE)
-# ==============================================================================
+# ##############################################################################
+# BAGIAN 2: KAMUS DATA (VERTIKAL MODE)
+# ##############################################################################
 
 COLUMN_ALIASES = {
     'nopol': [
@@ -147,9 +136,9 @@ COLUMN_ALIASES = {
 }
 
 
-# ==============================================================================
-# BAGIAN 4: DEFINISI STATE CONVERSATION
-# ==============================================================================
+# ##############################################################################
+# BAGIAN 3: DEFINISI STATE
+# ##############################################################################
 
 R_NAMA, R_HP, R_EMAIL, R_KOTA, R_AGENCY, R_CONFIRM = range(6)
 A_NOPOL, A_TYPE, A_LEASING, A_NOKIR, A_CONFIRM = range(6, 11)
@@ -159,9 +148,9 @@ U_LEASING_USER, U_LEASING_ADMIN, U_CONFIRM_UPLOAD = range(15, 18)
 REJECT_REASON = 18
 
 
-# ==============================================================================
-# BAGIAN 5: FUNGSI HELPER UTAMA
-# ==============================================================================
+# ##############################################################################
+# BAGIAN 4: FUNGSI HELPER UTAMA
+# ##############################################################################
 
 async def post_init(application: Application):
     """Mengatur Menu Command saat bot start."""
@@ -217,9 +206,9 @@ def topup_quota(user_id, amount):
     except: return False, 0
 
 
-# ==============================================================================
-# BAGIAN 6: ENGINE FILE (ADAPTIVE POLYGLOT)
-# ==============================================================================
+# ##############################################################################
+# BAGIAN 5: ENGINE FILE (ADAPTIVE POLYGLOT)
+# ##############################################################################
 
 def normalize_text(text):
     if not isinstance(text, str): return str(text).lower()
@@ -271,9 +260,9 @@ def read_file_robust(content, fname):
     return pd.read_csv(io.BytesIO(content), sep=None, engine='python', dtype=str)
 
 
-# ==============================================================================
-# BAGIAN 7: FITUR ADMIN - REASONING REJECT
-# ==============================================================================
+# ##############################################################################
+# BAGIAN 6: FITUR ADMIN - REASONING REJECT
+# ##############################################################################
 
 async def reject_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
@@ -303,9 +292,9 @@ async def reject_complete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# ==============================================================================
-# BAGIAN 8: FITUR ADMIN - USER MANAGER & PANEL
-# ==============================================================================
+# ##############################################################################
+# BAGIAN 7: FITUR ADMIN - USER MANAGER & PANEL
+# ##############################################################################
 
 async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cheat Sheet Perintah Admin."""
@@ -382,9 +371,9 @@ async def delete_user(update, context):
     if update.effective_user.id==ADMIN_ID: supabase.table('users').delete().eq('user_id', context.args[0]).execute(); await update.message.reply_text("🗑️ Deleted.")
 
 
-# ==============================================================================
-# BAGIAN 9: FITUR ADMIN - AUDIT & SYSTEM (STATS, LEASING, INFO)
-# ==============================================================================
+# ##############################################################################
+# BAGIAN 8: FITUR ADMIN - AUDIT & SYSTEM
+# ##############################################################################
 
 async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
@@ -436,9 +425,9 @@ async def contact_admin(update, context):
     if u and context.args: await context.bot.send_message(ADMIN_ID, f"📩 **MITRA:** {u['nama_lengkap']}\n💬 {' '.join(context.args)}"); await update.message.reply_text("✅ Terkirim.")
 
 
-# ==============================================================================
-# BAGIAN 10: FITUR USER - KUOTA & TOPUP
-# ==============================================================================
+# ##############################################################################
+# BAGIAN 9: FITUR USER - KUOTA & TOPUP
+# ##############################################################################
 
 async def cek_kuota(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = get_user(update.effective_user.id)
@@ -464,9 +453,9 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await context.bot.send_photo(ADMIN_ID, update.message.photo[-1].file_id, caption=msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
 
 
-# ==============================================================================
-# BAGIAN 11: FITUR UPLOAD (SMART SYSTEM)
-# ==============================================================================
+# ##############################################################################
+# BAGIAN 10: FITUR UPLOAD (SMART SYSTEM)
+# ##############################################################################
 
 async def upload_start(update, context):
     uid = update.effective_user.id
@@ -538,7 +527,7 @@ async def upload_confirm_admin(update, context):
 
 
 # ==============================================================================
-# BAGIAN 12: HANDLER CONVERSATION (REG, ADD, LAPOR) - FIX UI
+# BAGIAN 11: HANDLER CONVERSATION (REG, ADD, LAPOR) - FIX UI
 # ==============================================================================
 
 # --- LAPOR ---
@@ -600,9 +589,22 @@ async def add_confirm(update, context):
     await context.bot.send_message(ADMIN_ID, f"📥 **DATA BARU**\nNopol: `{n}`", reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
     return ConversationHandler.END
 
+# --- HAPUS MANUAL ---
+# FIX: NAMA FUNGSI DIUBAH AGAR SESUAI DENGAN HANDLER
+async def delete_unit_start(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    await update.message.reply_text("🗑️ **HAPUS MANUAL**\nNopol:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]])); return D_NOPOL
+async def delete_unit_check(update, context):
+    if update.message.text == "❌ BATAL": return await cancel(update, context)
+    n = update.message.text.upper().replace(" ", "")
+    context.user_data['del_nopol'] = n; await update.message.reply_text(f"Hapus `{n}`?", reply_markup=ReplyKeyboardMarkup([["✅ YA, HAPUS", "❌ BATAL"]])); return D_CONFIRM
+async def delete_unit_confirm(update, context):
+    if update.message.text == "✅ YA, HAPUS": supabase.table('kendaraan').delete().eq('nopol', context.user_data['del_nopol']).execute(); await update.message.reply_text("✅ Terhapus.", reply_markup=ReplyKeyboardRemove())
+    return ConversationHandler.END
+
 
 # ==============================================================================
-# BAGIAN 13: MAIN HANDLER (SEARCH & CALLBACK)
+# BAGIAN 12: MAIN HANDLER (SEARCH & CALLBACK)
 # ==============================================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -662,11 +664,11 @@ async def callback_handler(update, context):
 
 
 # ==============================================================================
-# BAGIAN 14: SYSTEM RUNNER (ENTRY POINT)
+# BAGIAN 13: SYSTEM RUNNER (ENTRY POINT)
 # ==============================================================================
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.6 (ULTIMATE FAT EDITION) STARTING...")
+    print("🚀 ONEASPAL BOT v4.6.1 (STABLE NAME FIX) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     # Handlers Conversation (Prioritas Utama)
@@ -754,5 +756,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.6 - Ready to Serve)")
+    print("✅ BOT ONLINE! (v4.6.1 - Ready to Serve)")
     app.run_polling()
