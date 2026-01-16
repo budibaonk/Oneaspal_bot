@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.9.1 (STABILITY PATCH)                        #
+#                      VERSION: 4.10 (USER MANAGEMENT FIX)                     #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -205,10 +205,15 @@ def topup_quota(user_id, amount):
         return False, 0
     except: return False, 0
 
-def escape_markdown(text):
-    """Fungsi Anti-Crash untuk teks Markdown."""
-    if not text: return ""
-    return str(text).replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`")
+def clean_text(text):
+    """Fungsi Anti-Crash: Membersihkan karakter Markdown yang bikin error."""
+    if not text: return "-"
+    # Hapus karakter spesial yang bisa merusak format Markdown Telegram
+    text = str(text)
+    replacements = {'_': ' ', '*': ' ', '`': ' ', '[': '(', ']': ')'}
+    for char, replacement in replacements.items():
+        text = text.replace(char, replacement)
+    return text.strip()
 
 
 # ##############################################################################
@@ -324,36 +329,47 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Menampilkan daftar user dengan SHORTCUT LINK (/m_ID).
-    FIX: Pagination Logic agar tidak crash jika text > 4000 karakter.
+    Menampilkan daftar user dengan FORMAT LENGKAP & PAGINATION AMAN.
     """
     if update.effective_user.id != ADMIN_ID: return
+    
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=constants.ChatAction.TYPING)
+    
     try:
         res = supabase.table('users').select("*").execute()
         active_list = [u for u in res.data if u.get('status') == 'active']
         
-        header = f"📋 **DAFTAR MITRA AKTIF ({len(active_list)})**\nKlik command di samping nama untuk aksi.\n━━━━━━━━━━━━━━━━━━\n"
-        msg = header
+        if not active_list:
+            return await update.message.reply_text("📂 Belum ada user aktif.")
+
+        # Header Pesan
+        msg_header = f"📋 **DAFTAR MITRA AKTIF ({len(active_list)})**\n━━━━━━━━━━━━━━━━━━\n"
+        current_msg = msg_header
         
         for i, u in enumerate(active_list, 1):
-            nama_raw = u.get('nama_lengkap') or "Tanpa Nama"
-            nama_clean = escape_markdown(nama_raw[:15])
-            agency_clean = escape_markdown(u.get('agency') or "-")
+            # 1. Bersihkan Data (Anti-Crash)
+            nama = clean_text(u.get('nama_lengkap'))
+            pt = clean_text(u.get('agency'))
+            kota = clean_text(u.get('alamat'))
             uid = u.get('user_id')
             
-            entry = f"{i}. 👤 **{nama_clean}** ({agency_clean})\n   👉 Atur: /m_{uid}\n\n"
+            # 2. Format Per User (Lengkap: Nama, Kota, PT, Link Manage)
+            entry = (
+                f"{i}. 👤 **{nama}**\n"
+                f"   📍 {kota} | 🏢 {pt}\n"
+                f"   👉 Manage: /m_{uid}\n\n"
+            )
             
-            # CEK PANJANG PESAN. Jika mau limit (4000), kirim dulu, lalu reset.
-            if len(msg) + len(entry) > 3800:
-                await update.message.reply_text(msg, parse_mode='Markdown')
-                msg = entry # Reset msg dengan entry yang belum masuk
+            # 3. Logika Pagination (Pecah pesan jika > 3800 karakter)
+            if len(current_msg) + len(entry) > 3800:
+                await update.message.reply_text(current_msg, parse_mode='Markdown')
+                current_msg = entry # Mulai pesan baru dengan entry ini
             else:
-                msg += entry
+                current_msg += entry
         
-        # Kirim sisa pesan
-        if msg:
-            await update.message.reply_text(msg, parse_mode='Markdown')
+        # Kirim sisa pesan terakhir
+        if current_msg:
+            await update.message.reply_text(current_msg, parse_mode='Markdown')
             
     except Exception as e: 
         await update.message.reply_text(f"❌ Error List Users: {str(e)}")
@@ -366,13 +382,14 @@ async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         u = get_user(target_uid)
         if not u: return await update.message.reply_text("❌ User tidak ditemukan.")
         
-        nama_safe = escape_markdown(u.get('nama_lengkap', '-'))
-        agency_safe = escape_markdown(u.get('agency', '-'))
+        # Data User untuk Panel
+        nama = clean_text(u.get('nama_lengkap'))
+        pt = clean_text(u.get('agency'))
         
         msg = (
             f"👮‍♂️ **USER MANAGER**\n━━━━━━━━━━━━━━━━━━\n"
-            f"👤 **Nama:** {nama_safe}\n"
-            f"🏢 **Agency:** {agency_safe}\n"
+            f"👤 **Nama:** {nama}\n"
+            f"🏢 **Agency:** {pt}\n"
             f"📱 **ID:** `{target_uid}`\n"
             f"🔋 **Kuota:** {u.get('quota', 0)}\n"
             f"🛡️ **Status:** {u.get('status').upper()}\n"
@@ -565,7 +582,7 @@ async def upload_start(update, context):
         await msg.delete()
         
         report = (
-            f"✅ **SCAN SUKSES (v4.9.1)**\n"
+            f"✅ **SCAN SUKSES (v4.10)**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"📊 **Kolom Dikenali:** {', '.join(found)}\n"
             f"📁 **Total Baris:** {len(df)}\n"
@@ -608,7 +625,7 @@ async def upload_leasing_admin(update, context):
     context.user_data['final_data_records'] = df[valid].to_dict(orient='records')
     
     preview_msg = (
-        f"🔎 **PREVIEW DATA (v4.9.1)**\n"
+        f"🔎 **PREVIEW DATA (v4.10)**\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"🏦 **Leasing:** {fin}\n"
         f"📊 **Total Data:** {len(df)} Unit\n\n"
@@ -648,7 +665,7 @@ async def upload_confirm_admin(update, context):
                     try: supabase.table('kendaraan').upsert([x], on_conflict='nopol').execute(); suc+=1
                     except: fail+=1
             
-            # FIX PROGRESS: Update setiap 2000 data
+            # Update status secara berkala (Heartbeat)
             if (i+BATCH)%2000==0: 
                 try:
                     await status_msg.edit_text(f"⏳ **MENGUPLOAD...**\n✅ {i+BATCH}/{len(data)} data terproses...")
@@ -657,7 +674,6 @@ async def upload_confirm_admin(update, context):
 
         duration = round(time.time() - start_time, 2)
         
-        # FIX REPORT: EDIT MESSAGE LANGSUNG (ANTI GANTUNG)
         report = (
             f"✅ **UPLOAD SUKSES 100%!**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
@@ -667,11 +683,10 @@ async def upload_confirm_admin(update, context):
             f"🚀 **Status:** Database Updated Successfully!"
         )
         
-        # Coba edit pesan loading menjadi pesan sukses
+        # Edit pesan status terakhir agar tidak gantung
         try:
             await status_msg.edit_text(report, parse_mode='Markdown')
         except:
-            # Jika edit gagal (misal pesan terhapus), kirim pesan baru
             await update.message.reply_text(report, parse_mode='Markdown')
             
     except Exception as e:
@@ -784,7 +799,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             txt = (f"{info}✅ **DATA DITEMUKAN**\n━━━━━━━━━━━━━━━━━━\n🚙 **Unit:** {d.get('type','-')}\n🔢 **Nopol:** `{d.get('nopol','-')}`\n📅 **Tahun:** {d.get('tahun','-')}\n🎨 **Warna:** {d.get('warna','-')}\n----------------------------------\n🔧 **Noka:** `{d.get('noka','-')}`\n⚙️ **Nosin:** `{d.get('nosin','-')}`\n----------------------------------\n⚠️ **OVD:** {d.get('ovd', '-')}\n🏦 **Finance:** {d.get('finance', '-')}\n🏢 **Branch:** {d.get('branch', '-')}\n━━━━━━━━━━━━━━━━━━\n⚠️ **CATATAN PENTING:**\nIni bukan alat yang SAH untuk penarikan. Konfirmasi ke PIC leasing.")
             await update.message.reply_text(txt, parse_mode='Markdown')
             
-            # NOTIFIKASI LENGKAP KE GROUP (RESTORED v4.9)
+            # FIX: Panggil Notifikasi Group yang LENGKAP & PROFESIONAL
             await notify_hit_to_group(context, u, d)
             
         else:
@@ -819,7 +834,7 @@ async def callback_handler(update, context):
 # ==============================================================================
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.9.1 (STABILITY PATCH) STARTING...")
+    print("🚀 ONEASPAL BOT v4.10 (USER FIX) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     # Handlers Conversation (Prioritas Utama)
@@ -907,5 +922,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.9.1 - Stability Patch)")
+    print("✅ BOT ONLINE! (v4.10 - User Management Fixed)")
     app.run_polling()
