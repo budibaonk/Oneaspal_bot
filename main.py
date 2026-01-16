@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.11 (DICTIONARY UPDATE)                       #
+#                      VERSION: 4.12 (HTML STABILITY UPDATE)                   #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -19,6 +19,7 @@ import re
 import asyncio 
 import csv 
 import zipfile 
+import html # Added for HTML escaping
 from collections import Counter
 from datetime import datetime
 from dotenv import load_dotenv
@@ -85,7 +86,7 @@ except Exception as e:
 
 
 # ##############################################################################
-# BAGIAN 2: KAMUS DATA (VERTIKAL MODE - UPDATED V4.11)
+# BAGIAN 2: KAMUS DATA (VERTIKAL MODE - LENGKAP)
 # ##############################################################################
 
 COLUMN_ALIASES = {
@@ -206,18 +207,9 @@ def topup_quota(user_id, amount):
     except: return False, 0
 
 def clean_text(text):
-    """Fungsi Anti-Crash: Membersihkan karakter Markdown yang bikin error."""
+    """Membersihkan text agar aman untuk HTML."""
     if not text: return "-"
-    text = str(text)
-    replacements = {'_': ' ', '*': ' ', '`': ' ', '[': '(', ']': ')'}
-    for char, replacement in replacements.items():
-        text = text.replace(char, replacement)
-    return text.strip()
-
-def escape_markdown(text):
-    """Fungsi Anti-Crash untuk teks Markdown."""
-    if not text: return ""
-    return str(text).replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`")
+    return html.escape(str(text))
 
 
 # ##############################################################################
@@ -306,7 +298,7 @@ async def reject_complete(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ##############################################################################
-# BAGIAN 7: FITUR ADMIN - USER MANAGER (PAGINATION READY)
+# BAGIAN 7: FITUR ADMIN - USER MANAGER (HTML MODE - ANTI CRASH)
 # ##############################################################################
 
 async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -333,7 +325,7 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Menampilkan daftar user dengan FORMAT LENGKAP & PAGINATION AMAN.
+    Menampilkan daftar user dengan HTML Mode (Anti-Crash) dan Pagination.
     """
     if update.effective_user.id != ADMIN_ID: return
     
@@ -346,29 +338,33 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not active_list:
             return await update.message.reply_text("📂 Belum ada user aktif.")
 
-        msg_header = f"📋 **DAFTAR MITRA AKTIF ({len(active_list)})**\n━━━━━━━━━━━━━━━━━━\n"
+        # Gunakan HTML agar tidak crash kena karakter aneh
+        msg_header = "📋 <b>DAFTAR MITRA AKTIF (" + str(len(active_list)) + ")</b>\nKlik command di samping nama untuk aksi.\n━━━━━━━━━━━━━━━━━━\n"
         current_msg = msg_header
         
         for i, u in enumerate(active_list, 1):
+            # Clean text using HTML escape
             nama = clean_text(u.get('nama_lengkap'))
             pt = clean_text(u.get('agency'))
             kota = clean_text(u.get('alamat'))
             uid = u.get('user_id')
             
             entry = (
-                f"{i}. 👤 **{nama}**\n"
+                f"{i}. 👤 <b>{nama}</b>\n"
                 f"   📍 {kota} | 🏢 {pt}\n"
                 f"   👉 Manage: /m_{uid}\n\n"
             )
             
+            # Pagination Logic
             if len(current_msg) + len(entry) > 3800:
-                await update.message.reply_text(current_msg, parse_mode='Markdown')
+                await update.message.reply_text(current_msg, parse_mode='HTML')
                 current_msg = entry 
             else:
                 current_msg += entry
         
+        # Kirim sisa pesan
         if current_msg:
-            await update.message.reply_text(current_msg, parse_mode='Markdown')
+            await update.message.reply_text(current_msg, parse_mode='HTML')
             
     except Exception as e: 
         await update.message.reply_text(f"❌ Error List Users: {str(e)}")
@@ -385,20 +381,20 @@ async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pt = clean_text(u.get('agency'))
         
         msg = (
-            f"👮‍♂️ **USER MANAGER**\n━━━━━━━━━━━━━━━━━━\n"
-            f"👤 **Nama:** {nama}\n"
-            f"🏢 **Agency:** {pt}\n"
-            f"📱 **ID:** `{target_uid}`\n"
-            f"🔋 **Kuota:** {u.get('quota', 0)}\n"
-            f"🛡️ **Status:** {u.get('status').upper()}\n"
-            f"━━━━━━━━━━━━━━━━━━\n👇 **Pilih Tindakan:**"
+            f"👮‍♂️ <b>USER MANAGER</b>\n━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Nama:</b> {nama}\n"
+            f"🏢 <b>Agency:</b> {pt}\n"
+            f"📱 <b>ID:</b> <code>{target_uid}</code>\n"
+            f"🔋 <b>Kuota:</b> {u.get('quota', 0)}\n"
+            f"🛡️ <b>Status:</b> {str(u.get('status')).upper()}\n"
+            f"━━━━━━━━━━━━━━━━━━\n👇 <b>Pilih Tindakan:</b>"
         )
         kb = [
             [InlineKeyboardButton("💰 +50 HIT", callback_data=f"adm_topup_{target_uid}_50"), InlineKeyboardButton("💰 +100 HIT", callback_data=f"adm_topup_{target_uid}_100")],
             [InlineKeyboardButton("⛔ BAN", callback_data=f"adm_ban_{target_uid}"), InlineKeyboardButton("✅ UNBAN", callback_data=f"adm_unban_{target_uid}")],
             [InlineKeyboardButton("🗑️ HAPUS PERMANEN", callback_data=f"adm_del_{target_uid}")]
         ]
-        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
+        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
     except: await update.message.reply_text("❌ Error ID.")
 
 # Backup Command Manual
@@ -550,7 +546,7 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 # ==============================================================================
-# BAGIAN 10: FITUR UPLOAD (SMART SYSTEM - FIX PROGRESS)
+# BAGIAN 10: FITUR UPLOAD (SMART SYSTEM - HTML REPORT)
 # ==============================================================================
 
 async def upload_start(update, context):
@@ -559,10 +555,12 @@ async def upload_start(update, context):
     context.user_data['upload_file_id'] = update.message.document.file_id
     context.user_data['upload_file_name'] = update.message.document.file_name
     
+    # ALUR USER BIASA
     if uid != ADMIN_ID:
         await update.message.reply_text("📄 File diterima.\n**Leasing apa?**", parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
         return U_LEASING_USER
     
+    # ALUR ADMIN - SMART SCAN
     msg = await update.message.reply_text("⏳ **Analisa File...**", parse_mode='Markdown')
     try:
         f = await update.message.document.get_file()
@@ -578,7 +576,7 @@ async def upload_start(update, context):
         await msg.delete()
         
         report = (
-            f"✅ **SCAN SUKSES (v4.11)**\n"
+            f"✅ **SCAN SUKSES (v4.12)**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"📊 **Kolom Dikenali:** {', '.join(found)}\n"
             f"📁 **Total Baris:** {len(df)}\n"
@@ -588,7 +586,11 @@ async def upload_start(update, context):
             f"_(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)_"
         )
         
-        await update.message.reply_text(report, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True))
+        await update.message.reply_text(
+            report, 
+            parse_mode='Markdown', 
+            reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True)
+        )
         return U_LEASING_ADMIN
     except Exception as e: await msg.edit_text(f"❌ Error: {e}")
     return ConversationHandler.END
@@ -613,11 +615,11 @@ async def upload_leasing_admin(update, context):
     for c in valid: 
         if c not in df.columns: df[c] = None
     
-    sample = df.iloc[0] 
+    sample = df.iloc[0] # Ambil sampel untuk preview
     context.user_data['final_data_records'] = df[valid].to_dict(orient='records')
     
     preview_msg = (
-        f"🔎 **PREVIEW DATA (v4.11)**\n"
+        f"🔎 **PREVIEW DATA (v4.12)**\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"🏦 **Leasing:** {fin}\n"
         f"📊 **Total Data:** {len(df)} Unit\n\n"
@@ -630,7 +632,12 @@ async def upload_leasing_admin(update, context):
         f"⚠️ Klik **EKSEKUSI** untuk memulai upload.\n"
         f"⚠️ Klik **BATAL** jika ada yang salah."
     )
-    await update.message.reply_text(preview_msg, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["🚀 EKSEKUSI", "❌ BATAL"]], one_time_keyboard=True))
+    
+    await update.message.reply_text(
+        preview_msg, 
+        parse_mode='Markdown', 
+        reply_markup=ReplyKeyboardMarkup([["🚀 EKSEKUSI", "❌ BATAL"]], one_time_keyboard=True)
+    )
     return U_CONFIRM_UPLOAD
 
 async def upload_confirm_admin(update, context):
@@ -652,26 +659,30 @@ async def upload_confirm_admin(update, context):
                     try: supabase.table('kendaraan').upsert([x], on_conflict='nopol').execute(); suc+=1
                     except: fail+=1
             
-            # FIX: Update status edit_text
+            # Update status secara berkala (Heartbeat) - HTML MODE
             if (i+BATCH)%2000==0: 
                 try:
-                    await status_msg.edit_text(f"⏳ **MENGUPLOAD...**\n✅ {i+BATCH}/{len(data)} data terproses...")
+                    await status_msg.edit_text(f"⏳ <b>MENGUPLOAD...</b>\n✅ {i+BATCH}/{len(data)} data terproses...", parse_mode='HTML')
                 except: pass
                 await asyncio.sleep(0.1)
 
         duration = round(time.time() - start_time, 2)
         
-        # FIX REPORT
+        # FINAL REPORT - HTML MODE (Anti-Crash)
         report = (
-            f"✅ **UPLOAD SUKSES 100%!**\n"
+            f"✅ <b>UPLOAD SUKSES 100%!</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"📊 **Total Data:** {suc}\n"
-            f"❌ **Gagal:** {fail}\n"
-            f"⏱ **Waktu:** {duration} detik\n"
-            f"🚀 **Status:** Database Updated Successfully!"
+            f"📊 <b>Total Data:</b> {suc}\n"
+            f"❌ <b>Gagal:</b> {fail}\n"
+            f"⏱ <b>Waktu:</b> {duration} detik\n"
+            f"🚀 <b>Status:</b> Database Updated Successfully!"
         )
-        try: await status_msg.edit_text(report, parse_mode='Markdown')
-        except: await update.message.reply_text(report, parse_mode='Markdown')
+        
+        # Edit pesan status terakhir agar tidak gantung
+        try:
+            await status_msg.edit_text(report, parse_mode='HTML')
+        except:
+            await update.message.reply_text(report, parse_mode='HTML')
             
     except Exception as e:
         await update.message.reply_text(f"❌ **CRASH SAAT UPLOAD:**\n{str(e)}", parse_mode='Markdown')
@@ -783,6 +794,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             txt = (f"{info}✅ **DATA DITEMUKAN**\n━━━━━━━━━━━━━━━━━━\n🚙 **Unit:** {d.get('type','-')}\n🔢 **Nopol:** `{d.get('nopol','-')}`\n📅 **Tahun:** {d.get('tahun','-')}\n🎨 **Warna:** {d.get('warna','-')}\n----------------------------------\n🔧 **Noka:** `{d.get('noka','-')}`\n⚙️ **Nosin:** `{d.get('nosin','-')}`\n----------------------------------\n⚠️ **OVD:** {d.get('ovd', '-')}\n🏦 **Finance:** {d.get('finance', '-')}\n🏢 **Branch:** {d.get('branch', '-')}\n━━━━━━━━━━━━━━━━━━\n⚠️ **CATATAN PENTING:**\nIni bukan alat yang SAH untuk penarikan. Konfirmasi ke PIC leasing.")
             await update.message.reply_text(txt, parse_mode='Markdown')
             
+            # NOTIFIKASI LENGKAP KE GROUP (RESTORED v4.9)
             await notify_hit_to_group(context, u, d)
             
         else:
@@ -817,7 +829,7 @@ async def callback_handler(update, context):
 # ==============================================================================
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.11 (UPDATED) STARTING...")
+    print("🚀 ONEASPAL BOT v4.12 (HTML STABLE) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     # Handlers Conversation (Prioritas Utama)
@@ -905,5 +917,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.11 - Dictionary Updated)")
+    print("✅ BOT ONLINE! (v4.12 - HTML Stability)")
     app.run_polling()
