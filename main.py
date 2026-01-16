@@ -839,33 +839,28 @@ async def notify_hit(context, user, data):
 async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Command: /stats
-    Menampilkan dashboard statistik keseluruhan.
+    FIX: Menampilkan data leasing lebih akurat.
     """
     if update.effective_user.id != ADMIN_ID: return
     
-    msg = await update.message.reply_text("⏳ *Sedang menghitung statistik realtime...*", parse_mode='Markdown')
+    msg = await update.message.reply_text("⏳ *Sedang menghitung statistik...*", parse_mode='Markdown')
     try:
-        # Hitung Total Data (Exact Count)
+        # Hitung Total Data (Exact Count) - Cepat
         res_total = supabase.table('kendaraan').select("*", count="exact", head=True).execute()
         
-        # Hitung Total User
+        # Hitung Total User - Cepat
         res_users = supabase.table('users').select("*", count="exact", head=True).execute()
         
-        # Hitung Estimasi Jumlah Leasing (Sampling)
-        # Karena counting unique di tabel besar itu berat, kita sampling 2000 data awal
-        raw_set = set()
-        data = supabase.table('kendaraan').select("finance").limit(2000).execute().data
-        for d in data: 
-            if d.get('finance'): raw_set.add(str(d.get('finance')).strip().upper())
-            
+        # Untuk Leasing, kita tidak sampling lagi karena tidak akurat.
+        # Kita beri info agar admin cek detailnya di /leasing
+        
         await msg.edit_text(
             f"📊 **DASHBOARD STATISTIK GLOBAL**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"📂 **Total Data:** `{res_total.count:,}` Unit\n"
             f"👥 **Total Mitra:** `{res_users.count:,}` Orang\n"
-            f"🏦 **Est. Leasing:** `{len(raw_set)}+` Perusahaan\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"💡 _Gunakan perintah /leasing untuk audit detail._", 
+            f"💡 _Data leasing sedang diindeks. Gunakan perintah /leasing untuk melihat jumlah unit per perusahaan secara detail._", 
             parse_mode='Markdown'
         )
     except Exception as e:
@@ -874,25 +869,26 @@ async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_leasing_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Command: /leasing
-    Fitur Audit Detail: Menghitung jumlah unit per leasing.
-    (Proses berat, menggunakan pagination).
+    FIX v4.3: Mengubah Batch Size ke 1000 agar sesuai limit Supabase.
     """
     if update.effective_user.id != ADMIN_ID: return
     
-    msg = await update.message.reply_text("⏳ *Sedang mengaudit seluruh database... (Mohon tunggu)*", parse_mode='Markdown')
+    msg = await update.message.reply_text("⏳ *Sedang mengaudit 650rb+ data... (Mohon tunggu sebentar)*", parse_mode='Markdown')
     
     try:
         finance_counts = Counter()
         off = 0
-        BATCH = 5000 
+        BATCH = 1000  # <--- FIX: Disamakan dengan Max Limit Supabase
         
         while True:
             # Fetch data pagination
             res = supabase.table('kendaraan').select("finance").range(off, off + BATCH - 1).execute()
             data = res.data
+            
+            # Jika data kosong, berarti benar-benar habis
             if not data: break
             
-            # Hitung frekuensi leasing di batch ini
+            # Kumpulkan nama finance
             batch_finances = []
             for d in data:
                 f = d.get('finance')
@@ -903,32 +899,37 @@ async def get_leasing_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             finance_counts.update(batch_finances)
             
-            if len(data) < BATCH: break
+            # Logic Break: Jika data yang diterima KURANG dari Batch, berarti ini halaman terakhir
+            if len(data) < BATCH: 
+                break
+                
             off += BATCH
             
-            # Update status loading bar
-            if off % 10000 == 0: 
-                try: await msg.edit_text(f"⏳ *Mengaudit... ({off} data terproses)*", parse_mode='Markdown')
+            # Update status loading bar setiap 50.000 data (biar tidak spam notif)
+            if off % 50000 == 0: 
+                try: await msg.edit_text(f"⏳ *Mengaudit... ({off:,} data terproses)*", parse_mode='Markdown')
                 except: pass
 
         # Sorting data terbanyak
         sorted_leasing = finance_counts.most_common()
         
         # Render Laporan
-        report = "🏦 **LAPORAN AUDIT LEASING**\n━━━━━━━━━━━━━━━━━━\n"
+        report = "🏦 **LAPORAN AUDIT LEASING (FIXED)**\n━━━━━━━━━━━━━━━━━━\n"
         
+        total_unique = 0
         for name, count in sorted_leasing:
-            # Filter nama kosong
             if name not in ["UNKNOWN", "NONE", "NAN", "-", ""]:
                 report += f"🔹 **{name}:** `{count:,}` unit\n"
+                total_unique += 1
         
-        # Tampilkan Unknown di paling bawah
         if finance_counts["UNKNOWN"] > 0:
             report += f"\n❓ **TANPA NAMA:** `{finance_counts['UNKNOWN']:,}` unit"
+            
+        report += f"\n━━━━━━━━━━━━━━━━━━\n✅ **Total Leasing:** {total_unique} Perusahaan"
 
         # Potong jika melebihi batas karakter Telegram
         if len(report) > 4000:
-            report = report[:4000] + "\n\n⚠️ _(Laporan terpotong, data terlalu banyak)_"
+            report = report[:4000] + "\n\n⚠️ _(Laporan terpotong)_"
             
         await msg.edit_text(report, parse_mode='Markdown')
 
