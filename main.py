@@ -896,14 +896,17 @@ if __name__ == '__main__':
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('register', register_start)], 
         states={
-            R_NAMA:[MessageHandler(filters.TEXT, register_nama)], 
-            R_HP:[MessageHandler(filters.TEXT, register_hp)], 
-            R_EMAIL:[MessageHandler(filters.TEXT, register_email)], 
-            R_KOTA:[MessageHandler(filters.TEXT, register_kota)], 
-            R_AGENCY:[MessageHandler(filters.TEXT, register_agency)], 
-            R_CONFIRM:[MessageHandler(filters.TEXT, register_confirm)]
+            # Kita pasang filter (~filters.Regex('^❌ BATAL$')) di SEMUA langkah
+            # Artinya: Terima teks apapun KECUALI kata '❌ BATAL'
+            R_NAMA:   [MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), register_nama)], 
+            R_HP:     [MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), register_hp)], 
+            R_EMAIL:  [MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), register_email)], 
+            R_KOTA:   [MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), register_kota)], 
+            R_AGENCY: [MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), register_agency)], 
+            R_CONFIRM:[MessageHandler(filters.TEXT & (~filters.Regex('^❌ BATAL$')), register_confirm)]
         }, 
-        fallbacks=[CommandHandler('cancel', cancel)]
+        # Jika user kirim '❌ BATAL', akan ditangkap oleh fallback ini
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
     ))
     
     # 5. TAMBAH DATA HANDLER
