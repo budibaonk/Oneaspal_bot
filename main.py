@@ -101,11 +101,14 @@ COLUMN_ALIASES = {
         'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 
         'brand', 'typedeskripsi', 'vehiclemodel', 'namaunit', 'kend', 
         'namakendaraan', 'merktype', 'objek', 'jenisobjek', 'item_description',
-        'vehicle_desc'
+        'vehicle_desc',
+        # --- UPDATE BARU (MTF & TAF) ---
+        'unitasset',                # Dari header: UNIT; asset
+        'unitassetwarnatahun'       # Dari header: UNIT; ASSET/WARNA/TAHUN
     ],
     'tahun': [
         'tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture', 'assetyear', 
-        'thnrakit', 'manufacturingyear', 'tahun_pembuatan', 'model_year'
+        'thnrakit', 'manufacturingyear', 'tahunkendaraan', 'thkendaraan', 'tahun_pembuatan', 'model_year'
     ],
     'warna': [
         'warna', 'color', 'colour', 'cat', 'kelir', 'assetcolour', 'warnakendaraan', 'body_color'
@@ -113,11 +116,17 @@ COLUMN_ALIASES = {
     'noka': [
         'noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 
         'rangka', 'chassisno', 'norangka1', 'chasisno', 'vinno', 'norang',
-        'no_rangka', 'serial_number'
+        'no_rangka', 'serial_number',
+        # --- UPDATE BARU (MTF & TAF) ---
+        'nokanochassis',            # Dari header: NOKA; nochassis
+        'nokanorangka'              # Dari header: NOKA; NORANGKA
     ],
     'nosin': [
         'nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'engineno', 
-        'nomesin1', 'engineno', 'noengine', 'nomes', 'no_mesin', 'engine_number'
+        'nomesin1', 'engineno', 'noengine', 'nomes', 'no_mesin', 'engine_number',
+        # --- UPDATE BARU (MTF & TAF) ---
+        'nosinnoengine',            # Dari header: NOSIN; noengine
+        'nosinnomesin'              # Dari header: NOSIN; NOMESIN
     ],
     'finance': [
         'finance', 'leasing', 'lising', 'multifinance', 'cabang', 
@@ -128,11 +137,15 @@ COLUMN_ALIASES = {
     'ovd': [
         'ovd', 'overdue', 'dpd', 'keterlambatan', 'hari', 'telat', 
         'aging', 'od', 'bucket', 'daysoverdue', 'overduedays', 
-        'kiriman', 'kolektibilitas', 'kol', 'kolek', 'bucket_od'
+        'kiriman', 'kolektibilitas', 'kol', 'kolek', 'bucket_od',
+        # --- UPDATE BARU (MTF) ---
+        'oddaysoverdue'             # Dari header: OD; daysoverdue
     ],
     'branch': [
         'branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 
-        'wilayah', 'region', 'areaname', 'branchname', 'dealer', 'nama_cabang'
+        'wilayah', 'region', 'areaname', 'branchname', 'dealer', 'nama_cabang',
+        # --- UPDATE BARU (MTF) ---
+        'cabangcabang'              # Dari header: CABANG; cabang
     ]
 }
 
