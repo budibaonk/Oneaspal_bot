@@ -1087,9 +1087,27 @@ async def add_confirm(update, context):
 # ##############################################################################
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    info = f"\n📢 **INFO:** {GLOBAL_INFO}\n━━━━━━━━━━━━━━━━━━\n" if GLOBAL_INFO else ""
-    txt = (f"{info}🤖 **Selamat Datang di Oneaspal_bot**\n\n**Salam Satu Aspal!** 👋\nHalo, Rekan Mitra Lapangan.\n\nCari data melalui:\n✅ **Nopol**\n✅ **Noka/Nosin**\n\n⚠️ **PENTING:** Akses bersifat PRIVATE.\n\n👉 Jalankan /register untuk mendaftar.")
-    await update.message.reply_text(txt, parse_mode='Markdown')
+    # Menggunakan HTML Mode agar lebih stabil dan anti-crash
+    global GLOBAL_INFO
+    
+    info_section = ""
+    if GLOBAL_INFO:
+        info_section = f"📢 <b>INFO:</b> {GLOBAL_INFO}\n━━━━━━━━━━━━━━━━━━\n\n"
+
+    welcome_msg = (
+        f"{info_section}"
+        f"🤖 <b>Selamat Datang di Oneaspal_bot</b>\n\n"
+        f"<b>Salam Satu Aspal!</b> 👋\n"
+        f"Halo, Rekan Mitra Lapangan.\n\n"
+        f"Cari data kendaraan dengan cepat melalui:\n"
+        f"✅ <b>Nomor Polisi (Nopol)</b>\n"
+        f"✅ <b>Nomor Rangka/Mesin</b>\n\n"
+        f"⚠️ <b>PENTING:</b> Akses bot ini bersifat PRIVATE.\n\n"
+        f"👉 Silakan ketik /register untuk mendaftar sebagai mitra."
+    )
+    
+    # Gunakan constants.ParseMode.HTML
+    await update.message.reply_text(welcome_msg, parse_mode=constants.ParseMode.HTML)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = get_user(update.effective_user.id)
