@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.13 (MASTERPIECE STANDARD)                    #
+#                      VERSION: 4.15 (MASTERPIECE STANDARD)                    #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -101,14 +101,11 @@ COLUMN_ALIASES = {
         'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 
         'brand', 'typedeskripsi', 'vehiclemodel', 'namaunit', 'kend', 
         'namakendaraan', 'merktype', 'objek', 'jenisobjek', 'item_description',
-        'vehicle_desc',
-        # --- UPDATE BARU (MTF & TAF) ---
-        'unitasset',                # Dari header: UNIT; asset
-        'unitassetwarnatahun'       # Dari header: UNIT; ASSET/WARNA/TAHUN
+        'vehicle_desc', 'unitasset', 'unitassetwarnatahun'
     ],
     'tahun': [
         'tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture', 'assetyear', 
-        'thnrakit', 'manufacturingyear', 'tahunkendaraan', 'thkendaraan', 'tahun_pembuatan', 'model_year'
+        'thnrakit', 'manufacturingyear', 'tahun_pembuatan', 'model_year'
     ],
     'warna': [
         'warna', 'color', 'colour', 'cat', 'kelir', 'assetcolour', 'warnakendaraan', 'body_color'
@@ -116,17 +113,12 @@ COLUMN_ALIASES = {
     'noka': [
         'noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 
         'rangka', 'chassisno', 'norangka1', 'chasisno', 'vinno', 'norang',
-        'no_rangka', 'serial_number',
-        # --- UPDATE BARU (MTF & TAF) ---
-        'nokanochassis',            # Dari header: NOKA; nochassis
-        'nokanorangka'              # Dari header: NOKA; NORANGKA
+        'no_rangka', 'serial_number', 'nokanochassis', 'nokanorangka'
     ],
     'nosin': [
         'nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'engineno', 
         'nomesin1', 'engineno', 'noengine', 'nomes', 'no_mesin', 'engine_number',
-        # --- UPDATE BARU (MTF & TAF) ---
-        'nosinnoengine',            # Dari header: NOSIN; noengine
-        'nosinnomesin'              # Dari header: NOSIN; NOMESIN
+        'nosinnoengine', 'nosinnomesin'
     ],
     'finance': [
         'finance', 'leasing', 'lising', 'multifinance', 'cabang', 
@@ -137,18 +129,13 @@ COLUMN_ALIASES = {
     'ovd': [
         'ovd', 'overdue', 'dpd', 'keterlambatan', 'hari', 'telat', 
         'aging', 'od', 'bucket', 'daysoverdue', 'overduedays', 
-        'kiriman', 'kolektibilitas', 'kol', 'kolek', 'bucket_od',
-        # --- UPDATE BARU (MTF) ---
-        'oddaysoverdue'             # Dari header: OD; daysoverdue
+        'kiriman', 'kolektibilitas', 'kol', 'kolek', 'bucket_od', 'oddaysoverdue'
     ],
     'branch': [
         'branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 
-        'wilayah', 'region', 'areaname', 'branchname', 'dealer', 'nama_cabang',
-        # --- UPDATE BARU (MTF) ---
-        'cabangcabang'              # Dari header: CABANG; cabang
+        'wilayah', 'region', 'areaname', 'branchname', 'dealer', 'nama_cabang', 'cabangcabang'
     ]
 }
-
 
 # ##############################################################################
 # BAGIAN 3: DEFINISI STATE CONVERSATION
@@ -241,6 +228,38 @@ def escape_markdown(text):
     """Fungsi Anti-Crash untuk teks Markdown."""
     if not text: return ""
     return str(text).replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`")
+
+# --- FUNGSI BARU: MEMBERSIHKAN NAMA LEASING ---
+def standardize_leasing_name(name):
+    """
+    Membersihkan nama leasing yang kotor/double.
+    Contoh: '30 ACC' -> 'ACC', 'OTTO' -> 'OTO'
+    """
+    if not name: return "UNKNOWN"
+    
+    # 1. Bersihkan spasi & uppercase
+    clean = str(name).upper().strip()
+    
+    # 2. Hapus angka & spasi di depan (Contoh: "30 ACC" -> "ACC")
+    clean = re.sub(r'^\d+\s+', '', clean)
+    
+    # 3. Hapus konten dalam kurung (Contoh: "DIPO (0812..)" -> "DIPO")
+    clean = re.sub(r'\(.*?\)', '', clean).strip()
+    
+    # 4. Mapping Manual (Kamus Standarisasi)
+    mapping = {
+        "OTTO": "OTO",
+        "OTTO.COM": "OTO",
+        "BRI FINANCE": "BRI",
+        "WOORI FINANCE": "WOORI",
+        "TRUE FINANCE": "TRUE",
+        "APOLLO FINANCE": "APOLLO",
+        "SMART FINANCE": "SMART",
+        "MITSUI": "MITSUI LEASING",
+        # Tambahkan mapping lain disini jika perlu
+    }
+    
+    return mapping.get(clean, clean)
 
 
 # ##############################################################################
@@ -629,7 +648,7 @@ async def upload_start(update, context):
         await msg.delete()
         
         report = (
-            f"✅ **SCAN SUKSES (v4.13)**\n"
+            f"✅ **SCAN SUKSES (v4.15)**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"📊 **Kolom Dikenali:** {', '.join(found)}\n"
             f"📁 **Total Baris:** {len(df)}\n"
@@ -654,35 +673,36 @@ async def upload_leasing_user(update, context):
 
 async def upload_leasing_admin(update, context):
     nm = update.message.text.upper(); df = pd.DataFrame(context.user_data['df_records'])
-    fin = nm if nm != 'SKIP' else ("UNKNOWN" if 'finance' not in df.columns else "SESUAI FILE")
-    if nm != 'SKIP': df['finance'] = fin
-    elif 'finance' not in df.columns: df['finance'] = 'UNKNOWN'
     
+    # --- LOGIKA CLEANER DI SINI (V4.15) ---
+    if nm != 'SKIP': 
+        clean_name = standardize_leasing_name(nm) # Bersihkan nama inputan admin
+        df['finance'] = clean_name
+        fin_display = clean_name
+    else:
+        if 'finance' in df.columns:
+            # Bersihkan seluruh kolom finance di dataframe
+            df['finance'] = df['finance'].apply(standardize_leasing_name)
+            fin_display = "SESUAI FILE (AUTO CLEAN)"
+        else:
+            df['finance'] = 'UNKNOWN'
+            fin_display = "UNKNOWN"
+            
     df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
     df = df.drop_duplicates(subset=['nopol'], keep='last').replace({np.nan: None})
     valid = ['nopol', 'type', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'finance', 'branch']
     for c in valid: 
         if c not in df.columns: df[c] = None
     
-    sample = df.iloc[0] 
     context.user_data['final_data_records'] = df[valid].to_dict(orient='records')
+    s = df.iloc[0]
     
-    # REVISI: Menambahkan kolom LEASING di preview
-    preview_msg = (
-        f"🔎 **PREVIEW DATA (v4.14)**\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"🏦 **Mode:** {fin}\n"
-        f"📊 **Total:** {len(df)} Data\n\n"
-        f"📝 **SAMPEL DATA BARIS 1:**\n"
-        f"🔹 Leasing: {sample['finance']}\n"  # <-- INI TAMBAHANNYA
-        f"🔹 Nopol: `{sample['nopol']}`\n"
-        f"🔹 Unit: {sample['type']}\n"
-        f"🔹 Noka: {sample['noka']}\n"
-        f"🔹 OVD: {sample['ovd']}\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"⚠️ Klik **EKSEKUSI** untuk lanjut."
+    # Preview dengan info Leasing
+    await update.message.reply_text(
+        f"🔎 **PREVIEW (v4.15)**\n🏦 {fin_display}\n📊 {len(df)} Data\n\n📝 **SAMPEL:**\n🔹 Leasing: {s['finance']}\n🔹 Nopol: {s['nopol']}\n🔹 Unit: {s['type']}", 
+        reply_markup=ReplyKeyboardMarkup([["🚀 EKSEKUSI", "❌ BATAL"]]), 
+        parse_mode='Markdown'
     )
-    await update.message.reply_text(preview_msg, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["🚀 EKSEKUSI", "❌ BATAL"]], one_time_keyboard=True))
     return U_CONFIRM_UPLOAD
 
 async def upload_confirm_admin(update, context):
@@ -828,7 +848,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             info = f"📢 **INFO:** {GLOBAL_INFO}\n━━━━━━━━━━━━━━━━━━\n" if GLOBAL_INFO else ""
             txt = (f"{info}✅ **DATA DITEMUKAN**\n━━━━━━━━━━━━━━━━━━\n🚙 **Unit:** {d.get('type','-')}\n🔢 **Nopol:** `{d.get('nopol','-')}`\n📅 **Tahun:** {d.get('tahun','-')}\n🎨 **Warna:** {d.get('warna','-')}\n----------------------------------\n🔧 **Noka:** `{d.get('noka','-')}`\n⚙️ **Nosin:** `{d.get('nosin','-')}`\n----------------------------------\n⚠️ **OVD:** {d.get('ovd', '-')}\n🏦 **Finance:** {d.get('finance', '-')}\n🏢 **Branch:** {d.get('branch', '-')}\n━━━━━━━━━━━━━━━━━━\n⚠️ **CATATAN PENTING:**\nIni bukan alat yang SAH untuk penarikan. Konfirmasi ke PIC leasing.")
             await update.message.reply_text(txt, parse_mode='Markdown')
+            
+            # NOTIFIKASI LENGKAP KE GROUP (RESTORED v4.9)
             await notify_hit_to_group(context, u, d)
+            
         else:
             info = f"📢 **INFO:** {GLOBAL_INFO}\n\n" if GLOBAL_INFO else ""
             await update.message.reply_text(f"{info}❌ **DATA TIDAK DITEMUKAN**\n`{kw}`", parse_mode='Markdown')
@@ -863,7 +886,7 @@ async def callback_handler(update, context):
 # ==============================================================================
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.13 (MASTERPIECE STANDARD) STARTING...")
+    print("🚀 ONEASPAL BOT v4.15 (MASTERPIECE STANDARD) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     # 1. ADMIN ACTION REASONING HANDLER (PRIORITAS TERTINGGI)
@@ -892,7 +915,7 @@ if __name__ == '__main__':
         allow_reentry=True
     ))
 
-    # 4. REGISTER HANDLER
+    # 4. REGISTER HANDLER (FIX: KLIK BATAL LANGSUNG BERHENTI)
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('register', register_start)], 
         states={
@@ -966,5 +989,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.13 - Masterpiece Standard)")
+    print("✅ BOT ONLINE! (v4.15 - Masterpiece Standard)")
     app.run_polling()
