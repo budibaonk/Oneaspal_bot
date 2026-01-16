@@ -2,30 +2,33 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.2 (MASTERPIECE EDITION)                      #
-#                      ROLE:    MAIN APPLICATION                               #
+#                      VERSION: 4.2 (ENTERPRISE MASTERPIECE)                   #
+#                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
 ################################################################################
 
 DESKRIPSI SISTEM:
-Bot Telegram untuk manajemen data kendaraan (Matel) dengan fitur:
-1. Pencarian Fuzzy (Mirip) menggunakan Supabase Trigram.
-2. Upload File Cerdas (Excel, CSV, TXT, ZIP) dengan deteksi kolom otomatis.
-3. Sistem Monetisasi (Kuota, Topup Manual dengan Bukti Foto).
-4. Manajemen User (Register, Ban, Reject dengan Alasan).
-5. Audit Data (Statistik Global & Audit Leasing).
-6. Fitur B2B (Whitelabel Agency & Group Notification).
+Bot Telegram High-Performance untuk manajemen data pencarian kendaraan (Matel).
+Sistem ini dirancang untuk menangani jutaan data dengan fitur pencarian fuzzy.
 
-CHANGE LOG v4.2:
-- Added: Fitur Audit Leasing (/leasing).
-- Added: Reasoning Rejection (Alasan penolakan user).
-- Improved: Dictionary (Kamus) diperluas.
-- Improved: Logging system lebih detail.
+FITUR UTAMA:
+1.  **Turbo Search Engine:** Menggunakan Supabase Trigram Index untuk pencarian fuzzy (mirip).
+2.  **Adaptive Polyglot Upload:** Mengenali file Excel, CSV, TXT, dan ZIP secara otomatis.
+3.  **Monetization System (v4.0):** Manajemen Kuota, Topup Manual dengan Bukti Foto.
+4.  **User Management (v4.1):** Register, Ban, Unban, dan Reject dengan Alasan (Reasoning).
+5.  **Audit System (v4.2):** Statistik Global (/stats) dan Audit Leasing Detail (/leasing).
+6.  **B2B Agency System:** Fitur Whitelabel untuk perusahaan/agency dengan notifikasi grup.
+
+LOG PERUBAHAN (CHANGELOG v4.2):
+- [FIX] Menambahkan fungsi set_info dan del_info yang sempat hilang.
+- [NEW] Command /leasing untuk audit jumlah unit per leasing.
+- [NEW] Admin Reject Reason: Memberikan alasan saat menolak pendaftaran user.
+- [UPD] Kamus Data (Dictionary) diperluas untuk kompatibilitas file maksimal.
 """
 
 # ==============================================================================
-# 1. LIBRARY & IMPORTS
+# BAGIAN 1: LIBRARY & DEPENDENCIES
 # ==============================================================================
 import os
 import logging
@@ -42,7 +45,7 @@ import pandas as pd
 from collections import Counter
 from datetime import datetime
 
-# Environment Variables
+# Environment Variables Loader
 from dotenv import load_dotenv
 
 # Telegram Bot SDK
@@ -65,35 +68,35 @@ from telegram.ext import (
     ConversationHandler
 )
 
-# Database Driver
+# Database Driver (Supabase)
 from supabase import create_client, Client
 
+
 # ==============================================================================
-# 2. KONFIGURASI SYSTEM & LOGGING
+# BAGIAN 2: KONFIGURASI SYSTEM & LOGGING
 # ==============================================================================
 
-# Load file .env
+# 1. Load Environment Variables dari file .env
 load_dotenv()
 
-# Konfigurasi Logging (Agar Admin bisa memantau kesehatan bot di terminal)
+# 2. Konfigurasi Logging
+# Ini penting agar Admin bisa melihat apa yang terjadi di terminal (Debug/Error)
 logging.basicConfig(
     format='%(asctime)s - [%(levelname)s] - %(name)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Ambil Variabel dari Environment
+# 3. Ambil Credential
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
-# Global Variable untuk Broadcast Info
-GLOBAL_INFO = ""
+# 4. Global Variables
+GLOBAL_INFO = ""  # Untuk pesan broadcast di /start
+LOG_GROUP_ID = -1003627047676  # ID Group untuk Log HIT
 
-# ID Group Log (Tempat bot lapor jika ada HIT)
-LOG_GROUP_ID = -1003627047676  
-
-# Setup Admin ID (Fallback jika tidak ada di env)
+# 5. Setup Admin ID
 DEFAULT_ADMIN_ID = 7530512170
 try:
     env_id = os.environ.get("ADMIN_ID")
@@ -101,103 +104,105 @@ try:
 except ValueError:
     ADMIN_ID = DEFAULT_ADMIN_ID
 
-print(f"✅ [BOOT] SYSTEM STARTING... ADMIN ID: {ADMIN_ID}")
+print(f"✅ [BOOT] SYSTEM STARTING... ADMIN ID TERDETEKSI: {ADMIN_ID}")
 
-# Validasi Credential
+# 6. Validasi Credential
 if not SUPABASE_URL or not SUPABASE_KEY or not TELEGRAM_TOKEN:
-    print("❌ [CRITICAL] CREDENTIAL TIDAK LENGKAP! Cek file .env Anda.")
+    print("❌ [CRITICAL ERROR] CREDENTIAL TIDAK LENGKAP! Cek file .env Anda.")
     exit()
 
-# Inisialisasi Database Supabase
+# 7. Inisialisasi Koneksi Database
 try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    print("✅ [BOOT] KONEKSI DATABASE BERHASIL!")
+    print("✅ [BOOT] KONEKSI DATABASE SUPABASE BERHASIL!")
 except Exception as e:
     print(f"❌ [CRITICAL] DATABASE ERROR: {e}")
     exit()
 
 
 # ==============================================================================
-# 3. KAMUS DATA (DICTIONARY) SUPER LENGKAP
+# BAGIAN 3: KAMUS DATA (DICTIONARY) RAKSASA
 # ==============================================================================
 # Bagian ini adalah "Otak Bahasa" bot.
-# Menambahkan variasi nama kolom agar bot bisa membaca file Excel apapun.
+# Semakin banyak variasi di sini, semakin pintar bot membaca file Excel yang aneh-aneh.
 
 COLUMN_ALIASES = {
-    # Variasi Kolom NOPOL
+    # 1. Variasi Kolom NOPOL (Plat Nomor)
     'nopol': [
         'nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'nomorplat', 
         'nomorkendaraan', 'nokendaraan', 'nomer', 'tnkb', 'licenseplate', 
         'plat', 'nopolisikendaraan', 'nopil', 'polisi', 'platnomor', 
         'platkendaraan', 'nomerpolisi', 'no.polisi', 'nopol.', 'plat_nomor',
-        'no_pol', 'no_polisi', 'police_no', 'vehicle_no'
+        'no_pol', 'no_polisi', 'police_no', 'vehicle_no', 'nomor_polisi'
     ],
     
-    # Variasi Kolom TIPE KENDARAAN
+    # 2. Variasi Kolom TIPE KENDARAAN
     'type': [
         'type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 
         'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 
         'brand', 'typedeskripsi', 'vehiclemodel', 'namaunit', 'kend', 
         'namakendaraan', 'merktype', 'objek', 'jenisobjek', 'item_description',
-        'merk_type', 'tipe_kendaraan', 'model_kendaraan', 'description'
+        'merk_type', 'tipe_kendaraan', 'model_kendaraan', 'description', 
+        'vehicle_desc', 'nama_barang'
     ],
     
-    # Variasi Kolom TAHUN
+    # 3. Variasi Kolom TAHUN
     'tahun': [
         'tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture', 
         'thnrakit', 'manufacturingyear', 'tahun_rakit', 'tahun_pembuatan',
-        'th_rakit', 'th_pembuatan', 'model_year'
+        'th_rakit', 'th_pembuatan', 'model_year', 'th_pembuatan'
     ],
     
-    # Variasi Kolom WARNA
+    # 4. Variasi Kolom WARNA
     'warna': [
         'warna', 'color', 'colour', 'cat', 'kelir', 'warnakendaraan', 
-        'warna_unit', 'body_color'
+        'warna_unit', 'body_color', 'vehicle_color'
     ],
     
-    # Variasi Kolom NO RANGKA (Chassis)
+    # 5. Variasi Kolom NO RANGKA (Chassis)
     'noka': [
         'noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 
         'rangka', 'chassisno', 'norangka1', 'chasisno', 'vinno', 'norang',
-        'no_rangka', 'no.rangka', 'chassis_number', 'vin_number'
+        'no_rangka', 'no.rangka', 'chassis_number', 'vin_number', 'serial_number'
     ],
     
-    # Variasi Kolom NO MESIN (Engine)
+    # 6. Variasi Kolom NO MESIN (Engine)
     'nosin': [
         'nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'engineno', 
         'nomesin1', 'engineno', 'noengine', 'nomes', 'no_mesin',
-        'no.mesin', 'engine_number'
+        'no.mesin', 'engine_number', 'nomor_mesin'
     ],
     
-    # Variasi Kolom LEASING/FINANCE
+    # 7. Variasi Kolom LEASING/FINANCE
     'finance': [
         'finance', 'leasing', 'lising', 'multifinance', 'cabang', 
         'partner', 'mitra', 'principal', 'company', 'client', 
         'financecompany', 'leasingname', 'keterangan', 'sumberdata', 
-        'financetype', 'nama_leasing', 'nama_finance', 'client_name'
+        'financetype', 'nama_leasing', 'nama_finance', 'client_name',
+        'perusahaan', 'multifinance_name'
     ],
     
-    # Variasi Kolom OVD (Overdue/Terlambat)
+    # 8. Variasi Kolom OVD (Overdue/Terlambat)
     'ovd': [
         'ovd', 'overdue', 'dpd', 'keterlambatan', 'hari', 'telat', 
-        'aging', 'od', 'code', 'bucket', 'daysoverdue', 'overduedays', 
+        'aging', 'od', 'bucket', 'daysoverdue', 'overduedays', 
         'kiriman', 'kolektibilitas', 'kol', 'kolek', 'jml_hari',
-        'hari_keterlambatan', 'bucket_od', 'days_late'
+        'hari_keterlambatan', 'bucket_od', 'days_late', 'umur_tunggakan'
     ],
     
-    # Variasi Kolom CABANG/AREA
+    # 9. Variasi Kolom CABANG/AREA
     'branch': [
         'branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 
         'wilayah', 'region', 'areaname', 'branchname', 'dealer',
-        'nama_cabang', 'lokasi_unit', 'city', 'area_name'
+        'nama_cabang', 'lokasi_unit', 'city', 'area_name', 'domisili'
     ]
 }
 
 
 # ==============================================================================
-# 4. DEFINISI STATE (ALUR PERCAKAPAN)
+# BAGIAN 4: DEFINISI STATE (ALUR PERCAKAPAN)
 # ==============================================================================
-# Konstanta numerik untuk menandai posisi user dalam percakapan (ConversationHandler)
+# Konstanta ini digunakan oleh ConversationHandler untuk melacak posisi user.
 
 # State: Registrasi (/register)
 R_NAMA, R_HP, R_EMAIL, R_KOTA, R_AGENCY, R_CONFIRM = range(6)
@@ -208,10 +213,10 @@ A_NOPOL, A_TYPE, A_LEASING, A_NOKIR, A_CONFIRM = range(6, 11)
 # State: Lapor Unit (/lapor)
 L_NOPOL, L_CONFIRM = range(11, 13) 
 
-# State: Hapus Manual (/hapus)
+# State: Hapus Manual Admin (/hapus)
 D_NOPOL, D_CONFIRM = range(13, 15)
 
-# State: Upload File (Smart Upload)
+# State: Upload File Smart Upload
 U_LEASING_USER, U_LEASING_ADMIN, U_CONFIRM_UPLOAD = range(15, 18)
 
 # State: Admin Reject Reason (v4.1)
@@ -219,31 +224,33 @@ REJECT_REASON = 18
 
 
 # ==============================================================================
-# 5. FUNGSI HELPER & UTILITIES
+# BAGIAN 5: FUNGSI HELPER & UTILITIES (LOGIC INTI)
 # ==============================================================================
 
 async def post_init(application: Application):
     """
     Fungsi yang dijalankan sekali saat bot baru menyala.
-    Mengatur daftar menu perintah (command list).
+    Mengatur daftar menu perintah (command list) di tombol Menu Telegram.
     """
     await application.bot.set_my_commands([
         ("start", "🔄 Restart / Menu Utama"),
-        ("cekkuota", "💳 Cek Sisa Kuota & Info Topup"),
+        ("cekkuota", "💳 Cek Sisa Kuota & Profil"),
         ("tambah", "➕ Input Data Manual (User)"),
-        ("lapor", "🗑️ Lapor Unit Selesai (Hapus)"),
-        ("register", "📝 Daftar Jadi Mitra Baru"),
+        ("lapor", "🗑️ Lapor Unit Selesai"),
+        ("register", "📝 Daftar Jadi Mitra"),
         ("stats", "📊 Statistik Global (Admin)"),
         ("leasing", "🏦 Audit Leasing (Admin)"),
+        ("setinfo", "📢 Set Info Broadcast (Admin)"),
+        ("delinfo", "🗑️ Hapus Info Broadcast (Admin)"),
         ("admin", "📩 Kirim Pesan ke Admin"),
-        ("panduan", "📖 Buku Panduan Penggunaan"),
+        ("panduan", "📖 Buku Panduan"),
     ])
-    print("✅ [INIT] Command List Updated!")
+    print("✅ [INIT] Command List Updated Successfully!")
 
 def get_user(user_id):
     """
-    Mengambil profil user dari database Supabase.
-    Return: Dictionary user data atau None.
+    Mengambil profil user dari database Supabase berdasarkan ID Telegram.
+    Return: Dictionary user data atau None jika tidak ditemukan.
     """
     try:
         response = supabase.table('users').select("*").eq('user_id', user_id).execute()
@@ -292,7 +299,7 @@ def update_quota_usage(user_id, current_quota):
 def topup_quota(user_id, amount):
     """
     Menambah kuota user (Topup).
-    Return: (Success Boolean, New Balance)
+    Return: (Boolean Sukses/Gagal, Saldo Baru)
     """
     try:
         user = get_user(user_id)
@@ -426,7 +433,7 @@ def read_file_robust(content, fname):
 
 
 # ==============================================================================
-# 6. HANDLER: ADMIN REJECT REASONING (v4.1)
+# BAGIAN 6: HANDLER: ADMIN REJECT REASONING (v4.1)
 # ==============================================================================
 
 async def reject_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -489,7 +496,7 @@ async def reject_complete(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==============================================================================
-# 7. HANDLER: FITUR USER (CEK KUOTA & TOPUP)
+# BAGIAN 7: HANDLER: FITUR USER (CEK KUOTA & TOPUP)
 # ==============================================================================
 
 async def cek_kuota(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -563,7 +570,7 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 # ==============================================================================
-# 8. HANDLER: SMART UPLOAD (CONVERSATION)
+# BAGIAN 8: HANDLER: SMART UPLOAD (CONVERSATION)
 # ==============================================================================
 
 async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -786,7 +793,7 @@ async def upload_confirm_admin(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 # ==============================================================================
-# 9. HANDLER: ADMIN FEATURES (STATS, AUDIT, LOGGING)
+# BAGIAN 9: HANDLER: ADMIN FEATURES (STATS, AUDIT, LOGGING)
 # ==============================================================================
 
 async def notify_hit(context, user, data):
@@ -1011,6 +1018,26 @@ async def delete_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🗑️ User dihapus permanen dari database.")
     except: pass
 
+async def set_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    FIX: Fungsi ini sebelumnya hilang.
+    Admin bisa mengatur pesan info yang muncul saat user mengetik /start.
+    """
+    global GLOBAL_INFO
+    if update.effective_user.id == ADMIN_ID: 
+        GLOBAL_INFO = " ".join(context.args)
+        await update.message.reply_text(f"✅ Info Update Berhasil:\n{GLOBAL_INFO}")
+
+async def del_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    FIX: Fungsi ini sebelumnya hilang.
+    Menghapus pesan info broadcast.
+    """
+    global GLOBAL_INFO
+    if update.effective_user.id == ADMIN_ID: 
+        GLOBAL_INFO = ""
+        await update.message.reply_text("🗑️ Info Broadcast dihapus.")
+
 async def contact_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = get_user(update.effective_user.id)
     if not u: return
@@ -1044,7 +1071,7 @@ async def panduan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==============================================================================
-# 10. HANDLER: CONVERSATION UTILITIES (REG, ADD, LAPOR)
+# BAGIAN 10: HANDLER: CONVERSATION UTILITIES (REG, ADD, LAPOR)
 # ==============================================================================
 
 # --- CONVERSATION: LAPOR (/lapor) ---
@@ -1192,7 +1219,7 @@ async def delete_confirm(update, context):
 
 
 # ==============================================================================
-# 11. MAIN ENGINE (SEARCH & CALLBACK)
+# BAGIAN 11: MAIN ENGINE (SEARCH & CALLBACK)
 # ==============================================================================
 
 async def start(u, c): 
