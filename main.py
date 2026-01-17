@@ -318,36 +318,44 @@ async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         u = get_user(tid)
         if not u: return await update.message.reply_text("❌ User tidak ditemukan.")
         
-        # Cek Role Saat Ini
+        # Cek Role & Status Saat Ini
         role_now = u.get('role', 'matel')
+        status_now = u.get('status', 'active')
         
-        # Tampilan Info
+        # Tampilan Info Header
         info_role = "🎖️ KORLAP" if role_now == 'korlap' else "🛡️ MATEL/PIC"
         wilayah = f"({u.get('wilayah_korlap')})" if role_now == 'korlap' else ""
+        icon_status = "✅ AKTIF" if status_now == 'active' else "⛔ BANNED/PENDING"
         
         msg = (
             f"👮‍♂️ <b>USER MANAGER</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"👤 <b>Nama:</b> {clean_text(u.get('nama_lengkap'))}\n"
             f"🏅 <b>Role:</b> {info_role} {wilayah}\n"
+            f"📊 <b>Status:</b> {icon_status}\n"
             f"📱 <b>ID:</b> <code>{tid}</code>\n"
             f"🔋 <b>Kuota:</b> {u.get('quota', 0)}\n"
             f"🏢 <b>Agency:</b> {clean_text(u.get('agency'))}\n"
             f"━━━━━━━━━━━━━━━━━━"
         )
         
-        # --- LOGIKA TOMBOL KORLAP ---
+        # --- 1. LOGIKA TOMBOL KORLAP (DYNAMIC) ---
         if role_now == 'korlap':
-            btn_korlap = InlineKeyboardButton("⬇️ TURUNKAN JADI MATEL", callback_data=f"adm_demote_{tid}")
+            btn_role = InlineKeyboardButton("⬇️ TURUNKAN JADI MATEL", callback_data=f"adm_demote_{tid}")
         else:
             btn_korlap = InlineKeyboardButton("🎖️ ANGKAT JADI KORLAP", callback_data=f"adm_promote_{tid}")
-        # ----------------------------
+
+        # --- 2. LOGIKA TOMBOL BAN/UNBAN (DYNAMIC) ---
+        if status_now == 'active':
+            btn_ban = InlineKeyboardButton("⛔ BAN USER", callback_data=f"adm_ban_{tid}")
+        else:
+            btn_ban = InlineKeyboardButton("✅ UNBAN (PULIHKAN)", callback_data=f"adm_unban_{tid}")
 
         kb = [
             [InlineKeyboardButton("💰 +100 HIT", callback_data=f"adm_topup_{tid}_100"), InlineKeyboardButton("💰 +500 HIT", callback_data=f"adm_topup_{tid}_500")],
-            [btn_korlap], # Tombol Dinamis
-            [InlineKeyboardButton("⛔ BAN", callback_data=f"adm_ban_{tid}"), InlineKeyboardButton("🗑️ HAPUS", callback_data=f"adm_del_{tid}")],
-            [InlineKeyboardButton("❌ TUTUP", callback_data="close_panel")]
+            [btn_role], 
+            [btn_ban, InlineKeyboardButton("🗑️ HAPUS DATA", callback_data=f"adm_del_{tid}")],
+            [InlineKeyboardButton("❌ TUTUP PANEL", callback_data="close_panel")]
         ]
         await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
     except: pass
