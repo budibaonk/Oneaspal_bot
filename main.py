@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.27 (CRITICAL FIX + FULL FEATURES)            #
+#                      VERSION: 4.28 (PANDUAN FIX + STABLE CORE)               #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -331,7 +331,7 @@ async def admin_action_complete(update, context):
 
 async def admin_help(update, context):
     if update.effective_user.id != ADMIN_ID: return
-    msg = ("🔐 **ADMIN COMMANDS v4.27**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
+    msg = ("🔐 **ADMIN COMMANDS v4.28**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def admin_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -358,7 +358,7 @@ async def list_users(update, context):
         res = supabase.table('users').select("*").execute()
         active_list = [u for u in res.data if u.get('status') == 'active']
         if not active_list: return await update.message.reply_text("📂 Kosong.")
-        msg = "📋 <b>DAFTAR MITRA (v4.27)</b>\n━━━━━━━━━━━━━━━━━━\n"
+        msg = "📋 <b>DAFTAR MITRA (v4.28)</b>\n━━━━━━━━━━━━━━━━━━\n"
         for i, u in enumerate(active_list, 1):
             role_icon = "🎖️" if u.get('role')=='korlap' else "🤝" if u.get('role')=='pic' else "🛡️"
             role_name = str(u.get('role', 'matel')).upper()
@@ -385,7 +385,7 @@ async def get_stats(update, context):
         t = supabase.table('kendaraan').select("*", count="exact", head=True).execute().count
         u = supabase.table('users').select("*", count="exact", head=True).execute().count
         k = supabase.table('users').select("*", count="exact", head=True).eq('role', 'korlap').execute().count
-        await update.message.reply_text(f"📊 **STATS v4.27**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
+        await update.message.reply_text(f"📊 **STATS v4.28**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
     except: pass
 
 async def get_leasing_list(update, context):
@@ -407,7 +407,7 @@ async def get_leasing_list(update, context):
 
 
 # ==============================================================================
-# BAGIAN 8: FITUR UMUM & UPLOAD (PREVIEW DATA FIX)
+# BAGIAN 8: FITUR UMUM & UPLOAD
 # ==============================================================================
 
 async def set_info(update, context):
@@ -438,7 +438,6 @@ async def cek_kuota(update, context):
     
     await update.message.reply_text(msg, parse_mode='Markdown')
 
-# [FIX] MENGEMBALIKAN FUNGSI HANDLE_PHOTO_TOPUP YANG HILANG
 async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != "private": return
     u = get_user(update.effective_user.id); 
@@ -448,7 +447,6 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
     kb = [[InlineKeyboardButton("✅ 50", callback_data=f"topup_{u['user_id']}_50"), InlineKeyboardButton("✅ 100", callback_data=f"topup_{u['user_id']}_100")], [InlineKeyboardButton("❌ TOLAK", callback_data=f"topup_{u['user_id']}_rej")]]
     await context.bot.send_photo(ADMIN_ID, update.message.photo[-1].file_id, caption=msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
 
-# --- FORMAT HIT VERTIKAL (FIXED) ---
 async def notify_hit_to_group(context, u, d):
     try:
         hp_raw = u.get('no_hp', '-')
@@ -476,7 +474,7 @@ async def notify_hit_to_group(context, u, d):
         await context.bot.send_message(LOG_GROUP_ID, msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
     except Exception as e: logger.error(f"Fail notif group: {e}")
 
-# --- UPLOAD SYSTEM (RICH PREVIEW FIXED & BULK DELETE) ---
+# --- UPLOAD SYSTEM ---
 async def upload_start(update, context):
     uid = update.effective_user.id; u = get_user(uid)
     if not u: return await update.message.reply_text("⛔ Akses Ditolak.")
@@ -496,7 +494,7 @@ async def upload_start(update, context):
             await update.message.reply_text(f"✅ **SCAN OK**\nKolom: {', '.join(found)}\nTotal: {len(df)}\n\nMasukkan Nama Leasing (atau SKIP):", reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True)); return U_LEASING_ADMIN
         except Exception as e: await msg.edit_text(f"❌ Error: {e}"); return ConversationHandler.END
         
-    # USER LAIN -> MANUAL LEASING INPUT
+    # USER LAIN
     else:
         if u.get('role') == 'pic': txt = "🔄 **SINKRONISASI DATA**\n\nFile diterima. Ketik Nama Leasing:"
         else: txt = "📄 File diterima.\n**Data Leasing apa ini?**"
@@ -527,7 +525,6 @@ async def upload_leasing_admin(update, context):
     # [FIX] RICH PREVIEW LOGIC (BLUE DIAMONDS)
     try:
         sample = df.iloc[0]
-        # Mengembalikan format "Blue Diamond" seperti gambar referensi
         sample_txt = (
             f"🔹 Leasing: {sample.get('finance', '-')}\n"
             f"🔹 Nopol: {sample.get('nopol', '-')}\n"
@@ -535,11 +532,10 @@ async def upload_leasing_admin(update, context):
             f"🔹 Noka: {sample.get('noka', '-')}\n"
             f"🔹 OVD: {sample.get('ovd', '-')}"
         )
-    except:
-        sample_txt = "⚠️ Tidak dapat membaca baris pertama."
+    except: sample_txt = "⚠️ Tidak dapat membaca baris pertama."
 
     preview_msg = (
-        f"🔎 <b>PREVIEW DATA (v4.27)</b>\n"
+        f"🔎 <b>PREVIEW DATA (v4.28)</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"🏦 <b>Mode:</b> {fin_display}\n"
         f"📊 <b>Total:</b> {len(df)} Data\n\n"
@@ -548,18 +544,14 @@ async def upload_leasing_admin(update, context):
         f"━━━━━━━━━━━━━━━━━━\n"
         f"⚠️ <b>Klik EKSEKUSI untuk lanjut.</b>"
     )
-    
     kb = [["🚀 UPDATE/INSERT"], ["🗑️ HAPUS MASSAL"], ["❌ BATAL"]]
     await update.message.reply_text(preview_msg, reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True), parse_mode='HTML'); return U_CONFIRM_UPLOAD
 
 async def upload_confirm_admin(update, context):
     action = update.message.text
     if action == "❌ BATAL": return await cancel(update, context)
+    data = context.user_data.get('final_data_records'); msg = await update.message.reply_text("⏳ Processing...", reply_markup=ReplyKeyboardRemove())
     
-    data = context.user_data.get('final_data_records')
-    msg = await update.message.reply_text("⏳ Processing...", reply_markup=ReplyKeyboardRemove())
-    
-    # --- MODE 1: INSERT / UPDATE ---
     if action == "🚀 UPDATE/INSERT":
         suc = 0
         try:
@@ -570,23 +562,17 @@ async def upload_confirm_admin(update, context):
             await msg.edit_text(f"✅ **UPLOAD SUKSES!**\nTotal: {suc} Data Masuk.")
         except Exception as e: await msg.edit_text(f"❌ Error: {e}")
 
-    # --- MODE 2: HAPUS MASSAL (NEW FEATURE) ---
     elif action == "🗑️ HAPUS MASSAL":
         suc = 0
         try:
-            list_nopol = [x['nopol'] for x in data]
-            BATCH_SIZE = 200
+            list_nopol = [x['nopol'] for x in data]; BATCH_SIZE = 200
             for i in range(0, len(list_nopol), BATCH_SIZE):
                 batch = list_nopol[i:i+BATCH_SIZE]
-                try:
-                    supabase.table('kendaraan').delete().in_('nopol', batch).execute()
-                    suc += len(batch)
-                except Exception as ex:
-                    logger.error(f"Del err: {ex}")
+                try: supabase.table('kendaraan').delete().in_('nopol', batch).execute(); suc += len(batch)
+                except: pass
                 await asyncio.sleep(0.1)
             await msg.edit_text(f"🗑️ **HAPUS MASSAL SUKSES!**\nTotal: {suc} Data Terhapus.")
         except Exception as e: await msg.edit_text(f"❌ Error: {e}")
-        
     return ConversationHandler.END
 
 
@@ -637,7 +623,7 @@ async def register_confirm(update, context):
 
 
 # ==============================================================================
-# BAGIAN 10: START & PANDUAN
+# BAGIAN 10: START & PANDUAN (UPDATED)
 # ==============================================================================
 
 async def start(update, context):
@@ -652,13 +638,33 @@ async def start(update, context):
     msg_guest = (f"🤖 <b>ONEASPAL: Digital Asset Recovery System</b>\n<i>Sistem Manajemen Database Aset Fidusia Terpadu</i>\n\nSelamat Datang di Ekosistem OneAspal.\nPlatform ini dirancang khusus untuk menunjang efektivitas profesi:\n\n1️⃣ <b>INTERNAL LEASING & COLLECTION</b>\nTransformasi digital pengelolaan data aset.\n\n2️⃣ <b>PROFESI JASA PENAGIHAN (MATEL)</b>\nDukungan data <i>real-time</i> dengan akurasi tinggi.\n\n🔐 <b>Akses Terbatas (Private System)</b>\nSilakan lakukan registrasi:\n👉 /register\n\n<i>Salam Satu Aspal.</i>")
     await update.message.reply_text(msg_guest, parse_mode='HTML')
 
+# [UPDATE] PANDUAN SESUAI GAMBAR
 async def panduan(update, context):
     u = get_user(update.effective_user.id)
-    if u and u.get('role') == 'pic': msg = ("📖 <b>PANDUAN ENTERPRISE</b>\n\n<b>1. Sinkronisasi Data</b>\nTekan '🔄 SINKRONISASI DATA', kirim file Excel.\n\n<b>2. Monitoring</b>\nKetik Nopol di kolom chat.\n\n<b>3. Akun</b>\nTekan '📂 DATABASE SAYA'.")
-    else: msg = ("📖 <b>PANDUAN ONEASPAL</b>\n\n1️⃣ <b>Cari Data:</b> Ketik Nopol/Noka/Nosin.\n2️⃣ <b>Upload:</b> Kirim File Excel ke Bot.\n3️⃣ <b>Lapor:</b> Ketik /lapor jika unit ditarik.\n4️⃣ <b>Bantuan:</b> /admin [pesan].")
+    
+    if u and u.get('role') == 'pic':
+        msg = ("📖 <b>PANDUAN ENTERPRISE</b>\n\n<b>1. Sinkronisasi Data</b>\nTekan '🔄 SINKRONISASI DATA', kirim file Excel.\n\n<b>2. Monitoring</b>\nKetik Nopol di kolom chat.\n\n<b>3. Akun</b>\nTekan '📂 DATABASE SAYA'.")
+    else:
+        msg = (
+            "📖 <b>PANDUAN PENGGUNAAN ONEASPAL</b>\n\n"
+            "1️⃣ <b>Cari Data Kendaraan</b>\n"
+            "   - Ketik Nopol secara lengkap atau sebagian.\n"
+            "   - Contoh: <code>B 1234 ABC</code> atau <code>1234</code>\n\n"
+            "2️⃣ <b>Upload File (Mitra)</b>\n"
+            "   - Kirim file Excel/CSV/ZIP ke bot ini.\n"
+            "   - Bot akan membaca otomatis.\n\n"
+            "3️⃣ <b>Upload Satuan / Kiriman</b>\n"
+            "   - Gunakan perintah /tambah untuk input data manual.\n"
+            "   - Cocok untuk data kiriman harian.\n\n"
+            "4️⃣ <b>Lapor Unit Selesai</b>\n"
+            "   - Gunakan perintah /lapor jika unit sudah ditarik/selesai.\n\n"
+            "5️⃣ <b>Cek Kuota</b>\n"
+            "   - Ketik /cekkuota untuk melihat sisa HIT.\n\n"
+            "6️⃣ <b>Bantuan Admin</b>\n"
+            "   - Ketik /admin [pesan] untuk menghubungi support."
+        )
     await update.message.reply_text(msg, parse_mode='HTML')
 
-# --- FORMAT PENCARIAN VERTIKAL (FIXED) ---
 async def handle_message(update, context):
     text = update.message.text; u = get_user(update.effective_user.id)
     if text == "🔄 SINKRONISASI DATA": return await upload_start(update, context)
@@ -677,26 +683,7 @@ async def handle_message(update, context):
         if res.data:
             d = res.data[0]; update_quota_usage(u['user_id'], u['quota'])
             info_txt = f"📢 <b>INFO:</b> {clean_text(GLOBAL_INFO)}\n━━━━━━━━━━━━━━━━━━\n" if GLOBAL_INFO else ""
-            
-            # FORMAT VERTIKAL (FIXED - 100% MATCH SCREENSHOT)
-            txt = (
-                f"{info_txt}✅ <b>DATA DITEMUKAN</b>\n"
-                f"━━━━━━━━━━━━━━━━━━\n"
-                f"🚙 <b>Unit:</b> {clean_text(d.get('type'))}\n"
-                f"🔢 <b>Nopol:</b> <code>{clean_text(d.get('nopol'))}</code>\n"
-                f"📅 <b>Tahun:</b> {clean_text(d.get('tahun'))}\n"
-                f"🎨 <b>Warna:</b> {clean_text(d.get('warna'))}\n"
-                f"----------------------------------\n"
-                f"🔧 <b>Noka:</b> <code>{clean_text(d.get('noka'))}</code>\n"
-                f"⚙️ <b>Nosin:</b> <code>{clean_text(d.get('nosin'))}</code>\n"
-                f"----------------------------------\n"
-                f"⚠️ <b>OVD:</b> {clean_text(d.get('ovd'))}\n"
-                f"🏦 <b>Finance:</b> {clean_text(d.get('finance'))}\n"
-                f"🏢 <b>Branch:</b> {clean_text(d.get('branch'))}\n"
-                f"━━━━━━━━━━━━━━━━━━\n"
-                f"⚠️ <b>CATATAN PENTING:</b>\n"
-                f"<i>Ini bukan alat yang SAH untuk penarikan. Konfirmasi ke PIC leasing.</i>"
-            )
+            txt = (f"{info_txt}✅ <b>DATA DITEMUKAN</b>\n━━━━━━━━━━━━━━━━━━\n🚙 <b>Unit:</b> {clean_text(d.get('type'))}\n🔢 <b>Nopol:</b> <code>{clean_text(d.get('nopol'))}</code>\n📅 <b>Tahun:</b> {clean_text(d.get('tahun'))}\n🎨 <b>Warna:</b> {clean_text(d.get('warna'))}\n----------------------------------\n🔧 <b>Noka:</b> <code>{clean_text(d.get('noka'))}</code>\n⚙️ <b>Nosin:</b> <code>{clean_text(d.get('nosin'))}</code>\n----------------------------------\n⚠️ <b>OVD:</b> {clean_text(d.get('ovd'))}\n🏦 <b>Finance:</b> {clean_text(d.get('finance'))}\n🏢 <b>Branch:</b> {clean_text(d.get('branch'))}\n━━━━━━━━━━━━━━━━━━\n⚠️ <b>CATATAN PENTING:</b>\n<i>Ini bukan alat yang SAH untuk penarikan. Konfirmasi ke PIC leasing.</i>")
             await update.message.reply_text(txt, parse_mode='HTML')
             await notify_hit_to_group(context, u, d)
         else: await update.message.reply_text(f"❌ <b>TIDAK DITEMUKAN</b>\n<code>{kw}</code>", parse_mode='HTML')
@@ -774,30 +761,13 @@ async def callback_handler(update, context):
     elif d.startswith("del_rej_"): await q.edit_message_text("❌ Ditolak."); await context.bot.send_message(d.split("_")[2], "❌ Hapus TOLAK.")
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.27 (CRITICAL FIX) STARTING...")
+    print("🚀 ONEASPAL BOT v4.28 (PANDUAN FIX & STABLE) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(admin_action_start, pattern='^adm_(ban|unban|del)_')], states={ADMIN_ACT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_action_complete)]}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]))
     app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(reject_start, pattern='^reju_')], states={REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, reject_complete)]}, fallbacks=[CommandHandler('cancel', cancel)]))
-    
-    # UPLOAD HANDLER
     app.add_handler(ConversationHandler(entry_points=[MessageHandler(filters.Document.ALL, upload_start)], states={U_LEASING_USER: [MessageHandler(filters.TEXT, upload_leasing_user)], U_LEASING_ADMIN: [MessageHandler(filters.TEXT, upload_leasing_admin)], U_CONFIRM_UPLOAD: [MessageHandler(filters.TEXT, upload_confirm_admin)]}, fallbacks=[CommandHandler('cancel', cancel)], allow_reentry=True))
-    
-    # REGISTRATION
-    app.add_handler(ConversationHandler(
-        entry_points=[CommandHandler('register', register_start)], 
-        states={
-            R_ROLE_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_role_choice)],
-            R_NAMA:   [MessageHandler(filters.TEXT & ~filters.COMMAND, register_nama)], 
-            R_HP:     [MessageHandler(filters.TEXT & ~filters.COMMAND, register_hp)], 
-            R_EMAIL:  [MessageHandler(filters.TEXT & ~filters.COMMAND, register_email)], 
-            R_KOTA:   [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], 
-            R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], 
-            R_CONFIRM:[MessageHandler(filters.TEXT & ~filters.COMMAND, register_confirm)]
-        }, 
-        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
-    ))
-    
+    app.add_handler(ConversationHandler(entry_points=[CommandHandler('register', register_start)], states={R_ROLE_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_role_choice)], R_NAMA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_nama)], R_HP: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_hp)], R_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_email)], R_KOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], R_CONFIRM:[MessageHandler(filters.TEXT & ~filters.COMMAND, register_confirm)]}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]))
     app.add_handler(ConversationHandler(entry_points=[CommandHandler('tambah', add_data_start)], states={A_NOPOL: [MessageHandler(filters.TEXT, add_nopol)], A_TYPE: [MessageHandler(filters.TEXT, add_type)], A_LEASING: [MessageHandler(filters.TEXT, add_leasing)], A_NOKIR: [MessageHandler(filters.TEXT, add_nokir)], A_CONFIRM: [MessageHandler(filters.TEXT, add_confirm)]}, fallbacks=[CommandHandler('cancel', cancel)]))
     app.add_handler(ConversationHandler(entry_points=[CommandHandler('lapor', lapor_delete_start)], states={L_NOPOL: [MessageHandler(filters.TEXT, lapor_delete_check)], L_CONFIRM: [MessageHandler(filters.TEXT, lapor_delete_confirm)]}, fallbacks=[CommandHandler('cancel', cancel)]))
     app.add_handler(ConversationHandler(entry_points=[CommandHandler('hapus', delete_unit_start)], states={D_NOPOL: [MessageHandler(filters.TEXT, delete_unit_check)], D_CONFIRM: [MessageHandler(filters.TEXT, delete_unit_confirm)]}, fallbacks=[CommandHandler('cancel', cancel)]))
@@ -822,5 +792,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.27 - Critical Fix)")
+    print("✅ BOT ONLINE! (v4.28 - Panduan Fix & Stable)")
     app.run_polling()
