@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.30 (ULTIMATE MASTERPIECE INTEGRATION)        #
+#                      VERSION: 4.31 (ULTIMATE RESTORATION & FIX)              #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -72,9 +72,6 @@ except ValueError:
 
 print(f"✅ [BOOT] SYSTEM STARTING... ADMIN ID: {ADMIN_ID}")
 
-if ADMIN_ID == 0 or LOG_GROUP_ID == 0:
-    print("⚠️ [WARNING] ADMIN_ID atau LOG_GROUP_ID belum diset dengan benar di .env!")
-
 if not URL or not KEY or not TOKEN:
     print("❌ [CRITICAL] Credential tidak lengkap! Cek .env")
     exit()
@@ -88,55 +85,19 @@ except Exception as e:
 
 
 # ##############################################################################
-# BAGIAN 2: KAMUS DATA (LENGKAP)
+# BAGIAN 2: KAMUS DATA
 # ##############################################################################
 
 COLUMN_ALIASES = {
-    'nopol': [
-        'nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'nomorplat', 
-        'nomorkendaraan', 'nokendaraan', 'nomer', 'tnkb', 'licenseplate', 
-        'plat', 'nopolisikendaraan', 'nopil', 'polisi', 'platnomor', 
-        'platkendaraan', 'nomerpolisi', 'no.polisi', 'nopol.', 'no_pol', 'police_no'
-    ],
-    'type': [
-        'type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'assetdescription', 
-        'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 
-        'brand', 'typedeskripsi', 'vehiclemodel', 'namaunit', 'kend', 
-        'namakendaraan', 'merktype', 'objek', 'jenisobjek', 'tipemotor', 'typemotor', 'item_description',
-        'vehicle_desc', 'unitasset', 'unitassetwarnatahun'
-    ],
-    'tahun': [
-        'tahun', 'year', 'thn', 'rakitan', 'th', 'tahunmotor', 'tahunmobil', 'yearofmanufacture', 'assetyear', 
-        'thnrakit', 'manufacturingyear', 'tahun_pembuatan', 'model_year'
-    ],
-    'warna': [
-        'warna', 'color', 'colour', 'cat', 'kelir', 'assetcolour', 'warnamotor', 'warnamobil', 'warnakendaraan', 'body_color'
-    ],
-    'noka': [
-        'noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 
-        'rangka', 'chassisno', 'norangka1', 'chasisno', 'vinno', 'norang',
-        'no_rangka', 'serial_number', 'nokanochassis', 'nokanorangka'
-    ],
-    'nosin': [
-        'nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'engineno', 
-        'nomesin1', 'engineno', 'noengine', 'nomes', 'no_mesin', 'engine_number',
-        'nosinnoengine', 'nosinnomesin'
-    ],
-    'finance': [
-        'finance', 'leasing', 'lising', 'multifinance', 'cabang', 
-        'partner', 'mitra', 'principal', 'company', 'client', 
-        'financecompany', 'leasingname', 'keterangan', 'sumberdata', 
-        'financetype', 'nama_leasing', 'nama_finance'
-    ],
-    'ovd': [
-        'ovd', 'overdue', 'dpd', 'keterlambatan', 'odh', 'hari', 'telat', 
-        'aging', 'od', 'bucket', 'daysoverdue', 'overduedays', 
-        'kiriman', 'kolektibilitas', 'kol', 'kolek', 'bucket_od', 'oddaysoverdue'
-    ],
-    'branch': [
-        'branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 
-        'wilayah', 'region', 'areaname', 'branchname', 'dealer', 'nama_cabang', 'cabangcabang'
-    ]
+    'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'nomorplat', 'nomorkendaraan', 'tnkb', 'licenseplate', 'plat', 'police_no'],
+    'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'assetdescription', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item'],
+    'tahun': ['tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture', 'assetyear', 'manufacturingyear'],
+    'warna': ['warna', 'color', 'colour', 'cat', 'kelir', 'assetcolour'],
+    'noka': ['noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 'rangka', 'chassisno', 'vinno', 'serial_number'],
+    'nosin': ['nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'engineno', 'noengine', 'engine_number'],
+    'finance': ['finance', 'leasing', 'lising', 'multifinance', 'cabang', 'partner', 'mitra', 'principal', 'company', 'client'],
+    'ovd': ['ovd', 'overdue', 'dpd', 'keterlambatan', 'odh', 'hari', 'telat', 'aging', 'od', 'bucket', 'daysoverdue'],
+    'branch': ['branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 'wilayah', 'region', 'areaname', 'branchname']
 }
 
 
@@ -144,7 +105,7 @@ COLUMN_ALIASES = {
 # BAGIAN 3: DEFINISI STATE CONVERSATION
 # ##############################################################################
 
-# A. Registrasi (Simplified Matel/PIC)
+# A. Registrasi
 R_ROLE_CHOICE, R_NAMA, R_HP, R_EMAIL, R_KOTA, R_AGENCY, R_CONFIRM = range(7)
 
 # B. Tambah Data
@@ -159,7 +120,7 @@ D_NOPOL, D_CONFIRM = range(14, 16)
 # E. Upload File
 U_LEASING_USER, U_LEASING_ADMIN, U_CONFIRM_UPLOAD = range(16, 19)
 
-# F. Admin Reasoning & Action
+# F. Admin Reasoning
 REJECT_REASON = 19
 ADMIN_ACT_REASON = 20
 
@@ -278,10 +239,11 @@ def read_file_robust(content, fname):
 
 
 # ##############################################################################
-# BAGIAN 6: FITUR ADMIN - ACTION & PROMOTION (FUTURE PROOF)
+# BAGIAN 6: FITUR ADMIN - ACTION & PROMOTION (WITH KORLAP TOGGLE)
 # ##############################################################################
 
 async def angkat_korlap(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Fitur Manual via Command
     if update.effective_user.id != ADMIN_ID: return
     try:
         if len(context.args) < 2:
@@ -290,8 +252,6 @@ async def angkat_korlap(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data = {"role": "korlap", "wilayah_korlap": wilayah, "quota": 5000} 
         supabase.table('users').update(data).eq('user_id', target_id).execute()
         await update.message.reply_text(f"✅ **SUKSES!**\nUser ID `{target_id}` sekarang adalah **KORLAP {wilayah}**.", parse_mode='Markdown')
-        try: await context.bot.send_message(target_id, f"🎉 **SELAMAT!**\nAnda telah diangkat menjadi **KORLAP ONEASPAL** wilayah **{wilayah}**.\n\nSilakan bagikan ID Telegram Anda (`{target_id}`) kepada anggota tim Anda.", parse_mode='Markdown')
-        except: pass
     except Exception as e: await update.message.reply_text(f"❌ Gagal: {e}")
 
 async def reject_start(update, context):
@@ -326,12 +286,12 @@ async def admin_action_complete(update, context):
 
 
 # ##############################################################################
-# BAGIAN 7: FITUR ADMIN - USER MANAGER & PANEL (RESTORED)
+# BAGIAN 7: FITUR ADMIN - USER MANAGER & PANEL (NEW: KORLAP TOGGLE)
 # ##############################################################################
 
 async def admin_help(update, context):
     if update.effective_user.id != ADMIN_ID: return
-    msg = ("🔐 **ADMIN COMMANDS v4.30**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
+    msg = ("🔐 **ADMIN COMMANDS v4.31**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def list_users(update, context):
@@ -341,7 +301,7 @@ async def list_users(update, context):
         res = supabase.table('users').select("*").execute()
         active_list = [u for u in res.data if u.get('status') == 'active']
         if not active_list: return await update.message.reply_text("📂 Kosong.")
-        msg = "📋 <b>DAFTAR MITRA (v4.30)</b>\n━━━━━━━━━━━━━━━━━━\n"
+        msg = "📋 <b>DAFTAR MITRA (v4.31)</b>\n━━━━━━━━━━━━━━━━━━\n"
         for i, u in enumerate(active_list, 1):
             role_icon = "🎖️" if u.get('role')=='korlap' else "🤝" if u.get('role')=='pic' else "🛡️"
             role_name = str(u.get('role', 'matel')).upper()
@@ -355,16 +315,33 @@ async def manage_user_panel(update, context):
     try:
         tid = int(update.message.text.split('_')[1]); u = get_user(tid)
         if not u: return await update.message.reply_text("❌ Not Found.")
-        role_info = f"🎖️ <b>{u.get('role','matel').upper()}</b>"
-        if u.get('role') == 'korlap': role_info += f" ({u.get('wilayah_korlap', '-')})"
+        
+        role_now = u.get('role', 'matel')
+        role_info = f"🎖️ <b>{role_now.upper()}</b>"
+        if role_now == 'korlap': role_info += f" ({u.get('wilayah_korlap', '-')})"
+        
+        # [NEW FEATURE] LOGIKA TOMBOL KORLAP TOGGLE
+        if role_now == 'korlap':
+            # Jika sudah Korlap -> Tombol Turunkan
+            btn_role = InlineKeyboardButton("⬇️ TURUN JABATAN", callback_data=f"adm_demote_{tid}")
+        else:
+            # Jika Matel/PIC -> Tombol Angkat Korlap
+            btn_role = InlineKeyboardButton("🎖️ ANGKAT KORLAP", callback_data=f"adm_promote_{tid}")
+
         msg = (f"👮‍♂️ <b>USER DETAIL</b>\n━━━━━━━━━━━━━━━━━━\n👤 {clean_text(u.get('nama_lengkap'))}\n{role_info}\n📱 ID: <code>{tid}</code>\n🔋 Kuota: {u.get('quota',0)}\nBos/Ref: {u.get('ref_korlap','-')}")
-        kb = [[InlineKeyboardButton("💰 +100 HIT", callback_data=f"adm_topup_{tid}_100"), InlineKeyboardButton("💰 +500 HIT", callback_data=f"adm_topup_{tid}_500")],[InlineKeyboardButton("⛔ BAN", callback_data=f"adm_ban_{tid}"), InlineKeyboardButton("🗑️ DEL", callback_data=f"adm_del_{tid}")],[InlineKeyboardButton("❌ CLOSE", callback_data="close_panel")]]
+        
+        kb = [
+            [InlineKeyboardButton("💰 +100 HIT", callback_data=f"adm_topup_{tid}_100"), InlineKeyboardButton("💰 +500 HIT", callback_data=f"adm_topup_{tid}_500")],
+            [btn_role], # Tombol Dinamis
+            [InlineKeyboardButton("⛔ BAN", callback_data=f"adm_ban_{tid}"), InlineKeyboardButton("🗑️ DEL", callback_data=f"adm_del_{tid}")],
+            [InlineKeyboardButton("❌ CLOSE", callback_data="close_panel")]
+        ]
         await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
     except: pass
 
 
 # ==============================================================================
-# BAGIAN 8: FITUR AUDIT & ADMIN UTILS (RESTORED)
+# BAGIAN 8: FITUR AUDIT & ADMIN UTILS
 # ==============================================================================
 
 async def get_stats(update, context):
@@ -373,7 +350,7 @@ async def get_stats(update, context):
         t = supabase.table('kendaraan').select("*", count="exact", head=True).execute().count
         u = supabase.table('users').select("*", count="exact", head=True).execute().count
         k = supabase.table('users').select("*", count="exact", head=True).eq('role', 'korlap').execute().count
-        await update.message.reply_text(f"📊 **STATS v4.30**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
+        await update.message.reply_text(f"📊 **STATS v4.31**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
     except: pass
 
 async def get_leasing_list(update, context):
@@ -404,7 +381,6 @@ async def test_group(update, context):
         try: await context.bot.send_message(LOG_GROUP_ID, "🔔 TEST"); await update.message.reply_text("✅ OK")
         except Exception as e: await update.message.reply_text(f"❌ Fail: {e}")
 
-# --- FUNGSI YG SEMPAT HILANG DIKEMBALIKAN ---
 async def admin_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     try:
@@ -487,7 +463,7 @@ async def notify_hit_to_group(context, u, d):
 
 
 # ==============================================================================
-# BAGIAN 10: UPLOAD SYSTEM (RICH PREVIEW + BULK DELETE)
+# BAGIAN 10: UPLOAD SYSTEM (BLUE DIAMOND PREVIEW + BULK DELETE)
 # ==============================================================================
 
 async def upload_start(update, context):
@@ -509,7 +485,7 @@ async def upload_start(update, context):
             await update.message.reply_text(f"✅ **SCAN OK**\nKolom: {', '.join(found)}\nTotal: {len(df)}\n\nMasukkan Nama Leasing (atau SKIP):", reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True)); return U_LEASING_ADMIN
         except Exception as e: await msg.edit_text(f"❌ Error: {e}"); return ConversationHandler.END
         
-    # USER LAIN -> MANUAL LEASING INPUT
+    # USER LAIN
     else:
         if u.get('role') == 'pic': txt = "🔄 **SINKRONISASI DATA**\n\nFile diterima. Ketik Nama Leasing:"
         else: txt = "📄 File diterima.\n**Data Leasing apa ini?**"
@@ -537,7 +513,7 @@ async def upload_leasing_admin(update, context):
         if c not in df.columns: df[c] = None
     context.user_data['final_data_records'] = df[valid].to_dict(orient='records')
     
-    # [FIX] RICH PREVIEW (BLUE DIAMOND)
+    # [FIX] BLUE DIAMOND PREVIEW (Sesuai Screenshot)
     try:
         sample = df.iloc[0]
         sample_txt = (
@@ -550,9 +526,9 @@ async def upload_leasing_admin(update, context):
     except: sample_txt = "⚠️ Tidak dapat membaca baris pertama."
 
     preview_msg = (
-        f"🔎 <b>PREVIEW DATA (v4.30)</b>\n"
+        f"🔎 <b>PREVIEW DATA (v4.31)</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"🏦 <b>Mode:</b> {fin_display}\n"
+        f"🏦 <b>Mode:</b> {fin_disp}\n"
         f"📊 <b>Total:</b> {len(df)} Data\n\n"
         f"📝 <b>SAMPEL DATA BARIS 1:</b>\n"
         f"{sample_txt}\n"
@@ -567,7 +543,6 @@ async def upload_confirm_admin(update, context):
     if action == "❌ BATAL": return await cancel(update, context)
     data = context.user_data.get('final_data_records'); msg = await update.message.reply_text("⏳ Processing...", reply_markup=ReplyKeyboardRemove())
     
-    # --- MODE 1: INSERT / UPDATE ---
     if action == "🚀 UPDATE/INSERT":
         suc = 0
         try:
@@ -578,7 +553,6 @@ async def upload_confirm_admin(update, context):
             await msg.edit_text(f"✅ **UPLOAD SUKSES!**\nTotal: {suc} Data Masuk.")
         except Exception as e: await msg.edit_text(f"❌ Error: {e}")
 
-    # --- MODE 2: HAPUS MASSAL ---
     elif action == "🗑️ HAPUS MASSAL":
         suc = 0
         try:
@@ -614,15 +588,24 @@ async def register_role_choice(update, context):
         await update.message.reply_text("🤝 **FORMULIR INTERNAL LEASING**\n\n1️⃣ Masukkan **Nama Lengkap**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]])); return R_NAMA
     else: return await register_start(update, context)
 
-async def register_nama(update, context): context.user_data['r_nama'] = update.message.text; await update.message.reply_text("2️⃣ No HP (WA):"); return R_HP
-async def register_hp(update, context): context.user_data['r_hp'] = update.message.text; await update.message.reply_text("3️⃣ Email:"); return R_EMAIL
-async def register_email(update, context): context.user_data['r_email'] = update.message.text; await update.message.reply_text("4️⃣ Kota Domisili:"); return R_KOTA
+async def register_nama(update, context): 
+    if update.message.text == "❌ BATAL": return await cancel(update, context)
+    context.user_data['r_nama'] = update.message.text; await update.message.reply_text("2️⃣ No HP (WA):"); return R_HP
+async def register_hp(update, context): 
+    if update.message.text == "❌ BATAL": return await cancel(update, context)
+    context.user_data['r_hp'] = update.message.text; await update.message.reply_text("3️⃣ Email:"); return R_EMAIL
+async def register_email(update, context): 
+    if update.message.text == "❌ BATAL": return await cancel(update, context)
+    context.user_data['r_email'] = update.message.text; await update.message.reply_text("4️⃣ Kota Domisili:"); return R_KOTA
 async def register_kota(update, context): 
+    if update.message.text == "❌ BATAL": return await cancel(update, context)
     context.user_data['r_kota'] = update.message.text
     if context.user_data['reg_role'] == 'pic': txt = "5️⃣ **Nama Leasing / Finance:**\n_(Contoh: BCA Finance, Adira, ACC)_"
     else: txt = "5️⃣ **Nama Agency / PT:**\n_(Isi '-' jika Freelance/Mandiri)_"
     await update.message.reply_text(txt); return R_AGENCY
-async def register_agency(update, context): context.user_data['r_agency'] = update.message.text; await update.message.reply_text("✅ **DATA LENGKAP**\nKirim Pendaftaran?", reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ ULANGI"]])); return R_CONFIRM
+async def register_agency(update, context): 
+    if update.message.text == "❌ BATAL": return await cancel(update, context)
+    context.user_data['r_agency'] = update.message.text; await update.message.reply_text("✅ **DATA LENGKAP**\nKirim Pendaftaran?", reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ ULANGI"]])); return R_CONFIRM
 
 async def register_confirm(update, context):
     if update.message.text != "✅ KIRIM": return await cancel(update, context)
@@ -658,11 +641,8 @@ async def start(update, context):
 # [UPDATE] PANDUAN SESUAI GAMBAR SCREENSHOT
 async def panduan(update, context):
     u = get_user(update.effective_user.id)
-    
-    # 1. PANDUAN PIC
     if u and u.get('role') == 'pic':
         msg = ("📖 <b>PANDUAN ENTERPRISE</b>\n\n<b>1. Sinkronisasi Data</b>\nTekan '🔄 SINKRONISASI DATA', kirim file Excel.\n\n<b>2. Monitoring</b>\nKetik Nopol di kolom chat.\n\n<b>3. Akun</b>\nTekan '📂 DATABASE SAYA'.")
-    # 2. PANDUAN MATEL (SESUAI GAMBAR)
     else:
         msg = (
             "📖 <b>PANDUAN PENGGUNAAN ONEASPAL</b>\n\n"
@@ -730,16 +710,24 @@ async def handle_message(update, context):
 
 
 # ==============================================================================
-# BAGIAN 13: HANDLER KONVERSASI (LAPOR + TAMBAH + HAPUS)
+# BAGIAN 13: HANDLER KONVERSASI (LAPOR + TAMBAH + HAPUS) - [FIX BATAL BUG]
 # ==============================================================================
 
 async def add_data_start(update, context):
     if not get_user(update.effective_user.id): return
     await update.message.reply_text("➕ **TAMBAH UNIT**\n1️⃣ Nopol:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]])); return A_NOPOL
-async def add_nopol(update, context): context.user_data['a_nopol'] = update.message.text.upper(); await update.message.reply_text("2️⃣ Type Mobil:"); return A_TYPE
-async def add_type(update, context): context.user_data['a_type'] = update.message.text; await update.message.reply_text("3️⃣ Leasing:"); return A_LEASING
-async def add_leasing(update, context): context.user_data['a_leasing'] = update.message.text; await update.message.reply_text("4️⃣ Ket (OVD):"); return A_NOKIR
-async def add_nokir(update, context): context.user_data['a_nokir'] = update.message.text; await update.message.reply_text("✅ Kirim?", reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ BATAL"]])); return A_CONFIRM
+async def add_nopol(update, context): 
+    if update.message.text == "❌ BATAL": return await cancel(update, context) # FIX
+    context.user_data['a_nopol'] = update.message.text.upper(); await update.message.reply_text("2️⃣ Type Mobil:"); return A_TYPE
+async def add_type(update, context): 
+    if update.message.text == "❌ BATAL": return await cancel(update, context) # FIX
+    context.user_data['a_type'] = update.message.text; await update.message.reply_text("3️⃣ Leasing:"); return A_LEASING
+async def add_leasing(update, context): 
+    if update.message.text == "❌ BATAL": return await cancel(update, context) # FIX
+    context.user_data['a_leasing'] = update.message.text; await update.message.reply_text("4️⃣ Ket (OVD):"); return A_NOKIR
+async def add_nokir(update, context): 
+    if update.message.text == "❌ BATAL": return await cancel(update, context) # FIX
+    context.user_data['a_nokir'] = update.message.text; await update.message.reply_text("✅ Kirim?", reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ BATAL"]])); return A_CONFIRM
 async def add_confirm(update, context):
     if update.message.text != "✅ KIRIM": return await cancel(update, context)
     n = context.user_data['a_nopol']
@@ -790,7 +778,21 @@ async def cancel(update, context): await update.message.reply_text("🚫 Batal."
 
 async def callback_handler(update, context):
     q = update.callback_query; await q.answer(); d = q.data
-    if d.startswith("adm_topup_"): topup_quota(int(d.split("_")[2]), int(d.split("_")[3])); await q.edit_message_text("✅ Topup OK.")
+    
+    # --- ADMIN ACTIONS (NEW PROMOTION LOGIC) ---
+    if d.startswith("adm_promote_"):
+        uid = int(d.split("_")[2])
+        supabase.table('users').update({'role': 'korlap'}).eq('user_id', uid).execute()
+        await q.edit_message_text(f"✅ User {uid} DIPROMOSIKAN jadi KORLAP.")
+        try: await context.bot.send_message(uid, "🎉 **SELAMAT!** Anda telah diangkat menjadi **KORLAP**.")
+        except: pass
+    elif d.startswith("adm_demote_"):
+        uid = int(d.split("_")[2])
+        supabase.table('users').update({'role': 'matel'}).eq('user_id', uid).execute()
+        await q.edit_message_text(f"⬇️ User {uid} DITURUNKAN jadi MATEL.")
+    
+    # --- EXISTING ACTIONS ---
+    elif d.startswith("adm_topup_"): topup_quota(int(d.split("_")[2]), int(d.split("_")[3])); await q.edit_message_text("✅ Topup OK.")
     elif d == "close_panel": await q.delete_message()
     elif d.startswith("topup_"):
         parts = d.split("_"); uid = int(parts[1])
@@ -804,7 +806,7 @@ async def callback_handler(update, context):
     elif d.startswith("del_rej_"): await q.edit_message_text("❌ Ditolak."); await context.bot.send_message(d.split("_")[2], "❌ Hapus TOLAK.")
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.30 (ULTIMATE MASTERPIECE INTEGRATION) STARTING...")
+    print("🚀 ONEASPAL BOT v4.31 (FIXED & RESTORED) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(admin_action_start, pattern='^adm_(ban|unban|del)_')], states={ADMIN_ACT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_action_complete)]}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]))
@@ -835,5 +837,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.30 - Ultimate Masterpiece)")
+    print("✅ BOT ONLINE! (v4.31 - Ultimate Restoration & Fix)")
     app.run_polling()
