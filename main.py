@@ -609,51 +609,57 @@ async def upload_confirm_admin(update, context):
     act = update.message.text
     if act == "❌ BATAL": return await cancel(update, context)
     
-    # 1. Pesan Awal (Tahan banting, mode HTML)
-    msg = await update.message.reply_text("⏳ <b>Processing Database...</b>\nMohon jangan matikan bot, sedang proses data besar...", parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
+    # Pesan Awal
+    msg = await update.message.reply_text("⏳ <b>Memulai Sinkronisasi...</b>\nMohon tunggu...", parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
     
     data = context.user_data.get('final_df')
     suc = 0
+    total_data = len(data)
     start_t = time.time()
     
     try:
-        BATCH = 1000 # Tetap 1000 agar aman di memori
+        BATCH = 1000 # Batch size aman
         list_nopol = [x['nopol'] for x in data] if act == "🗑️ HAPUS MASSAL" else []
-        total_data = len(data)
         
         for i in range(0, total_data, BATCH):
             chunk = data[i:i+BATCH]
             
-            # Eksekusi Database
+            # Eksekusi Database (Silent & Fast)
             try:
                 if act == "🚀 UPDATE DATA": 
                     supabase.table('kendaraan').upsert(chunk, on_conflict='nopol').execute()
                 elif act == "🗑️ HAPUS MASSAL": 
                     supabase.table('kendaraan').delete().in_('nopol', list_nopol[i:i+BATCH]).execute()
                 suc += len(chunk)
-            except Exception as db_err:
-                # Jika batch ini gagal, catat tapi JANGAN hentikan proses total
-                print(f"⚠️ Batch Error: {db_err}")
-                continue
+            except Exception as e:
+                print(f"⚠️ Batch Error: {e}")
+                continue # Lanjut ke batch berikutnya walau ini gagal
             
-            # [OPTIMASI PENTING] 
-            # Hanya update status ke User setiap 25% progress untuk menghindari Rate Limit Telegram
-            # Jika data 68.000, dia cuma update 4 kali. Ini jauh lebih aman & cepat.
-            if i % 20000 == 0 and i > 0:
-                try: 
-                    percent = int((i / total_data) * 100)
-                    await msg.edit_text(f"⏳ <b>SINKRONISASI... {percent}%</b>\n✅ {i}/{total_data} data terproses...", parse_mode='HTML')
-                except: pass # Kalau gagal edit pesan, abaikan saja, biar proses jalan terus
+            # [REVISI] UPDATE VISUAL LEBIH AKTIF (Setiap 5.000 data)
+            if i % 5000 == 0 and i > 0:
+                percent = int((i / total_data) * 100)
+                # Bikin Bar Loading [▓▓▓░░░]
+                filled = int(percent / 10)
+                bar = "▓" * filled + "░" * (10 - filled)
                 
-            await asyncio.sleep(0.05) # Istirahat sangat singkat
+                try: 
+                    await msg.edit_text(
+                        f"⏳ <b>UPDATE DATABASE... {percent}%</b>\n"
+                        f"<code>[{bar}]</code>\n"
+                        f"✅ Terproses: <b>{i:,}</b> / {total_data:,}", 
+                        parse_mode='HTML'
+                    )
+                except: pass # Jika gagal edit visual, biarkan jalan terus
+            
+            await asyncio.sleep(0.05) # Istirahat super singkat
             
         dur = round(time.time() - start_t, 2)
         
-        # Laporan Akhir (Sesuai Screenshot Bapak)
+        # Laporan Akhir
         report = (
             f"✅ <b>PROSES SELESAI!</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"📊 <b>Total Data:</b> {suc}\n"
+            f"📊 <b>Total Data:</b> {suc:,}\n"
             f"❌ <b>Gagal:</b> {total_data - suc}\n"
             f"⏱ <b>Waktu:</b> {dur} detik\n"
             f"🚀 <b>Status:</b> Database Updated Successfully!"
@@ -661,7 +667,7 @@ async def upload_confirm_admin(update, context):
         await msg.edit_text(report, parse_mode='HTML')
         
     except Exception as e: 
-        await msg.edit_text(f"❌ <b>SYSTEM ERROR:</b>\n{e}", parse_mode='HTML')
+        await msg.edit_text(f"❌ Error System: {e}")
         
     return ConversationHandler.END
 
