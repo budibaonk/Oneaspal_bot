@@ -311,21 +311,25 @@ async def list_users(update, context):
     except Exception as e: await update.message.reply_text(f"❌ Error: {e}")
 
 async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Cek Admin
     if update.effective_user.id != ADMIN_ID: return
+    
     try:
-        # Ambil ID dari command /m_12345
+        # Ambil ID dari text /m_123456
         tid = int(update.message.text.split('_')[1])
         u = get_user(tid)
-        if not u: return await update.message.reply_text("❌ User tidak ditemukan.")
         
-        # Cek Role & Status Saat Ini
-        role_now = u.get('role', 'matel')
-        status_now = u.get('status', 'active')
+        if not u: 
+            return await update.message.reply_text("❌ User tidak ditemukan di database.")
         
-        # Tampilan Info Header
-        info_role = "🎖️ KORLAP" if role_now == 'korlap' else "🛡️ MATEL/PIC"
-        wilayah = f"({u.get('wilayah_korlap')})" if role_now == 'korlap' else ""
-        icon_status = "✅ AKTIF" if status_now == 'active' else "⛔ BANNED/PENDING"
+        # Cek Data User
+        role_now = u.get('role', 'matel')      # matel / korlap / pic
+        status_now = u.get('status', 'active') # active / rejected
+        
+        # Info Header
+        info_role = "🎖️ KORLAP" if role_now == 'korlap' else f"🛡️ {role_now.upper()}"
+        wilayah = f"({u.get('wilayah_korlap', '-')})" if role_now == 'korlap' else ""
+        icon_status = "✅ AKTIF" if status_now == 'active' else "⛔ BANNED"
         
         msg = (
             f"👮‍♂️ <b>USER MANAGER</b>\n"
@@ -339,26 +343,32 @@ async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"━━━━━━━━━━━━━━━━━━"
         )
         
-        # --- 1. LOGIKA TOMBOL KORLAP (DYNAMIC) ---
+        # --- LOGIKA TOMBOL PINTAR (SMART BUTTONS) ---
+        
+        # 1. Tombol Role (Korlap)
         if role_now == 'korlap':
-            btn_role = InlineKeyboardButton("⬇️ TURUNKAN JADI MATEL", callback_data=f"adm_demote_{tid}")
+            btn_role = InlineKeyboardButton("⬇️ BERHENTIKAN KORLAP", callback_data=f"adm_demote_{tid}")
         else:
-            btn_korlap = InlineKeyboardButton("🎖️ ANGKAT JADI KORLAP", callback_data=f"adm_promote_{tid}")
+            btn_role = InlineKeyboardButton("🎖️ ANGKAT KORLAP", callback_data=f"adm_promote_{tid}")
 
-        # --- 2. LOGIKA TOMBOL BAN/UNBAN (DYNAMIC) ---
+        # 2. Tombol Status (Ban/Unban)
         if status_now == 'active':
             btn_ban = InlineKeyboardButton("⛔ BAN USER", callback_data=f"adm_ban_{tid}")
         else:
             btn_ban = InlineKeyboardButton("✅ UNBAN (PULIHKAN)", callback_data=f"adm_unban_{tid}")
 
+        # Susunan Keyboard
         kb = [
             [InlineKeyboardButton("💰 +100 HIT", callback_data=f"adm_topup_{tid}_100"), InlineKeyboardButton("💰 +500 HIT", callback_data=f"adm_topup_{tid}_500")],
             [btn_role], 
             [btn_ban, InlineKeyboardButton("🗑️ HAPUS DATA", callback_data=f"adm_del_{tid}")],
             [InlineKeyboardButton("❌ TUTUP PANEL", callback_data="close_panel")]
         ]
+        
         await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
-    except: pass
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error Panel: {e}")
 
 
 # ==============================================================================
@@ -861,6 +871,7 @@ if __name__ == '__main__':
     print("🚀 ONEASPAL BOT v4.31 (FIXED & RESTORED) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
+    app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
     app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(admin_action_start, pattern='^adm_(ban|unban|del)_')], states={ADMIN_ACT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_action_complete)]}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]))
     app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(reject_start, pattern='^reju_')], states={REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, reject_complete)]}, fallbacks=[CommandHandler('cancel', cancel)]))
     app.add_handler(ConversationHandler(entry_points=[MessageHandler(filters.Document.ALL, upload_start)], states={U_LEASING_USER: [MessageHandler(filters.TEXT, upload_leasing_user)], U_LEASING_ADMIN: [MessageHandler(filters.TEXT, upload_leasing_admin)], U_CONFIRM_UPLOAD: [MessageHandler(filters.TEXT, upload_confirm_admin)]}, fallbacks=[CommandHandler('cancel', cancel)], allow_reentry=True))
@@ -883,8 +894,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('admin', contact_admin))
     app.add_handler(CommandHandler('addagency', add_agency)) 
     app.add_handler(CommandHandler('adminhelp', admin_help)) 
-    
-    app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
+        
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo_topup))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
