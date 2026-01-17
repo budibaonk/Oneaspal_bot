@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.26 (BUG FIX + VISUAL PERFECT)                #
+#                      VERSION: 4.27 (CRITICAL FIX + FULL FEATURES)            #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -331,10 +331,9 @@ async def admin_action_complete(update, context):
 
 async def admin_help(update, context):
     if update.effective_user.id != ADMIN_ID: return
-    msg = ("🔐 **ADMIN COMMANDS v4.26**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
+    msg = ("🔐 **ADMIN COMMANDS v4.27**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
     await update.message.reply_text(msg, parse_mode='Markdown')
 
-# [FIX] MENGEMBALIKAN FUNGSI ADMIN_TOPUP & ADD_AGENCY YANG HILANG
 async def admin_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     try:
@@ -359,7 +358,7 @@ async def list_users(update, context):
         res = supabase.table('users').select("*").execute()
         active_list = [u for u in res.data if u.get('status') == 'active']
         if not active_list: return await update.message.reply_text("📂 Kosong.")
-        msg = "📋 <b>DAFTAR MITRA (v4.26)</b>\n━━━━━━━━━━━━━━━━━━\n"
+        msg = "📋 <b>DAFTAR MITRA (v4.27)</b>\n━━━━━━━━━━━━━━━━━━\n"
         for i, u in enumerate(active_list, 1):
             role_icon = "🎖️" if u.get('role')=='korlap' else "🤝" if u.get('role')=='pic' else "🛡️"
             role_name = str(u.get('role', 'matel')).upper()
@@ -386,7 +385,7 @@ async def get_stats(update, context):
         t = supabase.table('kendaraan').select("*", count="exact", head=True).execute().count
         u = supabase.table('users').select("*", count="exact", head=True).execute().count
         k = supabase.table('users').select("*", count="exact", head=True).eq('role', 'korlap').execute().count
-        await update.message.reply_text(f"📊 **STATS v4.26**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
+        await update.message.reply_text(f"📊 **STATS v4.27**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
     except: pass
 
 async def get_leasing_list(update, context):
@@ -438,6 +437,16 @@ async def cek_kuota(update, context):
         msg = (f"💳 **INFO AKUN**\n━━━━━━━━━━━━━━━━━━\n{role_msg}\n👤 {u.get('nama_lengkap')}\n🔋 **SISA KUOTA:** `{u.get('quota',0)}` HIT\n━━━━━━━━━━━━━━━━━━")
     
     await update.message.reply_text(msg, parse_mode='Markdown')
+
+# [FIX] MENGEMBALIKAN FUNGSI HANDLE_PHOTO_TOPUP YANG HILANG
+async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type != "private": return
+    u = get_user(update.effective_user.id); 
+    if not u: return
+    await update.message.reply_text("✅ **Bukti diterima!** Sedang diverifikasi...", quote=True, parse_mode='Markdown')
+    msg = f"💰 **TOPUP REQUEST**\n👤 {u['nama_lengkap']}\n🆔 `{u['user_id']}`\n🔋 Saldo: {u.get('quota',0)}\n📝 {update.message.caption or '-'}"
+    kb = [[InlineKeyboardButton("✅ 50", callback_data=f"topup_{u['user_id']}_50"), InlineKeyboardButton("✅ 100", callback_data=f"topup_{u['user_id']}_100")], [InlineKeyboardButton("❌ TOLAK", callback_data=f"topup_{u['user_id']}_rej")]]
+    await context.bot.send_photo(ADMIN_ID, update.message.photo[-1].file_id, caption=msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
 
 # --- FORMAT HIT VERTIKAL (FIXED) ---
 async def notify_hit_to_group(context, u, d):
@@ -530,7 +539,7 @@ async def upload_leasing_admin(update, context):
         sample_txt = "⚠️ Tidak dapat membaca baris pertama."
 
     preview_msg = (
-        f"🔎 <b>PREVIEW DATA (v4.26)</b>\n"
+        f"🔎 <b>PREVIEW DATA (v4.27)</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"🏦 <b>Mode:</b> {fin_display}\n"
         f"📊 <b>Total:</b> {len(df)} Data\n\n"
@@ -765,13 +774,30 @@ async def callback_handler(update, context):
     elif d.startswith("del_rej_"): await q.edit_message_text("❌ Ditolak."); await context.bot.send_message(d.split("_")[2], "❌ Hapus TOLAK.")
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.26 (BUG FIX & VISUAL PERFECT) STARTING...")
+    print("🚀 ONEASPAL BOT v4.27 (CRITICAL FIX) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(admin_action_start, pattern='^adm_(ban|unban|del)_')], states={ADMIN_ACT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_action_complete)]}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]))
     app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(reject_start, pattern='^reju_')], states={REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, reject_complete)]}, fallbacks=[CommandHandler('cancel', cancel)]))
+    
+    # UPLOAD HANDLER
     app.add_handler(ConversationHandler(entry_points=[MessageHandler(filters.Document.ALL, upload_start)], states={U_LEASING_USER: [MessageHandler(filters.TEXT, upload_leasing_user)], U_LEASING_ADMIN: [MessageHandler(filters.TEXT, upload_leasing_admin)], U_CONFIRM_UPLOAD: [MessageHandler(filters.TEXT, upload_confirm_admin)]}, fallbacks=[CommandHandler('cancel', cancel)], allow_reentry=True))
-    app.add_handler(ConversationHandler(entry_points=[CommandHandler('register', register_start)], states={R_ROLE_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_role_choice)], R_NAMA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_nama)], R_HP: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_hp)], R_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_email)], R_KOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], R_CONFIRM:[MessageHandler(filters.TEXT & ~filters.COMMAND, register_confirm)]}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]))
+    
+    # REGISTRATION
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('register', register_start)], 
+        states={
+            R_ROLE_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_role_choice)],
+            R_NAMA:   [MessageHandler(filters.TEXT & ~filters.COMMAND, register_nama)], 
+            R_HP:     [MessageHandler(filters.TEXT & ~filters.COMMAND, register_hp)], 
+            R_EMAIL:  [MessageHandler(filters.TEXT & ~filters.COMMAND, register_email)], 
+            R_KOTA:   [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], 
+            R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], 
+            R_CONFIRM:[MessageHandler(filters.TEXT & ~filters.COMMAND, register_confirm)]
+        }, 
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+    ))
+    
     app.add_handler(ConversationHandler(entry_points=[CommandHandler('tambah', add_data_start)], states={A_NOPOL: [MessageHandler(filters.TEXT, add_nopol)], A_TYPE: [MessageHandler(filters.TEXT, add_type)], A_LEASING: [MessageHandler(filters.TEXT, add_leasing)], A_NOKIR: [MessageHandler(filters.TEXT, add_nokir)], A_CONFIRM: [MessageHandler(filters.TEXT, add_confirm)]}, fallbacks=[CommandHandler('cancel', cancel)]))
     app.add_handler(ConversationHandler(entry_points=[CommandHandler('lapor', lapor_delete_start)], states={L_NOPOL: [MessageHandler(filters.TEXT, lapor_delete_check)], L_CONFIRM: [MessageHandler(filters.TEXT, lapor_delete_confirm)]}, fallbacks=[CommandHandler('cancel', cancel)]))
     app.add_handler(ConversationHandler(entry_points=[CommandHandler('hapus', delete_unit_start)], states={D_NOPOL: [MessageHandler(filters.TEXT, delete_unit_check)], D_CONFIRM: [MessageHandler(filters.TEXT, delete_unit_confirm)]}, fallbacks=[CommandHandler('cancel', cancel)]))
@@ -796,5 +822,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.26 - Bug Fix & Visual Perfect)")
+    print("✅ BOT ONLINE! (v4.27 - Critical Fix)")
     app.run_polling()
