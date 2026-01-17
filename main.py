@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.25 (VISUAL PERFECT + BULK DELETE)            #
+#                      VERSION: 4.26 (BUG FIX + VISUAL PERFECT)                #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -331,8 +331,26 @@ async def admin_action_complete(update, context):
 
 async def admin_help(update, context):
     if update.effective_user.id != ADMIN_ID: return
-    msg = ("🔐 **ADMIN COMMANDS v4.25**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
+    msg = ("🔐 **ADMIN COMMANDS v4.26**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
     await update.message.reply_text(msg, parse_mode='Markdown')
+
+# [FIX] MENGEMBALIKAN FUNGSI ADMIN_TOPUP & ADD_AGENCY YANG HILANG
+async def admin_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    try:
+        tid, amt = int(context.args[0]), int(context.args[1])
+        if topup_quota(tid, amt)[0]: await update.message.reply_text(f"✅ Sukses Topup {amt} ke {tid}.")
+        else: await update.message.reply_text("❌ Gagal Topup.")
+    except: await update.message.reply_text("⚠️ Format: `/topup ID JML`")
+
+async def add_agency(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    try:
+        name = " ".join(context.args)
+        if not name: return await update.message.reply_text("⚠️ Nama Agency kosong.")
+        supabase.table('agencies').insert({"name": name}).execute()
+        await update.message.reply_text(f"✅ Agency '{name}' ditambahkan.")
+    except: await update.message.reply_text("❌ Error.")
 
 async def list_users(update, context):
     if update.effective_user.id != ADMIN_ID: return
@@ -341,7 +359,7 @@ async def list_users(update, context):
         res = supabase.table('users').select("*").execute()
         active_list = [u for u in res.data if u.get('status') == 'active']
         if not active_list: return await update.message.reply_text("📂 Kosong.")
-        msg = "📋 <b>DAFTAR MITRA (v4.25)</b>\n━━━━━━━━━━━━━━━━━━\n"
+        msg = "📋 <b>DAFTAR MITRA (v4.26)</b>\n━━━━━━━━━━━━━━━━━━\n"
         for i, u in enumerate(active_list, 1):
             role_icon = "🎖️" if u.get('role')=='korlap' else "🤝" if u.get('role')=='pic' else "🛡️"
             role_name = str(u.get('role', 'matel')).upper()
@@ -368,7 +386,7 @@ async def get_stats(update, context):
         t = supabase.table('kendaraan').select("*", count="exact", head=True).execute().count
         u = supabase.table('users').select("*", count="exact", head=True).execute().count
         k = supabase.table('users').select("*", count="exact", head=True).eq('role', 'korlap').execute().count
-        await update.message.reply_text(f"📊 **STATS v4.25**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
+        await update.message.reply_text(f"📊 **STATS v4.26**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
     except: pass
 
 async def get_leasing_list(update, context):
@@ -512,7 +530,7 @@ async def upload_leasing_admin(update, context):
         sample_txt = "⚠️ Tidak dapat membaca baris pertama."
 
     preview_msg = (
-        f"🔎 <b>PREVIEW DATA (v4.25)</b>\n"
+        f"🔎 <b>PREVIEW DATA (v4.26)</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"🏦 <b>Mode:</b> {fin_display}\n"
         f"📊 <b>Total:</b> {len(df)} Data\n\n"
@@ -747,7 +765,7 @@ async def callback_handler(update, context):
     elif d.startswith("del_rej_"): await q.edit_message_text("❌ Ditolak."); await context.bot.send_message(d.split("_")[2], "❌ Hapus TOLAK.")
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.25 (VISUAL PERFECT) STARTING...")
+    print("🚀 ONEASPAL BOT v4.26 (BUG FIX & VISUAL PERFECT) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(admin_action_start, pattern='^adm_(ban|unban|del)_')], states={ADMIN_ACT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_action_complete)]}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]))
@@ -770,6 +788,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('setinfo', set_info)) 
     app.add_handler(CommandHandler('delinfo', del_info)) 
     app.add_handler(CommandHandler('admin', contact_admin))
+    app.add_handler(CommandHandler('addagency', add_agency)) 
     app.add_handler(CommandHandler('adminhelp', admin_help)) 
     
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
@@ -777,5 +796,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.25 - Visual Perfect)")
+    print("✅ BOT ONLINE! (v4.26 - Bug Fix & Visual Perfect)")
     app.run_polling()
