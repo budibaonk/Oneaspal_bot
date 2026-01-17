@@ -104,15 +104,15 @@ COLUMN_ALIASES = {
         'type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'assetdescription', 
         'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 
         'brand', 'typedeskripsi', 'vehiclemodel', 'namaunit', 'kend', 
-        'namakendaraan', 'merktype', 'objek', 'jenisobjek', 'item_description',
+        'namakendaraan', 'merktype', 'objek', 'jenisobjek', 'tipemotor', 'typemotor', 'item_description',
         'vehicle_desc', 'unitasset', 'unitassetwarnatahun'
     ],
     'tahun': [
-        'tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture', 'assetyear', 
+        'tahun', 'year', 'thn', 'rakitan', 'th', 'tahunmotor', 'tahunmobil', 'yearofmanufacture', 'assetyear', 
         'thnrakit', 'manufacturingyear', 'tahun_pembuatan', 'model_year'
     ],
     'warna': [
-        'warna', 'color', 'colour', 'cat', 'kelir', 'assetcolour', 'warnakendaraan', 'body_color'
+        'warna', 'color', 'colour', 'cat', 'kelir', 'assetcolour', 'warnamotor', 'warnamobil', 'warnakendaraan', 'body_color'
     ],
     'noka': [
         'noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 
@@ -131,7 +131,7 @@ COLUMN_ALIASES = {
         'financetype', 'nama_leasing', 'nama_finance'
     ],
     'ovd': [
-        'ovd', 'overdue', 'dpd', 'keterlambatan', 'hari', 'telat', 
+        'ovd', 'overdue', 'dpd', 'keterlambatan', 'odh', 'hari', 'telat', 
         'aging', 'od', 'bucket', 'daysoverdue', 'overduedays', 
         'kiriman', 'kolektibilitas', 'kol', 'kolek', 'bucket_od', 'oddaysoverdue'
     ],
