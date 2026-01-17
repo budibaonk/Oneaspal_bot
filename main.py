@@ -610,21 +610,22 @@ async def upload_confirm_admin(update, context):
     if act == "❌ BATAL": return await cancel(update, context)
     
     # Pesan Awal
-    msg = await update.message.reply_text("⏳ <b>Memulai Sinkronisasi...</b>\nMohon tunggu...", parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
+    msg = await update.message.reply_text("⏳ <b>Menginisialisasi Database...</b>\nMohon tunggu...", parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
     
     data = context.user_data.get('final_df')
-    suc = 0
     total_data = len(data)
+    suc = 0
     start_t = time.time()
     
     try:
-        BATCH = 1000 # Batch size aman
+        # [OPTIMASI] Batch lebih kecil (500) biar 'napas' bot lebih lega
+        BATCH = 500 
         list_nopol = [x['nopol'] for x in data] if act == "🗑️ HAPUS MASSAL" else []
         
         for i in range(0, total_data, BATCH):
             chunk = data[i:i+BATCH]
             
-            # Eksekusi Database (Silent & Fast)
+            # Eksekusi Database
             try:
                 if act == "🚀 UPDATE DATA": 
                     supabase.table('kendaraan').upsert(chunk, on_conflict='nopol').execute()
@@ -633,12 +634,14 @@ async def upload_confirm_admin(update, context):
                 suc += len(chunk)
             except Exception as e:
                 print(f"⚠️ Batch Error: {e}")
-                continue # Lanjut ke batch berikutnya walau ini gagal
+                # Jangan stop loop, lanjut ke batch berikutnya
+                continue
             
-            # [REVISI] UPDATE VISUAL LEBIH AKTIF (Setiap 5.000 data)
-            if i % 5000 == 0 and i > 0:
-                percent = int((i / total_data) * 100)
-                # Bikin Bar Loading [▓▓▓░░░]
+            # [REVISI VISUAL] Update setiap 2.000 data ATAU minimal 25% progress
+            # Agar file kecil (5rb) tetap kelihatan loading barnya
+            current_count = i + len(chunk)
+            if current_count % 2000 == 0 or current_count == total_data:
+                percent = int((current_count / total_data) * 100)
                 filled = int(percent / 10)
                 bar = "▓" * filled + "░" * (10 - filled)
                 
@@ -646,12 +649,13 @@ async def upload_confirm_admin(update, context):
                     await msg.edit_text(
                         f"⏳ <b>UPDATE DATABASE... {percent}%</b>\n"
                         f"<code>[{bar}]</code>\n"
-                        f"✅ Terproses: <b>{i:,}</b> / {total_data:,}", 
+                        f"✅ Terproses: <b>{current_count:,}</b> / {total_data:,}", 
                         parse_mode='HTML'
                     )
-                except: pass # Jika gagal edit visual, biarkan jalan terus
+                except: pass
             
-            await asyncio.sleep(0.05) # Istirahat super singkat
+            # Jeda wajib agar bot tidak dianggap spam oleh Telegram
+            await asyncio.sleep(0.01)
             
         dur = round(time.time() - start_t, 2)
         
@@ -667,7 +671,7 @@ async def upload_confirm_admin(update, context):
         await msg.edit_text(report, parse_mode='HTML')
         
     except Exception as e: 
-        await msg.edit_text(f"❌ Error System: {e}")
+        await msg.edit_text(f"❌ <b>SYSTEM ERROR:</b>\n{e}", parse_mode='HTML')
         
     return ConversationHandler.END
 
