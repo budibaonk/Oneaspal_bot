@@ -310,31 +310,44 @@ async def list_users(update, context):
         if msg: await update.message.reply_text(msg, parse_mode='HTML')
     except Exception as e: await update.message.reply_text(f"❌ Error: {e}")
 
-async def manage_user_panel(update, context):
+async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     try:
-        tid = int(update.message.text.split('_')[1]); u = get_user(tid)
-        if not u: return await update.message.reply_text("❌ Not Found.")
+        # Ambil ID dari command /m_12345
+        tid = int(update.message.text.split('_')[1])
+        u = get_user(tid)
+        if not u: return await update.message.reply_text("❌ User tidak ditemukan.")
         
+        # Cek Role Saat Ini
         role_now = u.get('role', 'matel')
-        role_info = f"🎖️ <b>{role_now.upper()}</b>"
-        if role_now == 'korlap': role_info += f" ({u.get('wilayah_korlap', '-')})"
         
-        # [NEW FEATURE] LOGIKA TOMBOL KORLAP TOGGLE
+        # Tampilan Info
+        info_role = "🎖️ KORLAP" if role_now == 'korlap' else "🛡️ MATEL/PIC"
+        wilayah = f"({u.get('wilayah_korlap')})" if role_now == 'korlap' else ""
+        
+        msg = (
+            f"👮‍♂️ <b>USER MANAGER</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Nama:</b> {clean_text(u.get('nama_lengkap'))}\n"
+            f"🏅 <b>Role:</b> {info_role} {wilayah}\n"
+            f"📱 <b>ID:</b> <code>{tid}</code>\n"
+            f"🔋 <b>Kuota:</b> {u.get('quota', 0)}\n"
+            f"🏢 <b>Agency:</b> {clean_text(u.get('agency'))}\n"
+            f"━━━━━━━━━━━━━━━━━━"
+        )
+        
+        # --- LOGIKA TOMBOL KORLAP ---
         if role_now == 'korlap':
-            # Jika sudah Korlap -> Tombol Turunkan
-            btn_role = InlineKeyboardButton("⬇️ TURUN JABATAN", callback_data=f"adm_demote_{tid}")
+            btn_korlap = InlineKeyboardButton("⬇️ TURUNKAN JADI MATEL", callback_data=f"adm_demote_{tid}")
         else:
-            # Jika Matel/PIC -> Tombol Angkat Korlap
-            btn_role = InlineKeyboardButton("🎖️ ANGKAT KORLAP", callback_data=f"adm_promote_{tid}")
+            btn_korlap = InlineKeyboardButton("🎖️ ANGKAT JADI KORLAP", callback_data=f"adm_promote_{tid}")
+        # ----------------------------
 
-        msg = (f"👮‍♂️ <b>USER DETAIL</b>\n━━━━━━━━━━━━━━━━━━\n👤 {clean_text(u.get('nama_lengkap'))}\n{role_info}\n📱 ID: <code>{tid}</code>\n🔋 Kuota: {u.get('quota',0)}\nBos/Ref: {u.get('ref_korlap','-')}")
-        
         kb = [
             [InlineKeyboardButton("💰 +100 HIT", callback_data=f"adm_topup_{tid}_100"), InlineKeyboardButton("💰 +500 HIT", callback_data=f"adm_topup_{tid}_500")],
-            [btn_role], # Tombol Dinamis
-            [InlineKeyboardButton("⛔ BAN", callback_data=f"adm_ban_{tid}"), InlineKeyboardButton("🗑️ DEL", callback_data=f"adm_del_{tid}")],
-            [InlineKeyboardButton("❌ CLOSE", callback_data="close_panel")]
+            [btn_korlap], # Tombol Dinamis
+            [InlineKeyboardButton("⛔ BAN", callback_data=f"adm_ban_{tid}"), InlineKeyboardButton("🗑️ HAPUS", callback_data=f"adm_del_{tid}")],
+            [InlineKeyboardButton("❌ TUTUP", callback_data="close_panel")]
         ]
         await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
     except: pass
@@ -353,22 +366,53 @@ async def get_stats(update, context):
         await update.message.reply_text(f"📊 **STATS v4.31**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
     except: pass
 
-async def get_leasing_list(update, context):
+async def get_leasing_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
-    msg = await update.message.reply_text("⏳ *Mengaudit...*", parse_mode='Markdown')
+    
+    # Pesan awal
+    msg = await update.message.reply_text("⏳ *Memulai Audit Leasing...*", parse_mode='Markdown')
+    
     try:
-        counts = Counter(); off = 0; BATCH = 1000
+        counts = Counter()
+        off = 0
+        BATCH = 1000
+        
         while True:
-            res = supabase.table('kendaraan').select("finance").range(off, off+BATCH-1).execute(); data = res.data
+            # Ambil data per batch
+            res = supabase.table('kendaraan').select("finance").range(off, off+BATCH-1).execute()
+            data = res.data
+            
             if not data: break
+            
+            # Hitung data
             counts.update([str(d.get('finance')).strip().upper() if d.get('finance') else "UNKNOWN" for d in data])
+            
+            # Cek jika batch terakhir
             if len(data) < BATCH: break
+            
             off += BATCH
-        rpt = "🏦 **AUDIT LEASING**\n━━━━━━━━━━━━━━━━━━\n"
-        for k,v in counts.most_common():
-            if k not in ["UNKNOWN", "NONE", "NAN", "-"]: rpt += f"🔹 **{k}:** `{v:,}`\n"
-        await msg.edit_text(rpt[:4000], parse_mode='Markdown')
-    except: await msg.edit_text("❌ Error.")
+            
+            # --- BAGIAN LOADING YANG HILANG (RESTORED) ---
+            if off % 50000 == 0:
+                try: 
+                    await msg.edit_text(f"⏳ *Sedang Menghitung...*\nSudah scan: `{off:,}` data", parse_mode='Markdown')
+                except: pass
+            # ---------------------------------------------
+
+        # Format Laporan Akhir
+        rpt = "🏦 **AUDIT LEASING (FINAL)**\n━━━━━━━━━━━━━━━━━━\n"
+        # Sortir dari yang terbanyak
+        for k, v in counts.most_common():
+            if k not in ["UNKNOWN", "NONE", "NAN", "-"]: 
+                rpt += f"🔹 **{k}:** `{v:,}`\n"
+        
+        # Potong jika kepanjangan (Telegram limit)
+        if len(rpt) > 4000: rpt = rpt[:4000] + "\n...(dan lainnya)"
+        
+        await msg.edit_text(rpt, parse_mode='Markdown')
+        
+    except Exception as e: 
+        await msg.edit_text(f"❌ Error: {e}")
 
 async def set_info(update, context):
     global GLOBAL_INFO; 
