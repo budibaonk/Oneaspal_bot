@@ -609,8 +609,8 @@ async def upload_confirm_admin(update, context):
     act = update.message.text
     if act == "❌ BATAL": return await cancel(update, context)
     
-    # Pesan Awal
-    msg = await update.message.reply_text("⏳ <b>Menginisialisasi Database...</b>\nMohon tunggu...", parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
+    # 1. Pesan Awal (Simpel & Jelas)
+    msg = await update.message.reply_text("⏳ <b>MEMULAI UPDATE DATABASE...</b>\nMohon tunggu, jangan matikan bot...", parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
     
     data = context.user_data.get('final_df')
     total_data = len(data)
@@ -618,8 +618,8 @@ async def upload_confirm_admin(update, context):
     start_t = time.time()
     
     try:
-        # [OPTIMASI] Batch lebih kecil (500) biar 'napas' bot lebih lega
-        BATCH = 500 
+        # Batch 1000 (Aman & Cepat untuk Supabase Pro)
+        BATCH = 1000 
         list_nopol = [x['nopol'] for x in data] if act == "🗑️ HAPUS MASSAL" else []
         
         for i in range(0, total_data, BATCH):
@@ -634,44 +634,39 @@ async def upload_confirm_admin(update, context):
                 suc += len(chunk)
             except Exception as e:
                 print(f"⚠️ Batch Error: {e}")
-                # Jangan stop loop, lanjut ke batch berikutnya
                 continue
+
+            # [REVISI] Update Visual SANGAT JARANG (Setiap 10.000 data saja)
+            # Ini untuk mencegah Telegram nge-block bot kita karena "Spam Edit"
+            if i > 0 and i % 10000 == 0:
+                try:
+                    await msg.edit_text(f"⏳ <b>MEMPROSES DATA...</b>\n🚀 {i:,} / {total_data:,} data...", parse_mode='HTML')
+                except: pass 
             
-            # [REVISI VISUAL] Update setiap 2.000 data ATAU minimal 25% progress
-            # Agar file kecil (5rb) tetap kelihatan loading barnya
-            current_count = i + len(chunk)
-            if current_count % 2000 == 0 or current_count == total_data:
-                percent = int((current_count / total_data) * 100)
-                filled = int(percent / 10)
-                bar = "▓" * filled + "░" * (10 - filled)
-                
-                try: 
-                    await msg.edit_text(
-                        f"⏳ <b>UPDATE DATABASE... {percent}%</b>\n"
-                        f"<code>[{bar}]</code>\n"
-                        f"✅ Terproses: <b>{current_count:,}</b> / {total_data:,}", 
-                        parse_mode='HTML'
-                    )
-                except: pass
-            
-            # Jeda wajib agar bot tidak dianggap spam oleh Telegram
+            # Istirahat agar CPU tidak panas
             await asyncio.sleep(0.01)
             
         dur = round(time.time() - start_t, 2)
         
-        # Laporan Akhir
-        report = (
-            f"✅ <b>PROSES SELESAI!</b>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"📊 <b>Total Data:</b> {suc:,}\n"
-            f"❌ <b>Gagal:</b> {total_data - suc}\n"
-            f"⏱ <b>Waktu:</b> {dur} detik\n"
-            f"🚀 <b>Status:</b> Database Updated Successfully!"
-        )
-        await msg.edit_text(report, parse_mode='HTML')
+        # 2. HAPUS Pesan Loading (Biar bersih)
+        try: await msg.delete()
+        except: pass
         
-    except Exception as e: 
-        await msg.edit_text(f"❌ <b>SYSTEM ERROR:</b>\n{e}", parse_mode='HTML')
+        # 3. KIRIM PESAN BARU (Laporan Sukses PASTI MUNCUL)
+        # Format persis seperti gambar request Bapak
+        report = (
+            f"✅ <b>**UPLOAD SUKSES 100%!**</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"📊 <b>**Total Data:**</b> {suc:,}\n"
+            f"❌ <b>**Gagal:**</b> {total_data - suc}\n"
+            f"⏱ <b>**Waktu:**</b> {dur} detik\n"
+            f"🚀 <b>**Status:**</b> Database Updated Successfully!"
+        )
+        await update.message.reply_text(report, parse_mode='HTML')
+        
+    except Exception as e:
+        # Jika error, kirim pesan baru juga
+        await update.message.reply_text(f"❌ <b>SYSTEM ERROR:</b>\n{e}", parse_mode='HTML')
         
     return ConversationHandler.END
 
