@@ -609,37 +609,60 @@ async def upload_confirm_admin(update, context):
     act = update.message.text
     if act == "❌ BATAL": return await cancel(update, context)
     
-    # BAHASA LEBIH PROFESIONAL (Processing Database)
-    msg = await update.message.reply_text("⏳ <b>Processing Database...</b>\nMohon tunggu sebentar...", parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
+    # 1. Pesan Awal (Tahan banting, mode HTML)
+    msg = await update.message.reply_text("⏳ <b>Processing Database...</b>\nMohon jangan matikan bot, sedang proses data besar...", parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
+    
     data = context.user_data.get('final_df')
-    suc = 0; start_t = time.time()
+    suc = 0
+    start_t = time.time()
     
     try:
-        BATCH = 1000
+        BATCH = 1000 # Tetap 1000 agar aman di memori
         list_nopol = [x['nopol'] for x in data] if act == "🗑️ HAPUS MASSAL" else []
-        for i in range(0, len(data), BATCH):
+        total_data = len(data)
+        
+        for i in range(0, total_data, BATCH):
             chunk = data[i:i+BATCH]
             
-            # [FIX] LOGIKA MENANGKAP TOMBOL "UPDATE DATA"
-            if act == "🚀 UPDATE DATA": supabase.table('kendaraan').upsert(chunk, on_conflict='nopol').execute(); suc+=len(chunk)
-            elif act == "🗑️ HAPUS MASSAL": supabase.table('kendaraan').delete().in_('nopol', list_nopol[i:i+BATCH]).execute(); suc+=len(chunk)
+            # Eksekusi Database
+            try:
+                if act == "🚀 UPDATE DATA": 
+                    supabase.table('kendaraan').upsert(chunk, on_conflict='nopol').execute()
+                elif act == "🗑️ HAPUS MASSAL": 
+                    supabase.table('kendaraan').delete().in_('nopol', list_nopol[i:i+BATCH]).execute()
+                suc += len(chunk)
+            except Exception as db_err:
+                # Jika batch ini gagal, catat tapi JANGAN hentikan proses total
+                print(f"⚠️ Batch Error: {db_err}")
+                continue
             
-            if i % 5000 == 0:
-                try: await msg.edit_text(f"⏳ <b>SINKRONISASI...</b>\n✅ {i}/{len(data)} data terproses...", parse_mode='HTML')
-                except: pass
-            await asyncio.sleep(0.1)
+            # [OPTIMASI PENTING] 
+            # Hanya update status ke User setiap 25% progress untuk menghindari Rate Limit Telegram
+            # Jika data 68.000, dia cuma update 4 kali. Ini jauh lebih aman & cepat.
+            if i % 20000 == 0 and i > 0:
+                try: 
+                    percent = int((i / total_data) * 100)
+                    await msg.edit_text(f"⏳ <b>SINKRONISASI... {percent}%</b>\n✅ {i}/{total_data} data terproses...", parse_mode='HTML')
+                except: pass # Kalau gagal edit pesan, abaikan saja, biar proses jalan terus
+                
+            await asyncio.sleep(0.05) # Istirahat sangat singkat
             
         dur = round(time.time() - start_t, 2)
         
-        # LAPORAN SUKSES
-        report = (f"✅ <b>PROSES SELESAI!</b>\n━━━━━━━━━━━━━━━━━━\n"
-                  f"📊 <b>Total Data:</b> {suc}\n"
-                  f"❌ <b>Gagal:</b> 0\n"
-                  f"⏱ <b>Waktu:</b> {dur} detik\n"
-                  f"🚀 <b>Status:</b> Database Updated Successfully!")
+        # Laporan Akhir (Sesuai Screenshot Bapak)
+        report = (
+            f"✅ <b>PROSES SELESAI!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"📊 <b>Total Data:</b> {suc}\n"
+            f"❌ <b>Gagal:</b> {total_data - suc}\n"
+            f"⏱ <b>Waktu:</b> {dur} detik\n"
+            f"🚀 <b>Status:</b> Database Updated Successfully!"
+        )
         await msg.edit_text(report, parse_mode='HTML')
         
-    except Exception as e: await msg.edit_text(f"❌ Error: {e}")
+    except Exception as e: 
+        await msg.edit_text(f"❌ <b>SYSTEM ERROR:</b>\n{e}", parse_mode='HTML')
+        
     return ConversationHandler.END
 
 
