@@ -256,17 +256,45 @@ async def angkat_korlap(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def reject_start(update, context):
     query = update.callback_query; await query.answer()
+    
+    # [FIX] SIMPAN ID PESAN NOTIFIKASI AGAR BISA DIEDIT (BIAR GAK FLOATING)
+    context.user_data['reg_msg_id'] = query.message.message_id
+    context.user_data['reg_chat_id'] = query.message.chat_id
+    
     context.user_data['reject_target_uid'] = query.data.split("_")[1]
     await context.bot.send_message(chat_id=update.effective_chat.id, text="📝 Ketik **ALASAN** Penolakan:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True))
     return REJECT_REASON
 
 async def reject_complete(update, context):
     if update.message.text == "❌ BATAL": return await cancel(update, context)
+    
     target_uid = context.user_data.get('reject_target_uid')
-    update_user_status(target_uid, 'rejected')
-    try: await context.bot.send_message(target_uid, f"⛔ **PENDAFTARAN DITOLAK**\nAlasan: {update.message.text}")
+    reason = update.message.text
+    
+    # 1. [LOGIKA BARU] HAPUS USER DARI DB AGAR BISA DAFTAR ULANG
+    try:
+        supabase.table('users').delete().eq('user_id', target_uid).execute()
     except: pass
-    await update.message.reply_text("✅ User Ditolak.", reply_markup=ReplyKeyboardRemove()); return ConversationHandler.END
+
+    # 2. KIRIM NOTIFIKASI KE USER (SURUH DAFTAR ULANG)
+    try: 
+        msg_user = (f"⛔ **PENDAFTARAN DITOLAK**\n\n"
+                    f"⚠️ <b>Alasan:</b> {reason}\n\n"
+                    f"<i>Data Anda telah dihapus. Silakan lakukan registrasi ulang dengan data yang benar via /register</i>")
+        await context.bot.send_message(target_uid, msg_user, parse_mode='HTML')
+    except: pass
+    
+    # 3. [FIX UI] HILANGKAN TOMBOL DI CHAT ADMIN (BIAR BERSIH)
+    try:
+        mid = context.user_data.get('reg_msg_id')
+        cid = context.user_data.get('reg_chat_id')
+        # Hapus tombol di pesan notifikasi lama
+        await context.bot.edit_message_reply_markup(chat_id=cid, message_id=mid, reply_markup=None)
+        # Beri konfirmasi di chat admin
+        await context.bot.send_message(chat_id=cid, text=f"❌ User {target_uid} berhasil DITOLAK & DIHAPUS.\nAlasan: {reason}")
+    except: pass
+
+    await update.message.reply_text("✅ Proses Selesai.", reply_markup=ReplyKeyboardRemove()); return ConversationHandler.END
 
 async def admin_action_start(update, context):
     query = update.callback_query; await query.answer()
