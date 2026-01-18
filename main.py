@@ -1210,8 +1210,7 @@ if __name__ == '__main__':
     )) 
     app.add_handler(CommandHandler('panduan', panduan))
     app.add_handler(CommandHandler('setinfo', set_info)) 
-    app.add_handler(CommandHandler('delinfo', del_info)) 
-    app.add_handler(CommandHandler('admin', contact_admin))
+    app.add_handler(CommandHandler('delinfo', del_info))     
     app.add_handler(CommandHandler('addagency', add_agency)) 
     app.add_handler(CommandHandler('adminhelp', admin_help)) 
         
