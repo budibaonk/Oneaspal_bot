@@ -324,19 +324,54 @@ async def admin_help(update, context):
 
 async def list_users(update, context):
     if update.effective_user.id != ADMIN_ID: return
+    
     await context.bot.send_chat_action(update.effective_chat.id, constants.ChatAction.TYPING)
     try:
+        # Ambil semua data user
         res = supabase.table('users').select("*").execute()
+        
+        # Filter hanya yang ACTIVE
         active_list = [u for u in res.data if u.get('status') == 'active']
-        if not active_list: return await update.message.reply_text("📂 Kosong.")
-        msg = "📋 <b>DAFTAR MITRA (v4.31)</b>\n━━━━━━━━━━━━━━━━━━\n"
+        
+        # [REVISI] SORTING ALPHABETICAL (A-Z) berdasarkan Nama
+        # Lambda function menghandle jika nama kosong agar tidak error
+        active_list.sort(key=lambda x: (x.get('nama_lengkap') or "").lower())
+        
+        if not active_list: return await update.message.reply_text("📂 Tidak ada mitra aktif.")
+        
+        # Header Laporan
+        msg = f"📋 <b>DAFTAR MITRA (Total: {len(active_list)})</b>\n━━━━━━━━━━━━━━━━━━\n"
+        
         for i, u in enumerate(active_list, 1):
-            role_icon = "🎖️" if u.get('role')=='korlap' else "🤝" if u.get('role')=='pic' else "🛡️"
-            role_name = str(u.get('role', 'matel')).upper()
-            msg += f"{i}. {role_icon} <b>{clean_text(u.get('nama_lengkap'))}</b> ({role_name})\n   ID: <code>{u['user_id']}</code> | 📍 {clean_text(u.get('alamat'))}\n   👉 /m_{u['user_id']}\n\n"
-            if len(msg) > 3800: await update.message.reply_text(msg, parse_mode='HTML'); msg=""
+            # Ikon Role
+            role = u.get('role', 'matel')
+            icon = "🎖️" if role == 'korlap' else "🤝" if role == 'pic' else "🛡️"
+            
+            # Data Bersih
+            nama = clean_text(u.get('nama_lengkap'))
+            agency = clean_text(u.get('agency'))
+            kota = clean_text(u.get('alamat')) # Asumsi 'alamat' adalah Kota/Asal
+            uid = u['user_id']
+            
+            # [REVISI VISUAL] FORMAT RAPI & KOMPAK
+            entry = (
+                f"<b>{i}. {icon} {nama}</b>\n"
+                f"   🏢 {agency} | 📍 {kota}\n"
+                f"   ⚙️ <b>Atur:</b> /m_{uid}\n\n"
+            )
+            
+            # Cek panjang pesan (Telegram Limit 4096 karakter)
+            if len(msg) + len(entry) > 4000:
+                await update.message.reply_text(msg, parse_mode='HTML')
+                msg = "" # Reset pesan untuk batch berikutnya
+            
+            msg += entry
+            
+        # Kirim sisa pesan
         if msg: await update.message.reply_text(msg, parse_mode='HTML')
-    except Exception as e: await update.message.reply_text(f"❌ Error: {e}")
+        
+    except Exception as e: 
+        await update.message.reply_text(f"❌ Error: {e}")
 
 async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Cek Admin
