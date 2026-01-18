@@ -218,16 +218,82 @@ def smart_rename_columns(df):
     return df, found
 
 def read_file_robust(content, fname):
+    # 1. HANDLE ZIP
     if fname.lower().endswith('.zip'):
         with zipfile.ZipFile(io.BytesIO(content)) as z:
             valid = [f for f in z.namelist() if not f.startswith('__') and f.lower().endswith(('.csv','.xlsx','.xls','.txt'))]
             if not valid: raise ValueError("ZIP Kosong")
             with z.open(valid[0]) as f: content = f.read(); fname = valid[0]
+    
+    # 2. HANDLE EXCEL
     if fname.lower().endswith(('.xlsx', '.xls')):
         try: return pd.read_excel(io.BytesIO(content), dtype=str)
         except: 
             try: return pd.read_excel(io.BytesIO(content), dtype=str, engine='openpyxl')
             except: pass 
+            
+    # 3. HANDLE SPECIAL TXT (TAF FORMAT - PARSER KHUSUS)
+    # Deteksi jika file .txt dan isinya punya pola "NOSIN;" "NOKA;"
+    if fname.lower().endswith('.txt'):
+        try:
+            text_data = content.decode('utf-8', errors='ignore')
+            if "NOSIN;" in text_data and "NOKA;" in text_data:
+                # Ini format TAF WO! Kita parsing manual pakai Regex
+                parsed_data = []
+                lines = text_data.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if not line or "NOPOL" in line: continue # Skip header atau baris kosong
+                    
+                    # Logika Regex untuk memecah kalimat "Gado-Gado"
+                    # Pola: NOPOL [spasi] UNIT; [data] NOSIN; [data] NOKA; [data]
+                    try:
+                        # Ambil Nopol (kata pertama)
+                        parts = line.split(maxsplit=1)
+                        if len(parts) < 2: continue
+                        nopol = parts[0]
+                        rest = parts[1]
+                        
+                        # Ambil Unit (Antara UNIT; dan NOSIN;)
+                        unit_match = re.search(r'UNIT;(.*?)NOSIN;', rest)
+                        unit_raw = unit_match.group(1).strip() if unit_match else ""
+                        
+                        # Ambil Nosin (Antara NOSIN; dan NOKA;)
+                        nosin_match = re.search(r'NOSIN;(.*?)NOKA;', rest)
+                        nosin = nosin_match.group(1).strip() if nosin_match else ""
+                        
+                        # Ambil Noka (Setelah NOKA;)
+                        noka_match = re.search(r'NOKA;(.*)', rest)
+                        noka = noka_match.group(1).strip() if noka_match else ""
+                        
+                        # Coba pecah Unit/Warna/Tahun (Biasanya dipisah /)
+                        # TOYOTA/AVANZA/HITAM METALIK/2023
+                        unit_parts = unit_raw.split('/')
+                        if len(unit_parts) >= 3:
+                            tahun = unit_parts[-1].strip() # Ambil paling belakang sebagai tahun
+                            # Cek kalau tahun benar angka 4 digit
+                            if not (tahun.isdigit() and len(tahun)==4): tahun = "" 
+                            type_unit = "/".join(unit_parts[:-1]) # Sisanya adalah Unit+Warna
+                        else:
+                            type_unit = unit_raw
+                            tahun = ""
+
+                        parsed_data.append({
+                            'nopol': nopol,
+                            'type': type_unit,
+                            'tahun': tahun,
+                            'nosin': nosin,
+                            'noka': noka,
+                            'finance': 'TAF' # Auto detect finance jika perlu, atau biarkan kosong
+                        })
+                    except: continue
+                
+                if parsed_data:
+                    return pd.DataFrame(parsed_data)
+        except Exception as e:
+            print(f"⚠️ Gagal parse TXT manual: {e}")
+
+    # 4. HANDLE CSV STANDAR (FALLBACK)
     encs = ['utf-8-sig', 'utf-8', 'cp1252', 'latin1', 'utf-16']
     seps = [None, ';', ',', '\t', '|']
     for e in encs:
@@ -236,6 +302,7 @@ def read_file_robust(content, fname):
                 df = pd.read_csv(io.BytesIO(content), sep=s, dtype=str, encoding=e, engine='python', on_bad_lines='skip')
                 if len(df.columns)>1: return df
             except: continue
+            
     return pd.read_csv(io.BytesIO(content), sep=None, engine='python', dtype=str)
 
 
