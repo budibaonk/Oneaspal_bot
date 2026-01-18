@@ -906,25 +906,91 @@ async def register_email(update, context):
 async def register_kota(update, context): 
     if update.message.text == "❌ BATAL": return await cancel(update, context)
     context.user_data['r_kota'] = update.message.text
-    if context.user_data['reg_role'] == 'pic': txt = "5️⃣ **Nama Leasing / Finance:**\n_(Contoh: BCA Finance, Adira, ACC)_"
-    else: txt = "5️⃣ **Nama Agency / PT:**\n_(Isi '-' jika Freelance/Mandiri)_"
-    await update.message.reply_text(txt); return R_AGENCY
+    
+    if context.user_data['reg_role'] == 'pic': 
+        txt = "5️⃣ **Nama Leasing / Finance:**\n_(Contoh: BCA Finance, Adira, ACC)_"
+    else: 
+        # [REVISI] TEKS DIUBAH: WAJIB ISI NAMA PT
+        txt = "5️⃣ **Nama Agency / PT:**\n_(Wajib isi nama PT tempat Anda bernaung)_"
+    
+    await update.message.reply_text(txt, parse_mode='Markdown'); return R_AGENCY
 async def register_agency(update, context): 
-    if update.message.text == "❌ BATAL": return await cancel(update, context)
-    context.user_data['r_agency'] = update.message.text; await update.message.reply_text("✅ **DATA LENGKAP**\nKirim Pendaftaran?", reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ ULANGI"]])); return R_CONFIRM
+    msg = update.message.text
+    if msg == "❌ BATAL": return await cancel(update, context)
+    
+    # [LOGIKA BARU] Validasi: Tidak boleh "-" atau terlalu pendek
+    if len(msg) < 3 or msg.strip() == "-":
+        await update.message.reply_text("⚠️ **Nama PT/Agency Wajib Diisi!**\nMinimal 3 huruf. Silakan ketik ulang:")
+        return R_AGENCY
+
+    context.user_data['r_agency'] = msg.upper() # Auto Capslock biar rapi
+    
+    # Tampilkan Ringkasan
+    summary = (
+        f"📝 **KONFIRMASI DATA**\n"
+        f"👤 Nama: {context.user_data['r_nama']}\n"
+        f"📱 HP: {context.user_data['r_hp']}\n"
+        f"📧 Email: {context.user_data['r_email']}\n"
+        f"📍 Kota: {context.user_data['r_kota']}\n"
+        f"🏢 Agency: {context.user_data['r_agency']}"
+    )
+    await update.message.reply_text(f"{summary}\n\n✅ Kirim Pendaftaran?", reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ ULANGI"]], resize_keyboard=True)); return R_CONFIRM
 
 async def register_confirm(update, context):
     if update.message.text != "✅ KIRIM": return await cancel(update, context)
-    role_db = context.user_data.get('reg_role', 'matel'); quota_init = 5000 if role_db == 'pic' else 1000
-    d = {"user_id": update.effective_user.id, "nama_lengkap": context.user_data['r_nama'], "no_hp": context.user_data['r_hp'], "email": context.user_data['r_email'], "alamat": context.user_data['r_kota'], "agency": context.user_data['r_agency'], "quota": quota_init, "status": "pending", "role": role_db, "ref_korlap": None}
+    
+    role_db = context.user_data.get('reg_role', 'matel')
+    quota_init = 5000 if role_db == 'pic' else 1000
+    
+    # Data Dictionary untuk Database
+    d = {
+        "user_id": update.effective_user.id, 
+        "nama_lengkap": context.user_data['r_nama'], 
+        "no_hp": context.user_data['r_hp'], 
+        "email": context.user_data['r_email'], 
+        "alamat": context.user_data['r_kota'], 
+        "agency": context.user_data['r_agency'], # Pasti terisi Nama PT
+        "quota": quota_init, 
+        "status": "pending", 
+        "role": role_db, 
+        "ref_korlap": None
+    }
+    
     try:
+        # 1. Simpan ke Database
         supabase.table('users').insert(d).execute()
-        if role_db == 'pic': await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nAkses Enterprise Workspace sedang diverifikasi Admin.", reply_markup=ReplyKeyboardRemove())
-        else: await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nData Mitra sedang diverifikasi Admin Pusat.", reply_markup=ReplyKeyboardRemove())
-        msg_admin = (f"🔔 <b>REGISTRASI BARU ({role_db.upper()})</b>\n━━━━━━━━━━━━━━━━━━\n👤 <b>Nama:</b> {clean_text(d['nama_lengkap'])}\n🏢 <b>Agency/Leasing:</b> {clean_text(d['agency'])}\n📍 <b>Kota:</b> {clean_text(d['alamat'])}\n📱 <b>HP:</b> {clean_text(d['no_hp'])}\n━━━━━━━━━━━━━━━━━━")
-        kb = [[InlineKeyboardButton("✅ TERIMA", callback_data=f"appu_{d['user_id']}"), InlineKeyboardButton("❌ TOLAK", callback_data=f"reju_{d['user_id']}")]]
+        
+        # 2. Pesan Balasan ke User
+        if role_db == 'pic': 
+            await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nAkses Enterprise Workspace sedang diverifikasi Admin.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
+        else: 
+            await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nData Mitra sedang diverifikasi Admin Pusat.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
+        
+        # 3. [REVISI] NOTIFIKASI ADMIN (FULL SPEC)
+        msg_admin = (
+            f"🔔 <b>REGISTRASI BARU ({role_db.upper()})</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Nama:</b> {clean_text(d['nama_lengkap'])}\n"
+            f"🏢 <b>Agency/PT:</b> {clean_text(d['agency'])}\n"
+            f"📍 <b>Domisili:</b> {clean_text(d['alamat'])}\n"
+            f"📱 <b>HP/WA:</b> {clean_text(d['no_hp'])}\n"
+            f"📧 <b>Email:</b> {clean_text(d['email'])}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"<i>Silakan validasi data mitra ini.</i>"
+        )
+        
+        # Tombol ACC / TOLAK
+        kb = [
+            [InlineKeyboardButton("✅ TERIMA (AKTIFKAN)", callback_data=f"appu_{d['user_id']}")],
+            [InlineKeyboardButton("❌ TOLAK (HAPUS)", callback_data=f"reju_{d['user_id']}")]
+        ]
+        
         await context.bot.send_message(ADMIN_ID, msg_admin, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
-    except Exception as e: logger.error(f"Reg Error: {e}"); await update.message.reply_text("❌ Gagal. User ID mungkin sudah terdaftar.")
+        
+    except Exception as e: 
+        logger.error(f"Reg Error: {e}")
+        await update.message.reply_text("❌ Gagal Terkirim. User ID Anda mungkin sudah terdaftar sebelumnya.", reply_markup=ReplyKeyboardRemove())
+    
     return ConversationHandler.END
 
 
