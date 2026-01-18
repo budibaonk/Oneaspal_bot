@@ -123,6 +123,7 @@ U_LEASING_USER, U_LEASING_ADMIN, U_CONFIRM_UPLOAD = range(16, 19)
 # F. Admin Reasoning
 REJECT_REASON = 19
 ADMIN_ACT_REASON = 20
+SUPPORT_MSG = 21
 
 
 # ##############################################################################
@@ -319,7 +320,11 @@ async def admin_action_complete(update, context):
 
 async def admin_help(update, context):
     if update.effective_user.id != ADMIN_ID: return
-    msg = ("🔐 **ADMIN COMMANDS v4.31**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
+    msg = ("🔐 **ADMIN COMMANDS v4.32**\n\n"
+           "👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n"
+           "👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n"
+           "• `/balas [ID] [MSG]`\n\n" # <--- TAMBAH INI
+           "⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def list_users(update, context):
@@ -526,6 +531,60 @@ async def add_agency(update, context):
 async def contact_admin(update, context):
     u=get_user(update.effective_user.id); args = " ".join(context.args) if context.args else "Bantuan Teknis (Tombol)"
     if u: await context.bot.send_message(ADMIN_ID, f"📩 **MITRA:** {u['nama_lengkap']}\n💬 {args}"); await update.message.reply_text("✅ Pesan terkirim ke Support.")
+
+# --- FITUR BARU: ADMIN REPLY ---
+async def admin_reply(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    try:
+        # Format: /balas ID PESAN
+        if len(context.args) < 2: 
+            return await update.message.reply_text("⚠️ Format: `/balas [ID] [Pesan]`", parse_mode='Markdown')
+        
+        target_uid = int(context.args[0])
+        msg_reply = " ".join(context.args[1:])
+        
+        # Kirim ke User
+        await context.bot.send_message(
+            target_uid, 
+            f"📩 **BALASAN ADMIN**\n━━━━━━━━━━━━━━━━━━\n💬 {msg_reply}", 
+            parse_mode='Markdown'
+        )
+        await update.message.reply_text(f"✅ Terkirim ke `{target_uid}`.")
+    except Exception as e: 
+        await update.message.reply_text(f"❌ Gagal: {e}")
+
+# --- REVISI: CONTACT ADMIN (START) ---
+async def contact_admin(update, context):
+    # Meminta User Mengetik Pesan
+    await update.message.reply_text(
+        "📝 **LAYANAN BANTUAN**\n\nSilakan ketik pesan/kendala Anda di bawah ini:", 
+        reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)
+    )
+    return SUPPORT_MSG
+
+# --- REVISI: CONTACT ADMIN (SEND) ---
+async def support_send(update, context):
+    if update.message.text == "❌ BATAL": return await cancel(update, context)
+    
+    u = get_user(update.effective_user.id)
+    msg_content = update.message.text
+    
+    # Format Pesan ke Admin (Lengkap dengan Cara Balas)
+    msg_admin = (
+        f"📩 **PESAN DARI MITRA**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>Nama:</b> {clean_text(u.get('nama_lengkap'))}\n"
+        f"🏢 <b>Agency:</b> {clean_text(u.get('agency'))}\n"
+        f"📱 <b>ID:</b> <code>{u['user_id']}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"💬 <b>Pesan:</b>\n{msg_content}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👉 <b>Balas:</b> <code>/balas {u['user_id']} [Pesan]</code>"
+    )
+    
+    await context.bot.send_message(ADMIN_ID, msg_admin, parse_mode='HTML')
+    await update.message.reply_text("✅ **Pesan Terkirim!**\nMohon tunggu balasan dari Admin.", reply_markup=ReplyKeyboardRemove())
+    return ConversationHandler.END
 
 
 # ==============================================================================
@@ -835,8 +894,7 @@ async def panduan(update, context):
 async def handle_message(update, context):
     text = update.message.text; u = get_user(update.effective_user.id)
     if text == "🔄 SINKRONISASI DATA": return await upload_start(update, context)
-    if text == "📂 DATABASE SAYA": return await cek_kuota(update, context)
-    if text == "📞 BANTUAN TEKNIS": return await contact_admin(update, context)
+    if text == "📂 DATABASE SAYA": return await cek_kuota(update, context)    
     if not u: return await update.message.reply_text("⛔ **AKSES DITOLAK**\nSilakan ketik /register.", parse_mode='Markdown')
     if u['status'] != 'active': return await update.message.reply_text("⏳ **AKUN PENDING**\nTunggu Admin.", parse_mode='Markdown')
     if u.get('quota', 0) <= 0: return await update.message.reply_text("⛔ **KUOTA HABIS**", parse_mode='Markdown')
@@ -992,7 +1050,19 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('leasing', get_leasing_list)) 
     app.add_handler(CommandHandler('users', list_users))
     app.add_handler(CommandHandler('angkat_korlap', angkat_korlap)) 
-    app.add_handler(CommandHandler('testgroup', test_group)) 
+    app.add_handler(CommandHandler('testgroup', test_group))
+    app.add_handler(CommandHandler('balas', admin_reply)) # Handler Reply
+    # Handler Percakapan Support
+    app.add_handler(ConversationHandler(
+        entry_points=[
+            CommandHandler('admin', contact_admin),
+            MessageHandler(filters.Regex('^📞 BANTUAN TEKNIS$'), contact_admin)
+        ],
+        states={
+            SUPPORT_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, support_send)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+    )) 
     app.add_handler(CommandHandler('panduan', panduan))
     app.add_handler(CommandHandler('setinfo', set_info)) 
     app.add_handler(CommandHandler('delinfo', del_info)) 
