@@ -90,16 +90,15 @@ except Exception as e:
 
 COLUMN_ALIASES = {
     'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'nomorplat', 'nomorkendaraan', 'tnkb', 'licenseplate', 'plat', 'police_no'],
-    'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'assetdescription', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item'],
+    'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'assetdescription', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'merkname', 'brand'], # Added merkname
     'tahun': ['tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture', 'assetyear', 'manufacturingyear'],
     'warna': ['warna', 'color', 'colour', 'cat', 'kelir', 'assetcolour'],
-    'noka': ['noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 'rangka', 'chassisno', 'vinno', 'serial_number'],
-    'nosin': ['nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'engineno', 'noengine', 'engine_number'],
+    'noka': ['noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 'rangka', 'chassisno', 'vinno', 'serial_number', 'bodyno', 'frameno'], # Added bodyno
+    'nosin': ['nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'engineno', 'noengine', 'engine_number', 'machineno', 'mesinno'], # Added machineno
     'finance': ['finance', 'leasing', 'lising', 'multifinance', 'cabang', 'partner', 'mitra', 'principal', 'company', 'client'],
     'ovd': ['ovd', 'overdue', 'dpd', 'keterlambatan', 'odh', 'hari', 'telat', 'aging', 'od', 'bucket', 'daysoverdue'],
     'branch': ['branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 'wilayah', 'region', 'areaname', 'branchname']
 }
-
 
 # ##############################################################################
 # BAGIAN 3: DEFINISI STATE CONVERSATION
@@ -772,24 +771,30 @@ async def upload_leasing_user(update, context):
     await update.message.reply_text(resp, parse_mode='Markdown'); return ConversationHandler.END
 
 async def upload_leasing_admin(update, context):
-    nm = update.message.text.upper(); df = pd.DataFrame(context.user_data['df'])
-    if nm != 'SKIP': df['finance'] = standardize_leasing_name(nm); fin_disp = nm
-    else: df['finance'] = df['finance'].apply(standardize_leasing_name) if 'finance' in df.columns else 'UNKNOWN'; fin_disp = "AUTO CLEAN"
+    nm = update.message.text
+    # [FIX] Cek Batal Dulu Sebelum Proses!
+    if nm == "❌ BATAL": return await cancel(update, context)
+    
+    nm = nm.upper()
+    df = pd.DataFrame(context.user_data['df'])
+    
+    if nm != 'SKIP': 
+        df['finance'] = standardize_leasing_name(nm); fin_disp = nm
+    else: 
+        df['finance'] = df['finance'].apply(standardize_leasing_name) if 'finance' in df.columns else 'UNKNOWN'; fin_disp = "AUTO CLEAN"
     
     df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
     df = df.drop_duplicates(subset=['nopol'], keep='last').replace({np.nan: None})
     context.user_data['final_df'] = df.to_dict(orient='records')
     
-    # [FIX VISUAL] BAHASA OFFICE (UPDATE DATA)
     s = df.iloc[0]
-    prev = (f"🔎 <b>PREVIEW DATA (v4.33)</b>\n━━━━━━━━━━━━━━━━━━\n"
+    prev = (f"🔎 <b>PREVIEW DATA (v4.35)</b>\n━━━━━━━━━━━━━━━━━━\n"
             f"🏦 <b>Mode:</b> {fin_disp}\n📊 <b>Total:</b> {len(df)} Data\n\n"
             f"📝 <b>SAMPEL DATA BARIS 1:</b>\n"
             f"🔹 Leasing: {s.get('finance','-')}\n🔹 Nopol: <code style='color:orange'>{s.get('nopol','-')}</code>\n"
             f"🔹 Unit: {s.get('type','-')}\n🔹 Noka: {s.get('noka','-')}\n🔹 OVD: {s.get('ovd','-')}\n"
             f"━━━━━━━━━━━━━━━━━━\n⚠️ <b>Silakan konfirmasi untuk menyimpan data.</b>")
     
-    # TOMBOL DIGANTI LEBIH PROFESIONAL
     kb = [["🚀 UPDATE DATA"], ["🗑️ HAPUS MASSAL"], ["❌ BATAL"]]
     await update.message.reply_text(prev, reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True), parse_mode='HTML')
     return U_CONFIRM_UPLOAD
