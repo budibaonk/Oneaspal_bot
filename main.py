@@ -90,11 +90,11 @@ except Exception as e:
 
 COLUMN_ALIASES = {
     'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'nomorplat', 'nomorkendaraan', 'tnkb', 'licenseplate', 'plat', 'police_no'],
-    'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'assetdescription', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'merkname', 'brand'], # Added merkname
+    'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'assetdescription', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'merkname', 'brand'], # [UPDATE] Added merkname
     'tahun': ['tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture', 'assetyear', 'manufacturingyear'],
     'warna': ['warna', 'color', 'colour', 'cat', 'kelir', 'assetcolour'],
-    'noka': ['noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 'rangka', 'chassisno', 'vinno', 'serial_number', 'bodyno', 'frameno'], # Added bodyno
-    'nosin': ['nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'engineno', 'noengine', 'engine_number', 'machineno', 'mesinno'], # Added machineno
+    'noka': ['noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 'rangka', 'chassisno', 'vinno', 'serial_number', 'bodyno', 'frameno'], # [UPDATE] Added bodyno
+    'nosin': ['nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'engineno', 'noengine', 'engine_number', 'machineno', 'mesinno'], # [UPDATE] Added machineno
     'finance': ['finance', 'leasing', 'lising', 'multifinance', 'cabang', 'partner', 'mitra', 'principal', 'company', 'client'],
     'ovd': ['ovd', 'overdue', 'dpd', 'keterlambatan', 'odh', 'hari', 'telat', 'aging', 'od', 'bucket', 'daysoverdue'],
     'branch': ['branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 'wilayah', 'region', 'areaname', 'branchname']
@@ -772,7 +772,7 @@ async def upload_leasing_user(update, context):
 
 async def upload_leasing_admin(update, context):
     nm = update.message.text
-    # [FIX] Cek Batal Dulu Sebelum Proses!
+    # [FIX] Cek Tombol BATAL Dulu!
     if nm == "❌ BATAL": return await cancel(update, context)
     
     nm = nm.upper()
@@ -781,23 +781,31 @@ async def upload_leasing_admin(update, context):
     if nm != 'SKIP': 
         df['finance'] = standardize_leasing_name(nm); fin_disp = nm
     else: 
+        # [FIX] Handle jika kolom finance tidak ada, default ke UNKNOWN
         df['finance'] = df['finance'].apply(standardize_leasing_name) if 'finance' in df.columns else 'UNKNOWN'; fin_disp = "AUTO CLEAN"
     
-    df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
-    df = df.drop_duplicates(subset=['nopol'], keep='last').replace({np.nan: None})
-    context.user_data['final_df'] = df.to_dict(orient='records')
-    
-    s = df.iloc[0]
-    prev = (f"🔎 <b>PREVIEW DATA (v4.35)</b>\n━━━━━━━━━━━━━━━━━━\n"
-            f"🏦 <b>Mode:</b> {fin_disp}\n📊 <b>Total:</b> {len(df)} Data\n\n"
-            f"📝 <b>SAMPEL DATA BARIS 1:</b>\n"
-            f"🔹 Leasing: {s.get('finance','-')}\n🔹 Nopol: <code style='color:orange'>{s.get('nopol','-')}</code>\n"
-            f"🔹 Unit: {s.get('type','-')}\n🔹 Noka: {s.get('noka','-')}\n🔹 OVD: {s.get('ovd','-')}\n"
-            f"━━━━━━━━━━━━━━━━━━\n⚠️ <b>Silakan konfirmasi untuk menyimpan data.</b>")
-    
-    kb = [["🚀 UPDATE DATA"], ["🗑️ HAPUS MASSAL"], ["❌ BATAL"]]
-    await update.message.reply_text(prev, reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True), parse_mode='HTML')
-    return U_CONFIRM_UPLOAD
+    # Bersihkan Nopol (Hapus spasi & karakter aneh)
+    if 'nopol' in df.columns:
+        df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
+        df = df.drop_duplicates(subset=['nopol'], keep='last').replace({np.nan: None})
+        context.user_data['final_df'] = df.to_dict(orient='records')
+        
+        s = df.iloc[0]
+        # [VISUAL] Preview Data
+        prev = (f"🔎 <b>PREVIEW DATA (v4.35)</b>\n━━━━━━━━━━━━━━━━━━\n"
+                f"🏦 <b>Mode:</b> {fin_disp}\n📊 <b>Total:</b> {len(df)} Data\n\n"
+                f"📝 <b>SAMPEL DATA BARIS 1:</b>\n"
+                f"🔹 Leasing: {s.get('finance','-')}\n🔹 Nopol: <code style='color:orange'>{s.get('nopol','-')}</code>\n"
+                f"🔹 Unit: {s.get('type','-')}\n🔹 Noka: {s.get('noka','-')}\n🔹 OVD: {s.get('ovd','-')}\n"
+                f"━━━━━━━━━━━━━━━━━━\n⚠️ <b>Silakan konfirmasi untuk menyimpan data.</b>")
+        
+        kb = [["🚀 UPDATE DATA"], ["🗑️ HAPUS MASSAL"], ["❌ BATAL"]]
+        await update.message.reply_text(prev, reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True), parse_mode='HTML')
+        return U_CONFIRM_UPLOAD
+    else:
+        # Jika kolom Nopol benar-benar tidak ketemu
+        await update.message.reply_text("❌ <b>ERROR:</b> Kolom NOPOL tidak ditemukan.\nPastikan file memiliki header: <i>No Polisi, Plat, Nopolisi</i>, dll.", parse_mode='HTML')
+        return ConversationHandler.END
 
 async def upload_confirm_admin(update, context):
     act = update.message.text
