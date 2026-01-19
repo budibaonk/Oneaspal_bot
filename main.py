@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.41 (ORIGINAL FEEL + SMART SEARCH)            #
+#                      VERSION: 4.42 (ENGINE UPLOAD UPGRADED)                  #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -177,7 +177,7 @@ def standardize_leasing_name(name):
 
 
 # ##############################################################################
-# BAGIAN 5: ENGINE FILE (ADAPTIVE POLYGLOT)
+# BAGIAN 5: ENGINE FILE (UPGRADED: MILITARY GRADE READER)
 # ##############################################################################
 
 def normalize_text(text):
@@ -206,18 +206,21 @@ def smart_rename_columns(df):
     return df, found
 
 def read_file_robust(content, fname):
+    # 1. HANDLE ZIP
     if fname.lower().endswith('.zip'):
         with zipfile.ZipFile(io.BytesIO(content)) as z:
             valid = [f for f in z.namelist() if not f.startswith('__') and f.lower().endswith(('.csv','.xlsx','.xls','.txt'))]
             if not valid: raise ValueError("ZIP Kosong")
             with z.open(valid[0]) as f: content = f.read(); fname = valid[0]
      
+    # 2. HANDLE EXCEL
     if fname.lower().endswith(('.xlsx', '.xls')):
         try: return pd.read_excel(io.BytesIO(content), dtype=str)
         except: 
             try: return pd.read_excel(io.BytesIO(content), dtype=str, engine='openpyxl')
             except: pass 
             
+    # 3. HANDLE SPECIAL TXT
     if fname.lower().endswith('.txt'):
         try:
             text_data = content.decode('utf-8', errors='ignore')
@@ -232,12 +235,14 @@ def read_file_robust(content, fname):
                         if len(parts) < 2: continue
                         nopol = parts[0]
                         rest = parts[1]
+                        
                         unit_match = re.search(r'UNIT;(.*?)NOSIN;', rest)
                         unit_raw = unit_match.group(1).strip() if unit_match else ""
                         nosin_match = re.search(r'NOSIN;(.*?)NOKA;', rest)
                         nosin = nosin_match.group(1).strip() if nosin_match else ""
                         noka_match = re.search(r'NOKA;(.*)', rest)
                         noka = noka_match.group(1).strip() if noka_match else ""
+                        
                         unit_parts = unit_raw.split('/')
                         if len(unit_parts) >= 3:
                             tahun = unit_parts[-1].strip()
@@ -245,20 +250,37 @@ def read_file_robust(content, fname):
                             type_unit = "/".join(unit_parts[:-1]) 
                         else:
                             type_unit = unit_raw; tahun = ""
-                        parsed_data.append({'nopol': nopol, 'type': type_unit, 'tahun': tahun, 'nosin': nosin, 'noka': noka, 'finance': 'TAF'})
+
+                        parsed_data.append({
+                            'nopol': nopol, 'type': type_unit, 'tahun': tahun,
+                            'nosin': nosin, 'noka': noka, 'finance': 'TAF' 
+                        })
                     except: continue
                 if parsed_data: return pd.DataFrame(parsed_data)
         except Exception as e: print(f"⚠️ Gagal parse TXT: {e}")
 
-    encs = ['utf-8-sig', 'utf-8', 'cp1252', 'latin1', 'utf-16']
-    seps = [None, ';', ',', '\t', '|']
+    # 4. HANDLE CSV (MILITARY GRADE - ANTI CRASH)
+    encs = ['utf-8-sig', 'utf-8', 'cp1252', 'latin1', 'ISO-8859-1']
+    seps = [';', ',', '\t', '|', None] # Prioritaskan Titik Koma (;)
+    
     for e in encs:
         for s in seps:
             try:
-                df = pd.read_csv(io.BytesIO(content), sep=s, dtype=str, encoding=e, engine='python', on_bad_lines='skip')
-                if len(df.columns)>1: return df
-            except: continue
+                # [UPDATE] PAKAI QUOTE_NONE AGAR LEBIH KEBAL
+                df = pd.read_csv(
+                    io.BytesIO(content), 
+                    sep=s, 
+                    dtype=str, 
+                    encoding=e, 
+                    engine='python', 
+                    on_bad_lines='skip',
+                    quoting=csv.QUOTE_NONE 
+                )
+                if len(df.columns) > 1: return df
+            except: 
+                continue
             
+    # Fallback terakhir
     return pd.read_csv(io.BytesIO(content), sep=None, engine='python', dtype=str)
 
 
@@ -269,7 +291,8 @@ def read_file_robust(content, fname):
 async def angkat_korlap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     try:
-        if len(context.args) < 2: return await update.message.reply_text("⚠️ Format: `/angkat_korlap [ID] [KOTA]`", parse_mode='Markdown')
+        if len(context.args) < 2:
+            return await update.message.reply_text("⚠️ Format: `/angkat_korlap [ID] [KOTA]`", parse_mode='Markdown')
         target_id = int(context.args[0]); wilayah = " ".join(context.args[1:]).upper()
         data = {"role": "korlap", "wilayah_korlap": wilayah, "quota": 5000} 
         supabase.table('users').update(data).eq('user_id', target_id).execute()
@@ -286,7 +309,8 @@ async def reject_start(update, context):
 
 async def reject_complete(update, context):
     if update.message.text == "❌ BATAL": return await cancel(update, context)
-    target_uid = context.user_data.get('reject_target_uid'); reason = update.message.text
+    target_uid = context.user_data.get('reject_target_uid')
+    reason = update.message.text
     try: supabase.table('users').delete().eq('user_id', target_uid).execute()
     except: pass
     try: 
@@ -323,7 +347,7 @@ async def admin_action_complete(update, context):
 
 async def admin_help(update, context):
     if update.effective_user.id != ADMIN_ID: return
-    msg = ("🔐 **ADMIN COMMANDS v4.41**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
+    msg = ("🔐 **ADMIN COMMANDS v4.42**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def list_users(update, context):
@@ -373,7 +397,7 @@ async def get_stats(update, context):
         t = supabase.table('kendaraan').select("*", count="exact", head=True).execute().count
         u = supabase.table('users').select("*", count="exact", head=True).execute().count
         k = supabase.table('users').select("*", count="exact", head=True).eq('role', 'korlap').execute().count
-        await update.message.reply_text(f"📊 **STATS v4.41**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
+        await update.message.reply_text(f"📊 **STATS v4.42**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
     except: pass
 
 async def get_leasing_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -470,7 +494,7 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
     kb = [[InlineKeyboardButton("✅ 50", callback_data=f"topup_{u['user_id']}_50"), InlineKeyboardButton("✅ 100", callback_data=f"topup_{u['user_id']}_100")], [InlineKeyboardButton("❌ TOLAK", callback_data=f"topup_{u['user_id']}_rej")]]
     await context.bot.send_photo(ADMIN_ID, update.message.photo[-1].file_id, caption=msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
 
-# --- [RESTORED] NOTIFIKASI HIT KE GROUP (SAMA PERSIS v4.33) ---
+# --- NOTIFIKASI HIT KE GROUP (RESTORED) ---
 async def notify_hit_to_group(context, u, d):
     try:
         if LOG_GROUP_ID == 0: return
@@ -511,13 +535,14 @@ async def upload_start(update, context):
         msg = await update.message.reply_text("⏳ **Menganalisa File...**", parse_mode='Markdown')
         try:
             f = await update.message.document.get_file(); c = await f.download_as_bytearray()
+            # [UPGRADE ENGINE BACA v4.42]
             df = read_file_robust(c, update.message.document.file_name)
             df = fix_header_position(df)
             df, found = smart_rename_columns(df)
             context.user_data['df'] = df.to_dict(orient='records')
             await msg.delete()
             fin_status = "✅ ADA" if 'finance' in df.columns else "⚠️ TIDAK ADA"
-            scan_report = (f"✅ <b>SCAN SUKSES (v4.41)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
+            scan_report = (f"✅ <b>SCAN SUKSES (v4.42)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
             await update.message.reply_text(scan_report, reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True), parse_mode='HTML')
             return U_LEASING_ADMIN
         except Exception as e: 
@@ -658,7 +683,7 @@ async def panduan(update, context):
     else: msg = ("📖 <b>PANDUAN PENGGUNAAN ONEASPAL</b>\n\n1️⃣ <b>Cari Data Kendaraan</b>\n   - Ketik Nopol secara lengkap atau sebagian.\n   - Contoh: <code>B 1234 ABC</code> atau <code>1234</code>\n\n2️⃣ <b>Upload File (Mitra)</b>\n   - Kirim file Excel/CSV/ZIP ke bot ini.\n   - Bot akan membaca otomatis.\n\n3️⃣ <b>Upload Satuan / Kiriman</b>\n   - Gunakan perintah /tambah untuk input data manual.\n\n4️⃣ <b>Lapor Unit Selesai</b>\n   - Gunakan perintah /lapor jika unit sudah ditarik.\n\n5️⃣ <b>Cek Kuota</b>\n   - Ketik /cekkuota untuk melihat sisa HIT.\n\n6️⃣ <b>Bantuan Admin</b>\n   - Ketik /admin [pesan] untuk support.")
     await update.message.reply_text(msg, parse_mode='HTML')
 
-# --- MAIN SEARCH HANDLER (SMART LOGIC WITH ORIGINAL OUTPUT) ---
+# --- MAIN SEARCH HANDLER (SMART LOGIC) ---
 async def handle_message(update, context):
     text = update.message.text
     if text == "🔄 SINKRONISASI DATA": return await upload_start(update, context)
@@ -681,7 +706,7 @@ async def handle_message(update, context):
             await update.message.reply_text(f"❌ <b>TIDAK DITEMUKAN</b>\n<code>{kw}</code>", parse_mode='HTML')
             return
 
-        # 2. SMART FILTER (Pilih yang kembar identik jika ada)
+        # 2. SMART FILTER
         final_result = None
         exact_match = False
         for item in data_found:
@@ -693,27 +718,21 @@ async def handle_message(update, context):
         
         # 3. TENTUKAN TAMPILAN
         if exact_match:
-            # Jika ketemu Nopol persis -> Tampilkan Detail Langsung
             await show_unit_detail_original(update, context, final_result, u)
         elif len(data_found) == 1:
-            # Jika cuma ada 1 hasil (meski gak persis) -> Tampilkan Detail
             await show_unit_detail_original(update, context, data_found[0], u)
         else:
-            # Jika banyak hasil dan gak ada yang persis -> Tampilkan Pilihan
             await show_multi_choice(update, context, data_found, kw)
 
     except Exception as e: 
         logger.error(f"Search error: {e}")
         await update.message.reply_text("❌ Error DB.")
 
-# --- FUNGSI TAMPILAN DETAIL (RESTORED TOTAL DARI v4.33) ---
+# --- FUNGSI TAMPILAN DETAIL (RESTORED TOTAL) ---
 async def show_unit_detail_original(update, context, d, u):
-    # Potong Kuota
     update_quota_usage(u['user_id'], u['quota'])
-    
     info_txt = f"📢 <b>INFO:</b> {clean_text(GLOBAL_INFO)}\n━━━━━━━━━━━━━━━━━━\n" if GLOBAL_INFO else ""
     
-    # FORMAT VERTIKAL ASLI (DENGAN DISCLAIMER HUKUM)
     txt = (
         f"{info_txt}✅ <b>DATA DITEMUKAN</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
@@ -734,10 +753,9 @@ async def show_unit_detail_original(update, context, d, u):
     )
     
     await update.message.reply_text(txt, parse_mode='HTML')
-    # Panggil Notifikasi Group (Call Finder Feature)
     await notify_hit_to_group(context, u, d)
 
-# --- FUNGSI PILIHAN GANDA (FITUR BARU YANG DISISIPKAN) ---
+# --- FUNGSI PILIHAN GANDA (SMART) ---
 async def show_multi_choice(update, context, data_list, keyword):
     txt = f"🔎 Ditemukan **{len(data_list)} data** mirip '`{keyword}`':\n\n"
     keyboard = []
@@ -850,7 +868,7 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.41 (RESTORED + SMART) STARTING...")
+    print("🚀 ONEASPAL BOT v4.42 (UPGRADED) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
@@ -884,5 +902,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.41 - RESTORED + SMART)")
+    print("✅ BOT ONLINE! (v4.42 - UPGRADED)")
     app.run_polling()
