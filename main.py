@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.46 (FULL UI RESTORATION)                     #
+#                      VERSION: 4.47 (OMNI-READER ENGINE FIX)                  #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -100,7 +100,7 @@ COLUMN_ALIASES = {
     'branch': ['branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 'wilayah', 'region', 'areaname', 'branchname', 'resort']
 }
 
-# DAFTAR KOLOM YANG VALID DI DATABASE (PENTING AGAR TIDAK ERROR PGRST204)
+# DAFTAR KOLOM YANG VALID DI DATABASE
 VALID_DB_COLUMNS = ['nopol', 'type', 'finance', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'branch']
 
 # ##############################################################################
@@ -174,7 +174,7 @@ def standardize_leasing_name(name):
 
 
 # ##############################################################################
-# BAGIAN 5: ENGINE FILE (MILITARY GRADE V3)
+# BAGIAN 5: ENGINE FILE (OMNI-READER V4)
 # ##############################################################################
 
 def normalize_text(text):
@@ -193,7 +193,8 @@ def fix_header_position(df):
 
 def smart_rename_columns(df):
     new = {}; found = []
-    df.columns = [str(c).strip() for c in df.columns]
+    # Bersihkan header dari spasi aneh dan karakter hantu
+    df.columns = [str(c).strip().replace('\ufeff', '') for c in df.columns]
     
     for col in df.columns:
         clean = normalize_text(col); renamed = False
@@ -217,17 +218,39 @@ def read_file_robust(content, fname):
             try: return pd.read_excel(io.BytesIO(content), dtype=str, engine='openpyxl')
             except: pass 
             
-    encs = ['utf-8-sig', 'utf-8', 'latin1', 'cp1252']
-    seps = [';', ',', '\t', '|'] 
+    # [UPDATE v4.47] OMNI-READER CONFIGURATIONS
+    # Priority 1: Dirty CSVs (Semi-colon)
+    # Priority 2: Standard CSVs (Comma)
+    # Priority 3: Excel Exports (Tab/UTF-16)
     
-    for s in seps:
-        for e in encs:
-            try:
-                df = pd.read_csv(io.BytesIO(content), sep=s, dtype=str, encoding=e, engine='python', on_bad_lines='skip', quoting=csv.QUOTE_NONE)
-                if len(df.columns) > 1: return df
-            except: continue
+    configs = [
+        {'sep': ';', 'enc': 'utf-8-sig', 'quote': csv.QUOTE_NONE},
+        {'sep': ';', 'enc': 'latin1',    'quote': csv.QUOTE_NONE},
+        {'sep': ',', 'enc': 'utf-8-sig', 'quote': csv.QUOTE_MINIMAL}, # Standard CSV
+        {'sep': ',', 'enc': 'latin1',    'quote': csv.QUOTE_MINIMAL},
+        {'sep': '\t', 'enc': 'utf-16',   'quote': csv.QUOTE_MINIMAL}, # Excel Unicode
+        {'sep': '\t', 'enc': 'utf-8',    'quote': csv.QUOTE_MINIMAL}
+    ]
+    
+    for cfg in configs:
+        try:
+            df = pd.read_csv(
+                io.BytesIO(content), 
+                sep=cfg['sep'], 
+                dtype=str, 
+                encoding=cfg['enc'], 
+                engine='python', 
+                on_bad_lines='skip', 
+                quoting=cfg['quote']
+            )
+            if len(df.columns) > 1: return df
+        except: continue
             
-    return pd.read_csv(io.BytesIO(content), sep=None, engine='python', dtype=str)
+    # Fallback Ultimate (Auto-Detect)
+    try:
+        return pd.read_csv(io.BytesIO(content), sep=None, engine='python', dtype=str)
+    except:
+        return pd.DataFrame() # Return empty DF if absolutely fails
 
 
 # ##############################################################################
@@ -292,7 +315,7 @@ async def admin_action_complete(update, context):
 
 async def admin_help(update, context):
     if update.effective_user.id != ADMIN_ID: return
-    msg = ("🔐 **ADMIN COMMANDS v4.46**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
+    msg = ("🔐 **ADMIN COMMANDS v4.47**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def list_users(update, context):
@@ -342,7 +365,7 @@ async def get_stats(update, context):
         t = supabase.table('kendaraan').select("*", count="exact", head=True).execute().count
         u = supabase.table('users').select("*", count="exact", head=True).execute().count
         k = supabase.table('users').select("*", count="exact", head=True).eq('role', 'korlap').execute().count
-        await update.message.reply_text(f"📊 **STATS v4.46**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
+        await update.message.reply_text(f"📊 **STATS v4.47**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
     except: pass
 
 async def get_leasing_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -467,7 +490,7 @@ async def notify_hit_to_group(context, u, d):
 
 
 # ==============================================================================
-# BAGIAN 10: UPLOAD SYSTEM (RESTORED PREVIEW)
+# BAGIAN 10: UPLOAD SYSTEM (OMNI-READER + STRICT FILTER)
 # ==============================================================================
 
 async def upload_start(update, context):
@@ -483,7 +506,7 @@ async def upload_start(update, context):
             context.user_data['df'] = df.to_dict(orient='records')
             await msg.delete()
             fin_status = "✅ ADA" if 'finance' in df.columns else "⚠️ TIDAK ADA"
-            scan_report = (f"✅ <b>SCAN SUKSES (v4.46)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
+            scan_report = (f"✅ <b>SCAN SUKSES (v4.47)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
             await update.message.reply_text(scan_report, reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True), parse_mode='HTML')
             return U_LEASING_ADMIN
         except Exception as e: 
@@ -528,7 +551,6 @@ async def upload_leasing_admin(update, context):
 
         context.user_data['final_df'] = final_df.to_dict(orient='records')
         
-        # [RESTORED PREVIEW] KEMBALIKAN DETAIL LENGKAP
         if not final_df.empty:
             s = final_df.iloc[0]
             prev_info = (
@@ -706,7 +728,7 @@ async def show_unit_detail_original(update, context, d, u):
         f"🎨 <b>Warna:</b> {clean_text(d.get('warna'))}\n"
         f"----------------------------------\n"
         f"🔧 <b>Noka:</b> <code>{clean_text(d.get('noka'))}</code>\n"
-        f"⚙ <b>Nosin:</b> <code>{clean_text(d.get('nosin'))}</code>\n"
+        f"⚙️ <b>Nosin:</b> <code>{clean_text(d.get('nosin'))}</code>\n"
         f"----------------------------------\n"
         f"⚠️ <b>OVD:</b> {clean_text(d.get('ovd'))}\n"
         f"🏦 <b>Finance:</b> {clean_text(d.get('finance'))}\n"
@@ -829,7 +851,7 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.46 (FULL UI RESTORATION) STARTING...")
+    print("🚀 ONEASPAL BOT v4.47 (OMNI-READER ENGINE FIX) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
@@ -863,5 +885,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.46 - FULL UI RESTORATION)")
+    print("✅ BOT ONLINE! (v4.47 - OMNI-READER ENGINE FIX)")
     app.run_polling()
