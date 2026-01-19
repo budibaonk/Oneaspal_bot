@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.45 (STRICT FILTERING FIX)                    #
+#                      VERSION: 4.46 (FULL UI RESTORATION)                     #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -174,7 +174,7 @@ def standardize_leasing_name(name):
 
 
 # ##############################################################################
-# BAGIAN 5: ENGINE FILE (MILITARY GRADE V3 - STRICT FILTER)
+# BAGIAN 5: ENGINE FILE (MILITARY GRADE V3)
 # ##############################################################################
 
 def normalize_text(text):
@@ -292,7 +292,7 @@ async def admin_action_complete(update, context):
 
 async def admin_help(update, context):
     if update.effective_user.id != ADMIN_ID: return
-    msg = ("🔐 **ADMIN COMMANDS v4.45**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
+    msg = ("🔐 **ADMIN COMMANDS v4.46**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def list_users(update, context):
@@ -342,7 +342,7 @@ async def get_stats(update, context):
         t = supabase.table('kendaraan').select("*", count="exact", head=True).execute().count
         u = supabase.table('users').select("*", count="exact", head=True).execute().count
         k = supabase.table('users').select("*", count="exact", head=True).eq('role', 'korlap').execute().count
-        await update.message.reply_text(f"📊 **STATS v4.45**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
+        await update.message.reply_text(f"📊 **STATS v4.46**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
     except: pass
 
 async def get_leasing_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -467,7 +467,7 @@ async def notify_hit_to_group(context, u, d):
 
 
 # ==============================================================================
-# BAGIAN 10: UPLOAD SYSTEM (STRICT FILTER)
+# BAGIAN 10: UPLOAD SYSTEM (RESTORED PREVIEW)
 # ==============================================================================
 
 async def upload_start(update, context):
@@ -483,7 +483,7 @@ async def upload_start(update, context):
             context.user_data['df'] = df.to_dict(orient='records')
             await msg.delete()
             fin_status = "✅ ADA" if 'finance' in df.columns else "⚠️ TIDAK ADA"
-            scan_report = (f"✅ <b>SCAN SUKSES (v4.45)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
+            scan_report = (f"✅ <b>SCAN SUKSES (v4.46)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
             await update.message.reply_text(scan_report, reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True), parse_mode='HTML')
             return U_LEASING_ADMIN
         except Exception as e: 
@@ -518,20 +518,26 @@ async def upload_leasing_admin(update, context):
         df = df[df['nopol'].str.len() > 2]
         df = df.drop_duplicates(subset=['nopol'], keep='last').replace({'nan': '-', 'None': '-', 'NaN': '-'})
         
-        # [CRITICAL FIX] FILTER HANYA KOLOM YANG ADA DI DB (BUANG SAMPAH SEPERTI 'NO', 'CG')
+        # FILTER HANYA KOLOM DB
         final_df = pd.DataFrame()
         for col in VALID_DB_COLUMNS:
             if col in df.columns:
                 final_df[col] = df[col]
             else:
-                final_df[col] = "-" # Isi dash jika tidak ada di file excel
+                final_df[col] = "-"
 
         context.user_data['final_df'] = final_df.to_dict(orient='records')
         
-        # Preview ambil dari final_df agar akurat
+        # [RESTORED PREVIEW] KEMBALIKAN DETAIL LENGKAP
         if not final_df.empty:
             s = final_df.iloc[0]
-            prev_info = f"🔹 Leasing: {s.get('finance','-')}\n🔹 Nopol: <code style='color:orange'>{s.get('nopol','-')}</code>"
+            prev_info = (
+                f"🔹 Leasing: {s.get('finance','-')}\n"
+                f"🔹 Nopol: <code style='color:orange'>{s.get('nopol','-')}</code>\n"
+                f"🔹 Unit: {s.get('type','-')}\n"
+                f"🔹 Noka: {s.get('noka','-')}\n"
+                f"🔹 OVD: {s.get('ovd','-')}"
+            )
         else:
             prev_info = "⚠️ Data Kosong setelah filtering"
 
@@ -823,7 +829,7 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.45 (STRICT FILTER) STARTING...")
+    print("🚀 ONEASPAL BOT v4.46 (FULL UI RESTORATION) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
@@ -857,5 +863,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.45 - STRICT FILTER)")
+    print("✅ BOT ONLINE! (v4.46 - FULL UI RESTORATION)")
     app.run_polling()
