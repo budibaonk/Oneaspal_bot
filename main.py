@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.47 (OMNI-READER ENGINE FIX)                  #
+#                      VERSION: 4.49 (TIMEOUT FIX & ADAPTIVE BATCH)            #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -90,7 +90,7 @@ except Exception as e:
 
 COLUMN_ALIASES = {
     'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'nomorplat', 'nomorkendaraan', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'no. polisi'],
-    'type': ['type', 'tipe', 'unit', 'typeunit', 'tipekendaraan', 'tipeunit', 'model', 'vehicle', 'jenis', 'assetdescription', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'merkname', 'brand', 'product'],
+    'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'assetdescription', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'merkname', 'brand', 'product', 'tipekendaraan', 'tipeunit', 'typekendaraan', 'typeunit'],
     'tahun': ['tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture', 'assetyear', 'manufacturingyear'],
     'warna': ['warna', 'color', 'colour', 'cat', 'kelir', 'assetcolour'],
     'noka': ['noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 'rangka', 'chassisno', 'vinno', 'serial_number', 'bodyno', 'frameno', 'no rangka', 'no. rangka'],
@@ -193,9 +193,7 @@ def fix_header_position(df):
 
 def smart_rename_columns(df):
     new = {}; found = []
-    # Bersihkan header dari spasi aneh dan karakter hantu
     df.columns = [str(c).strip().replace('\ufeff', '') for c in df.columns]
-    
     for col in df.columns:
         clean = normalize_text(col); renamed = False
         for std, aliases in COLUMN_ALIASES.items():
@@ -218,39 +216,23 @@ def read_file_robust(content, fname):
             try: return pd.read_excel(io.BytesIO(content), dtype=str, engine='openpyxl')
             except: pass 
             
-    # [UPDATE v4.47] OMNI-READER CONFIGURATIONS
-    # Priority 1: Dirty CSVs (Semi-colon)
-    # Priority 2: Standard CSVs (Comma)
-    # Priority 3: Excel Exports (Tab/UTF-16)
-    
     configs = [
         {'sep': ';', 'enc': 'utf-8-sig', 'quote': csv.QUOTE_NONE},
         {'sep': ';', 'enc': 'latin1',    'quote': csv.QUOTE_NONE},
-        {'sep': ',', 'enc': 'utf-8-sig', 'quote': csv.QUOTE_MINIMAL}, # Standard CSV
+        {'sep': ',', 'enc': 'utf-8-sig', 'quote': csv.QUOTE_MINIMAL}, 
         {'sep': ',', 'enc': 'latin1',    'quote': csv.QUOTE_MINIMAL},
-        {'sep': '\t', 'enc': 'utf-16',   'quote': csv.QUOTE_MINIMAL}, # Excel Unicode
+        {'sep': '\t', 'enc': 'utf-16',   'quote': csv.QUOTE_MINIMAL}, 
         {'sep': '\t', 'enc': 'utf-8',    'quote': csv.QUOTE_MINIMAL}
     ]
     
     for cfg in configs:
         try:
-            df = pd.read_csv(
-                io.BytesIO(content), 
-                sep=cfg['sep'], 
-                dtype=str, 
-                encoding=cfg['enc'], 
-                engine='python', 
-                on_bad_lines='skip', 
-                quoting=cfg['quote']
-            )
+            df = pd.read_csv(io.BytesIO(content), sep=cfg['sep'], dtype=str, encoding=cfg['enc'], engine='python', on_bad_lines='skip', quoting=cfg['quote'])
             if len(df.columns) > 1: return df
         except: continue
             
-    # Fallback Ultimate (Auto-Detect)
-    try:
-        return pd.read_csv(io.BytesIO(content), sep=None, engine='python', dtype=str)
-    except:
-        return pd.DataFrame() # Return empty DF if absolutely fails
+    try: return pd.read_csv(io.BytesIO(content), sep=None, engine='python', dtype=str)
+    except: return pd.DataFrame()
 
 
 # ##############################################################################
@@ -315,7 +297,7 @@ async def admin_action_complete(update, context):
 
 async def admin_help(update, context):
     if update.effective_user.id != ADMIN_ID: return
-    msg = ("🔐 **ADMIN COMMANDS v4.47**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
+    msg = ("🔐 **ADMIN COMMANDS v4.49**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def list_users(update, context):
@@ -365,7 +347,7 @@ async def get_stats(update, context):
         t = supabase.table('kendaraan').select("*", count="exact", head=True).execute().count
         u = supabase.table('users').select("*", count="exact", head=True).execute().count
         k = supabase.table('users').select("*", count="exact", head=True).eq('role', 'korlap').execute().count
-        await update.message.reply_text(f"📊 **STATS v4.47**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
+        await update.message.reply_text(f"📊 **STATS v4.49**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
     except: pass
 
 async def get_leasing_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -490,7 +472,7 @@ async def notify_hit_to_group(context, u, d):
 
 
 # ==============================================================================
-# BAGIAN 10: UPLOAD SYSTEM (OMNI-READER + STRICT FILTER)
+# BAGIAN 10: UPLOAD SYSTEM (ADAPTIVE THROTTLING FIX)
 # ==============================================================================
 
 async def upload_start(update, context):
@@ -506,7 +488,7 @@ async def upload_start(update, context):
             context.user_data['df'] = df.to_dict(orient='records')
             await msg.delete()
             fin_status = "✅ ADA" if 'finance' in df.columns else "⚠️ TIDAK ADA"
-            scan_report = (f"✅ <b>SCAN SUKSES (v4.47)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
+            scan_report = (f"✅ <b>SCAN SUKSES (v4.49)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
             await update.message.reply_text(scan_report, reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True), parse_mode='HTML')
             return U_LEASING_ADMIN
         except Exception as e: 
@@ -577,23 +559,42 @@ async def upload_confirm_admin(update, context):
     last_error = ""
     
     try:
-        BATCH = 100 
+        BATCH = 50 # TURUNKAN BATCH AGAR LEBIH RINGAN
         list_nopol = [x['nopol'] for x in data] if act == "🗑️ HAPUS MASSAL" else []
+        
         for i in range(0, total_data, BATCH):
             chunk = data[i:i+BATCH]
             try:
+                # TRY NORMAL BATCH
                 if act == "🚀 UPDATE DATA": supabase.table('kendaraan').upsert(chunk, on_conflict='nopol').execute()
                 elif act == "🗑️ HAPUS MASSAL": supabase.table('kendaraan').delete().in_('nopol', list_nopol[i:i+BATCH]).execute()
                 suc += len(chunk)
-            except Exception as e: 
-                print(f"⚠️ Batch Error: {e}")
-                last_error = str(e) 
-                continue
+            except Exception as e:
+                # EMERGENCY MODE: JIKA GAGAL KARENA TIMEOUT/KONEKSI
+                if '57014' in str(e) or 'timeout' in str(e).lower():
+                    # COBA LAGI DENGAN MINI-BATCH (5 DATA)
+                    print(f"⚠️ Timeout pada batch {i}. Masuk Mode Darurat (Mini-Batch)...")
+                    mini_batch_size = 5
+                    for j in range(0, len(chunk), mini_batch_size):
+                        mini_chunk = chunk[j:j+mini_batch_size]
+                        try:
+                            if act == "🚀 UPDATE DATA": supabase.table('kendaraan').upsert(mini_chunk, on_conflict='nopol').execute()
+                            elif act == "🗑️ HAPUS MASSAL": 
+                                mini_nopol = [x['nopol'] for x in mini_chunk]
+                                supabase.table('kendaraan').delete().in_('nopol', mini_nopol).execute()
+                            suc += len(mini_chunk)
+                            await asyncio.sleep(0.5) # Istirahat sejenak
+                        except Exception as e2:
+                            last_error = str(e2); continue
+                else:
+                    print(f"⚠️ Batch Error: {e}")
+                    last_error = str(e) 
+                    continue
             
-            if i > 0 and i % 5000 == 0:
+            if i > 0 and i % 500 == 0:
                 try: await msg.edit_text(f"⏳ <b>MEMPROSES DATA...</b>\n🚀 {i:,} / {total_data:,} data...", parse_mode='HTML')
                 except: pass 
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.1)
             
         dur = round(time.time() - start_t, 2)
         try: await msg.delete()
@@ -728,7 +729,7 @@ async def show_unit_detail_original(update, context, d, u):
         f"🎨 <b>Warna:</b> {clean_text(d.get('warna'))}\n"
         f"----------------------------------\n"
         f"🔧 <b>Noka:</b> <code>{clean_text(d.get('noka'))}</code>\n"
-        f"⚙️ <b>Nosin:</b> <code>{clean_text(d.get('nosin'))}</code>\n"
+        f"⚙ <b>Nosin:</b> <code>{clean_text(d.get('nosin'))}</code>\n"
         f"----------------------------------\n"
         f"⚠️ <b>OVD:</b> {clean_text(d.get('ovd'))}\n"
         f"🏦 <b>Finance:</b> {clean_text(d.get('finance'))}\n"
@@ -851,7 +852,7 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.47 (OMNI-READER ENGINE FIX) STARTING...")
+    print("🚀 ONEASPAL BOT v4.49 (TIMEOUT FIX & ADAPTIVE BATCH) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
@@ -885,5 +886,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.47 - OMNI-READER ENGINE FIX)")
+    print("✅ BOT ONLINE! (v4.49 - ADAPTIVE THROTTLING)")
     app.run_polling()
