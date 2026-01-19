@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.49 (TIMEOUT FIX & ADAPTIVE BATCH)            #
+#                      VERSION: 4.50 (BUTTON INTERACTION FIX)                  #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -100,7 +100,6 @@ COLUMN_ALIASES = {
     'branch': ['branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 'wilayah', 'region', 'areaname', 'branchname', 'resort']
 }
 
-# DAFTAR KOLOM YANG VALID DI DATABASE
 VALID_DB_COLUMNS = ['nopol', 'type', 'finance', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'branch']
 
 # ##############################################################################
@@ -297,7 +296,7 @@ async def admin_action_complete(update, context):
 
 async def admin_help(update, context):
     if update.effective_user.id != ADMIN_ID: return
-    msg = ("🔐 **ADMIN COMMANDS v4.49**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
+    msg = ("🔐 **ADMIN COMMANDS v4.50**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def list_users(update, context):
@@ -347,7 +346,7 @@ async def get_stats(update, context):
         t = supabase.table('kendaraan').select("*", count="exact", head=True).execute().count
         u = supabase.table('users').select("*", count="exact", head=True).execute().count
         k = supabase.table('users').select("*", count="exact", head=True).eq('role', 'korlap').execute().count
-        await update.message.reply_text(f"📊 **STATS v4.49**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
+        await update.message.reply_text(f"📊 **STATS v4.50**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
     except: pass
 
 async def get_leasing_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -488,7 +487,7 @@ async def upload_start(update, context):
             context.user_data['df'] = df.to_dict(orient='records')
             await msg.delete()
             fin_status = "✅ ADA" if 'finance' in df.columns else "⚠️ TIDAK ADA"
-            scan_report = (f"✅ <b>SCAN SUKSES (v4.49)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
+            scan_report = (f"✅ <b>SCAN SUKSES (v4.50)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
             await update.message.reply_text(scan_report, reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True), parse_mode='HTML')
             return U_LEASING_ADMIN
         except Exception as e: 
@@ -718,6 +717,7 @@ async def handle_message(update, context):
         else: await show_multi_choice(update, context, data_found, kw)
     except Exception as e: logger.error(f"Search error: {e}"); await update.message.reply_text("❌ Error DB.")
 
+# [FIX] MENGGUNAKAN `context.bot.send_message` AGAR BISA DIPANGGIL DARI CALLBACK
 async def show_unit_detail_original(update, context, d, u):
     update_quota_usage(u['user_id'], u['quota'])
     info_txt = f"📢 <b>INFO:</b> {clean_text(GLOBAL_INFO)}\n━━━━━━━━━━━━━━━━━━\n" if GLOBAL_INFO else ""
@@ -738,7 +738,8 @@ async def show_unit_detail_original(update, context, d, u):
         f"⚠️ <b>CATATAN PENTING:</b>\n"
         f"<i>Ini bukan alat yang SAH untuk penarikan. Konfirmasi ke PIC leasing.</i>"
     )
-    await update.message.reply_text(txt, parse_mode='HTML')
+    # [FIX] Send message explicit to chat ID
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=txt, parse_mode='HTML')
     await notify_hit_to_group(context, u, d)
 
 async def show_multi_choice(update, context, data_list, keyword):
@@ -824,12 +825,15 @@ async def delete_unit_confirm(update, context):
 
 async def cancel(update, context): await update.message.reply_text("🚫 Batal.", reply_markup=ReplyKeyboardRemove()); return ConversationHandler.END
 
+# --- MASTER CALLBACK HANDLER ---
 async def callback_handler(update, context):
     query = update.callback_query; await query.answer(); data = query.data 
     if data.startswith("view_"):
         nopol_target = data.replace("view_", ""); u = get_user(update.effective_user.id)
         res = supabase.table('kendaraan').select("*").eq('nopol', nopol_target).execute()
-        if res.data: await show_unit_detail_original(update, context, res.data[0], u)
+        if res.data: 
+            # [FIX] PASS UPDATE & CONTEXT CORRECTLY
+            await show_unit_detail_original(update, context, res.data[0], u)
         else: await query.edit_message_text("❌ Data unit sudah tidak tersedia.")
     elif data.startswith("adm_promote_"):
         uid = int(data.split("_")[2]); supabase.table('users').update({'role': 'korlap'}).eq('user_id', uid).execute()
@@ -852,7 +856,7 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.49 (TIMEOUT FIX & ADAPTIVE BATCH) STARTING...")
+    print("🚀 ONEASPAL BOT v4.50 (BUTTON INTERACTION FIX) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
@@ -886,5 +890,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.49 - ADAPTIVE THROTTLING)")
+    print("✅ BOT ONLINE! (v4.50 - BUTTON INTERACTION FIX)")
     app.run_polling()
