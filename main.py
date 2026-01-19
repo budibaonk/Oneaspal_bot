@@ -71,8 +71,8 @@ GLOBAL_INFO = ""
 BANK_INFO = """
 📅 <b>PAKET LANGGANAN (UNLIMITED CEK)</b>
 ━━━━━━━━━━━━━━━━━━
-<b>BCA:</b> 1234-5678-90
-<b>A/N:</b> PT ONE ASPAL INDONESIA
+<b>BCA:</b> Under Construction
+<b>A/N:</b> Under Construction
 ━━━━━━━━━━━━━━━━━━
 <i>Transfer sesuai paket, akun aktif 24 jam non-stop!</i>
 """
