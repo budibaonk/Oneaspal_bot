@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.50 (BUTTON INTERACTION FIX)                  #
+#                      VERSION: 5.01 (UI REFINEMENT & MANUAL BUTTON)           #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -21,7 +21,8 @@ import csv
 import zipfile 
 import html
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
+import pytz 
 from dotenv import load_dotenv
 
 from telegram import (
@@ -61,7 +62,20 @@ URL = os.environ.get("SUPABASE_URL")
 KEY = os.environ.get("SUPABASE_KEY")
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
+TZ_JAKARTA = pytz.timezone('Asia/Jakarta')
+
+DAILY_LIMIT_MATEL = 500  
+DAILY_LIMIT_KORLAP = 2000 
+
 GLOBAL_INFO = ""
+BANK_INFO = """
+📅 <b>PAKET LANGGANAN (UNLIMITED CEK)</b>
+━━━━━━━━━━━━━━━━━━
+<b>BCA:</b> 1234-5678-90
+<b>A/N:</b> PT ONE ASPAL INDONESIA
+━━━━━━━━━━━━━━━━━━
+<i>Transfer sesuai paket, akun aktif 24 jam non-stop!</i>
+"""
 
 try:
     ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
@@ -70,7 +84,7 @@ except ValueError:
     ADMIN_ID = 0
     LOG_GROUP_ID = 0
 
-print(f"✅ [BOOT] SYSTEM STARTING... ADMIN ID: {ADMIN_ID}")
+print(f"✅ [BOOT] SYSTEM STARTING v5.1... ADMIN ID: {ADMIN_ID}")
 
 if not URL or not KEY or not TOKEN:
     print("❌ [CRITICAL] Credential tidak lengkap! Cek .env")
@@ -117,13 +131,14 @@ SUPPORT_MSG = 24
 
 
 # ##############################################################################
-# BAGIAN 4: FUNGSI HELPER UTAMA
+# BAGIAN 4: FUNGSI HELPER UTAMA (SUBSCRIPTION LOGIC)
 # ##############################################################################
 
 async def post_init(application: Application):
     await application.bot.set_my_commands([
         ("start", "🔄 Restart / Menu"),
-        ("cekkuota", "💳 Cek Sisa Kuota"),
+        ("cekkuota", "💳 Cek Masa Aktif"),
+        ("infobayar", "💰 Perpanjang Langganan"),
         ("tambah", "➕ Input Manual"),
         ("lapor", "🗑️ Lapor Unit Selesai"),
         ("register", "📝 Daftar Mitra"),
@@ -144,21 +159,61 @@ def update_user_status(user_id, status):
         return True
     except: return False
 
-def update_quota_usage(user_id, current_quota):
+def check_subscription_access(user):
     try:
-        new_q = max(0, current_quota - 1)
-        supabase.table('users').update({'quota': new_q}).eq('user_id', user_id).execute()
+        if user.get('role') == 'pic': return True, "OK"
+
+        expiry_str = user.get('expiry_date')
+        if not expiry_str: return False, "EXPIRED"
+        
+        expiry_dt = datetime.fromisoformat(expiry_str.replace('Z', '+00:00')).astimezone(TZ_JAKARTA)
+        now_dt = datetime.now(TZ_JAKARTA)
+        
+        if now_dt > expiry_dt: return False, "EXPIRED"
+
+        last_usage_str = user.get('last_usage_date')
+        today_str = now_dt.strftime('%Y-%m-%d')
+        daily_usage = user.get('daily_usage', 0)
+
+        if last_usage_str != today_str:
+            supabase.table('users').update({'daily_usage': 0, 'last_usage_date': today_str}).eq('user_id', user['user_id']).execute()
+            daily_usage = 0
+        
+        limit = DAILY_LIMIT_KORLAP if user.get('role') == 'korlap' else DAILY_LIMIT_MATEL
+        if daily_usage >= limit: return False, "DAILY_LIMIT"
+
+        return True, "OK"
+    except Exception as e:
+        print(f"Sub Check Error: {e}")
+        return False, "ERROR"
+
+def increment_daily_usage(user_id, current_usage):
+    try:
+        supabase.table('users').update({'daily_usage': current_usage + 1}).eq('user_id', user_id).execute()
     except: pass
 
-def topup_quota(user_id, amount):
+def add_subscription_days(user_id, days_to_add):
     try:
         user = get_user(user_id)
-        if user:
-            new = user.get('quota', 0) + amount
-            supabase.table('users').update({'quota': new}).eq('user_id', user_id).execute()
-            return True, new
-        return False, 0
-    except: return False, 0
+        if not user: return False, None
+        
+        now = datetime.now(TZ_JAKARTA)
+        current_expiry_str = user.get('expiry_date')
+        
+        if current_expiry_str:
+            current_expiry = datetime.fromisoformat(current_expiry_str.replace('Z', '+00:00')).astimezone(TZ_JAKARTA)
+            if current_expiry > now:
+                new_expiry = current_expiry + timedelta(days=days_to_add)
+            else:
+                new_expiry = now + timedelta(days=days_to_add)
+        else:
+            new_expiry = now + timedelta(days=days_to_add)
+            
+        supabase.table('users').update({'expiry_date': new_expiry.isoformat()}).eq('user_id', user_id).execute()
+        return True, new_expiry
+    except Exception as e:
+        print(f"Topup Error: {e}")
+        return False, None
 
 def clean_text(text):
     if not text: return "-"
@@ -246,7 +301,7 @@ async def angkat_korlap(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target_id = int(context.args[0]); wilayah = " ".join(context.args[1:]).upper()
         data = {"role": "korlap", "wilayah_korlap": wilayah, "quota": 5000} 
         supabase.table('users').update(data).eq('user_id', target_id).execute()
-        await update.message.reply_text(f"✅ **SUKSES!**\nUser ID `{target_id}` sekarang adalah **KORLAP {wilayah}**.", parse_mode='Markdown')
+        await update.message.reply_text(f"✅ **SUKSES!**\nUser ID `{target_id}` sekarang adalah **KORLAP {wilayah}**.\nLimit Harian: 2000 Cek.", parse_mode='Markdown')
     except Exception as e: await update.message.reply_text(f"❌ Gagal: {e}")
 
 async def reject_start(update, context):
@@ -296,7 +351,7 @@ async def admin_action_complete(update, context):
 
 async def admin_help(update, context):
     if update.effective_user.id != ADMIN_ID: return
-    msg = ("🔐 **ADMIN COMMANDS v4.50**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
+    msg = ("🔐 **ADMIN COMMANDS v5.1**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [HARI]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def list_users(update, context):
@@ -323,15 +378,22 @@ async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tid = int(update.message.text.split('_')[1])
         u = get_user(tid)
         if not u: return await update.message.reply_text("❌ User tidak ditemukan.")
+        
         role_now = u.get('role', 'matel'); status_now = u.get('status', 'active')
         info_role = "🎖️ KORLAP" if role_now == 'korlap' else f"🛡️ {role_now.upper()}"
         wilayah = f"({u.get('wilayah_korlap', '-')})" if role_now == 'korlap' else ""
         icon_status = "✅ AKTIF" if status_now == 'active' else "⛔ BANNED"
-        msg = (f"👮‍♂️ <b>USER MANAGER</b>\n━━━━━━━━━━━━━━━━━━\n👤 <b>Nama:</b> {clean_text(u.get('nama_lengkap'))}\n🏅 <b>Role:</b> {info_role} {wilayah}\n📊 <b>Status:</b> {icon_status}\n📱 <b>ID:</b> <code>{tid}</code>\n🔋 <b>Kuota:</b> {u.get('quota', 0)}\n🏢 <b>Agency:</b> {clean_text(u.get('agency'))}\n━━━━━━━━━━━━━━━━━━")
+        
+        expiry = u.get('expiry_date', 'EXPIRED')
+        if expiry != 'EXPIRED':
+             expiry = datetime.fromisoformat(expiry.replace('Z', '+00:00')).astimezone(TZ_JAKARTA).strftime('%d %b %Y')
+        
+        msg = (f"👮‍♂️ <b>USER MANAGER</b>\n━━━━━━━━━━━━━━━━━━\n👤 <b>Nama:</b> {clean_text(u.get('nama_lengkap'))}\n🏅 <b>Role:</b> {info_role} {wilayah}\n📊 <b>Status:</b> {icon_status}\n📱 <b>ID:</b> <code>{tid}</code>\n📅 <b>Exp:</b> {expiry}\n🏢 <b>Agency:</b> {clean_text(u.get('agency'))}\n━━━━━━━━━━━━━━━━━━")
         
         btn_role = InlineKeyboardButton("⬇️ BERHENTIKAN KORLAP", callback_data=f"adm_demote_{tid}") if role_now == 'korlap' else InlineKeyboardButton("🎖️ ANGKAT KORLAP", callback_data=f"adm_promote_{tid}")
         btn_ban = InlineKeyboardButton("⛔ BAN USER", callback_data=f"adm_ban_{tid}") if status_now == 'active' else InlineKeyboardButton("✅ UNBAN (PULIHKAN)", callback_data=f"adm_unban_{tid}")
-        kb = [[InlineKeyboardButton("💰 +100 HIT", callback_data=f"adm_topup_{tid}_100"), InlineKeyboardButton("💰 +500 HIT", callback_data=f"adm_topup_{tid}_500")], [btn_role], [btn_ban, InlineKeyboardButton("🗑️ HAPUS DATA", callback_data=f"adm_del_{tid}")], [InlineKeyboardButton("❌ TUTUP PANEL", callback_data="close_panel")]]
+        
+        kb = [[InlineKeyboardButton("📅 +5 Hari", callback_data=f"adm_topup_{tid}_5"), InlineKeyboardButton("📅 +30 Hari", callback_data=f"adm_topup_{tid}_30")], [btn_role], [btn_ban, InlineKeyboardButton("🗑️ HAPUS DATA", callback_data=f"adm_del_{tid}")], [InlineKeyboardButton("❌ TUTUP PANEL", callback_data="close_panel")]]
         await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
     except Exception as e: await update.message.reply_text(f"❌ Error Panel: {e}")
 
@@ -346,7 +408,7 @@ async def get_stats(update, context):
         t = supabase.table('kendaraan').select("*", count="exact", head=True).execute().count
         u = supabase.table('users').select("*", count="exact", head=True).execute().count
         k = supabase.table('users').select("*", count="exact", head=True).eq('role', 'korlap').execute().count
-        await update.message.reply_text(f"📊 **STATS v4.50**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
+        await update.message.reply_text(f"📊 **STATS v5.1**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
     except: pass
 
 async def get_leasing_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -385,10 +447,11 @@ async def test_group(update, context):
 async def admin_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     try:
-        tid, amt = int(context.args[0]), int(context.args[1])
-        if topup_quota(tid, amt)[0]: await update.message.reply_text(f"✅ Sukses Topup {amt} ke {tid}.")
+        tid, days = int(context.args[0]), int(context.args[1])
+        suc, new_exp = add_subscription_days(tid, days)
+        if suc: await update.message.reply_text(f"✅ Sukses! User {tid} aktif s/d {new_exp.strftime('%d-%m-%Y')}.")
         else: await update.message.reply_text("❌ Gagal Topup.")
-    except: await update.message.reply_text("⚠️ Format: `/topup ID JML`")
+    except: await update.message.reply_text("⚠️ Format: `/topup ID HARI`")
 
 async def add_agency(update, context):
     if update.effective_user.id != ADMIN_ID: return
@@ -430,18 +493,53 @@ async def cek_kuota(update, context):
     if u.get('role') == 'pic':
         msg = (f"📂 **DATABASE SAYA**\n━━━━━━━━━━━━━━━━━━\n👤 **User:** {u.get('nama_lengkap')}\n🏢 **Leasing:** {u.get('agency')}\n🔋 **Status Akses:** UNLIMITED (Enterprise)\n━━━━━━━━━━━━━━━━━━\n✅ Sinkronisasi data berjalan normal.")
     else:
-        role_msg = f"🎖️ **KORLAP {u.get('wilayah_korlap','')}**" if u.get('role')=='korlap' else f"🛡️ **MITRA LAPANGAN**"
-        msg = (f"💳 **INFO AKUN**\n━━━━━━━━━━━━━━━━━━\n{role_msg}\n👤 {u.get('nama_lengkap')}\n🔋 **SISA KUOTA:** `{u.get('quota',0)}` HIT\n━━━━━━━━━━━━━━━━━━")
-    await update.message.reply_text(msg, parse_mode='Markdown')
+        exp_date = u.get('expiry_date')
+        if exp_date:
+            exp_dt = datetime.fromisoformat(exp_date.replace('Z', '+00:00')).astimezone(TZ_JAKARTA)
+            status_aktif = f"✅ AKTIF s/d {exp_dt.strftime('%d %b %Y %H:%M')}"
+            remaining = exp_dt - datetime.now(TZ_JAKARTA)
+            if remaining.days < 0: status_aktif = "❌ SUDAH EXPIRED"
+            else: status_aktif += f"\n⏳ Sisa Waktu: {remaining.days} Hari"
+        else:
+            status_aktif = "❌ SUDAH EXPIRED"
 
+        role_msg = f"🎖️ **KORLAP {u.get('wilayah_korlap','')}**" if u.get('role')=='korlap' else f"🛡️ **MITRA LAPANGAN**"
+        msg = (f"💳 **INFO LANGGANAN**\n━━━━━━━━━━━━━━━━━━\n{role_msg}\n👤 {u.get('nama_lengkap')}\n\n{status_aktif}\n📊 <b>Cek Hari Ini:</b> {u.get('daily_usage', 0)}x\n━━━━━━━━━━━━━━━━━━\n<i>Perpanjang? Ketik /infobayar</i>")
+    await update.message.reply_text(msg, parse_mode='HTML')
+
+async def info_bayar(update, context):
+    msg = ("💰 **PAKET LANGGANAN (UNLIMITED CEK)**\n━━━━━━━━━━━━━━━━━━\n"
+           "1️⃣ **5 HARI** = Rp 25.000\n"
+           "2️⃣ **10 HARI** = Rp 50.000\n"
+           "3️⃣ **20 HARI** = Rp 75.000\n"
+           "🔥 **30 HARI** = Rp 100.000 (BEST DEAL!)\n\n"
+           f"{BANK_INFO}")
+    await update.message.reply_text(msg, parse_mode='HTML')
+
+# [V5.1] BUTTONS UPDATE & CAPTION HINT
 async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != "private": return
     u = get_user(update.effective_user.id); 
     if not u: return
-    await update.message.reply_text("✅ **Bukti diterima!** Sedang diverifikasi...", quote=True)
-    msg = f"💰 **TOPUP REQUEST**\n👤 {u['nama_lengkap']}\n🆔 `{u['user_id']}`\n🔋 Saldo: {u.get('quota',0)}\n📝 {update.message.caption or '-'}"
-    kb = [[InlineKeyboardButton("✅ 50", callback_data=f"topup_{u['user_id']}_50"), InlineKeyboardButton("✅ 100", callback_data=f"topup_{u['user_id']}_100")], [InlineKeyboardButton("❌ TOLAK", callback_data=f"topup_{u['user_id']}_rej")]]
-    await context.bot.send_photo(ADMIN_ID, update.message.photo[-1].file_id, caption=msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
+    await update.message.reply_text("✅ **Bukti diterima!** Sedang diverifikasi Admin...", quote=True)
+    
+    expiry_info = u.get('expiry_date') or "EXPIRED"
+    # [V5.1] Added Manual Hint
+    msg = (f"💰 **TOPUP DURASI REQUEST**\n"
+           f"👤 {u['nama_lengkap']}\n"
+           f"🆔 `{u['user_id']}`\n"
+           f"📅 Expired: {expiry_info}\n"
+           f"📝 Note: {update.message.caption or '-'}\n\n"
+           f"👉 <b>Manual:</b> <code>/topup {u['user_id']} [HARI]</code>")
+    
+    # [V5.1] Added MANUAL Button
+    kb = [
+        [InlineKeyboardButton("✅ 5 HARI", callback_data=f"topup_{u['user_id']}_5"), InlineKeyboardButton("✅ 10 HARI", callback_data=f"topup_{u['user_id']}_10")], 
+        [InlineKeyboardButton("✅ 20 HARI", callback_data=f"topup_{u['user_id']}_20"), InlineKeyboardButton("✅ 30 HARI", callback_data=f"topup_{u['user_id']}_30")],
+        [InlineKeyboardButton("🔢 MANUAL / CUSTOM", callback_data=f"man_topup_{u['user_id']}")],
+        [InlineKeyboardButton("❌ TOLAK", callback_data=f"topup_{u['user_id']}_rej")]
+    ]
+    await context.bot.send_photo(ADMIN_ID, update.message.photo[-1].file_id, caption=msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
 
 async def notify_hit_to_group(context, u, d):
     try:
@@ -487,7 +585,7 @@ async def upload_start(update, context):
             context.user_data['df'] = df.to_dict(orient='records')
             await msg.delete()
             fin_status = "✅ ADA" if 'finance' in df.columns else "⚠️ TIDAK ADA"
-            scan_report = (f"✅ <b>SCAN SUKSES (v4.50)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
+            scan_report = (f"✅ <b>SCAN SUKSES (v5.1)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
             await update.message.reply_text(scan_report, reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True), parse_mode='HTML')
             return U_LEASING_ADMIN
         except Exception as e: 
@@ -558,20 +656,17 @@ async def upload_confirm_admin(update, context):
     last_error = ""
     
     try:
-        BATCH = 50 # TURUNKAN BATCH AGAR LEBIH RINGAN
+        BATCH = 50 
         list_nopol = [x['nopol'] for x in data] if act == "🗑️ HAPUS MASSAL" else []
         
         for i in range(0, total_data, BATCH):
             chunk = data[i:i+BATCH]
             try:
-                # TRY NORMAL BATCH
                 if act == "🚀 UPDATE DATA": supabase.table('kendaraan').upsert(chunk, on_conflict='nopol').execute()
                 elif act == "🗑️ HAPUS MASSAL": supabase.table('kendaraan').delete().in_('nopol', list_nopol[i:i+BATCH]).execute()
                 suc += len(chunk)
             except Exception as e:
-                # EMERGENCY MODE: JIKA GAGAL KARENA TIMEOUT/KONEKSI
                 if '57014' in str(e) or 'timeout' in str(e).lower():
-                    # COBA LAGI DENGAN MINI-BATCH (5 DATA)
                     print(f"⚠️ Timeout pada batch {i}. Masuk Mode Darurat (Mini-Batch)...")
                     mini_batch_size = 5
                     for j in range(0, len(chunk), mini_batch_size):
@@ -582,7 +677,7 @@ async def upload_confirm_admin(update, context):
                                 mini_nopol = [x['nopol'] for x in mini_chunk]
                                 supabase.table('kendaraan').delete().in_('nopol', mini_nopol).execute()
                             suc += len(mini_chunk)
-                            await asyncio.sleep(0.5) # Istirahat sejenak
+                            await asyncio.sleep(0.5) 
                         except Exception as e2:
                             last_error = str(e2); continue
                 else:
@@ -683,7 +778,7 @@ async def start(update, context):
 async def panduan(update, context):
     u = get_user(update.effective_user.id)
     if u and u.get('role') == 'pic': msg = ("📖 <b>PANDUAN ENTERPRISE</b>\n\n<b>1. Sinkronisasi Data</b>\nTekan '🔄 SINKRONISASI DATA', kirim file Excel.\n\n<b>2. Monitoring</b>\nKetik Nopol di kolom chat.\n\n<b>3. Akun</b>\nTekan '📂 DATABASE SAYA'.")
-    else: msg = ("📖 <b>PANDUAN PENGGUNAAN ONEASPAL</b>\n\n1️⃣ <b>Cari Data Kendaraan</b>\n   - Ketik Nopol secara lengkap atau sebagian.\n   - Contoh: <code>B 1234 ABC</code> atau <code>1234</code>\n\n2️⃣ <b>Upload File (Mitra)</b>\n   - Kirim file Excel/CSV/ZIP ke bot ini.\n   - Bot akan membaca otomatis.\n\n3️⃣ <b>Upload Satuan / Kiriman</b>\n   - Gunakan perintah /tambah untuk input data manual.\n\n4️⃣ <b>Lapor Unit Selesai</b>\n   - Gunakan perintah /lapor jika unit sudah ditarik.\n\n5️⃣ <b>Cek Kuota</b>\n   - Ketik /cekkuota untuk melihat sisa HIT.\n\n6️⃣ <b>Bantuan Admin</b>\n   - Ketik /admin [pesan] untuk support.")
+    else: msg = ("📖 <b>PANDUAN PENGGUNAAN ONEASPAL</b>\n\n1️⃣ <b>Cari Data Kendaraan</b>\n   - Ketik Nopol secara lengkap atau sebagian.\n   - Contoh: <code>B 1234 ABC</code> atau <code>1234</code>\n\n2️⃣ <b>Upload File (Mitra)</b>\n   - Kirim file Excel/CSV/ZIP ke bot ini.\n   - Bot akan membaca otomatis.\n\n3️⃣ <b>Upload Satuan / Kiriman</b>\n   - Gunakan perintah /tambah untuk input data manual.\n\n4️⃣ <b>Lapor Unit Selesai</b>\n   - Gunakan perintah /lapor jika unit sudah ditarik.\n\n5️⃣ <b>Cek Kuota</b>\n   - Ketik /cekkuota untuk melihat sisa HIT.\n\n6️⃣ <b>Bantuan Admin</b>\n   - Ketik /admin [pesan] untuk support.\n7️⃣ <b>Perpanjang Langganan</b>\n   - Ketik /infobayar untuk Topup.")
     await update.message.reply_text(msg, parse_mode='HTML')
 
 async def handle_message(update, context):
@@ -694,7 +789,13 @@ async def handle_message(update, context):
     u = get_user(update.effective_user.id)
     if not u: return await update.message.reply_text("⛔ **AKSES DITOLAK**\nSilakan ketik /register.", parse_mode='Markdown')
     if u['status'] != 'active': return await update.message.reply_text("⏳ **AKUN PENDING**\nTunggu Admin.", parse_mode='Markdown')
-    if u.get('quota', 0) <= 0: return await update.message.reply_text("⛔ **KUOTA HABIS**", parse_mode='Markdown')
+    
+    is_active, reason = check_subscription_access(u)
+    if not is_active:
+        if reason == "EXPIRED":
+            return await update.message.reply_text("⛔ **MASA AKTIF HABIS**\nSilakan ketik /infobayar untuk perpanjang.", parse_mode='Markdown')
+        elif reason == "DAILY_LIMIT":
+            return await update.message.reply_text("⛔ **BATAS HARIAN TERCAPAI**\nAnda telah mencapai limit cek hari ini. Reset otomatis jam 00:00.", parse_mode='Markdown')
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     kw = re.sub(r'[^a-zA-Z0-9]', '', text.upper())
@@ -717,9 +818,9 @@ async def handle_message(update, context):
         else: await show_multi_choice(update, context, data_found, kw)
     except Exception as e: logger.error(f"Search error: {e}"); await update.message.reply_text("❌ Error DB.")
 
-# [FIX] MENGGUNAKAN `context.bot.send_message` AGAR BISA DIPANGGIL DARI CALLBACK
 async def show_unit_detail_original(update, context, d, u):
-    update_quota_usage(u['user_id'], u['quota'])
+    increment_daily_usage(u['user_id'], u.get('daily_usage', 0))
+    
     info_txt = f"📢 <b>INFO:</b> {clean_text(GLOBAL_INFO)}\n━━━━━━━━━━━━━━━━━━\n" if GLOBAL_INFO else ""
     txt = (
         f"{info_txt}✅ <b>DATA DITEMUKAN</b>\n━━━━━━━━━━━━━━━━━━\n"
@@ -738,7 +839,6 @@ async def show_unit_detail_original(update, context, d, u):
         f"⚠️ <b>CATATAN PENTING:</b>\n"
         f"<i>Ini bukan alat yang SAH untuk penarikan. Konfirmasi ke PIC leasing.</i>"
     )
-    # [FIX] Send message explicit to chat ID
     await context.bot.send_message(chat_id=update.effective_chat.id, text=txt, parse_mode='HTML')
     await notify_hit_to_group(context, u, d)
 
@@ -828,11 +928,34 @@ async def cancel(update, context): await update.message.reply_text("🚫 Batal."
 # --- MASTER CALLBACK HANDLER ---
 async def callback_handler(update, context):
     query = update.callback_query; await query.answer(); data = query.data 
-    if data.startswith("view_"):
+    
+    # [V5.1] TOPUP HANDLING REFINED
+    if data.startswith("topup_") or data.startswith("adm_topup_"):
+        parts = data.split("_")
+        uid = int(parts[len(parts)-2])
+        days = parts[len(parts)-1] 
+        
+        if days == "rej":
+            await context.bot.send_message(uid, "❌ Permintaan Topup DITOLAK Admin.")
+            await query.edit_message_caption("❌ DITOLAK.")
+        else:
+            suc, new_exp = add_subscription_days(uid, int(days))
+            if suc:
+                exp_str = new_exp.strftime('%d %b %Y')
+                await context.bot.send_message(uid, f"✅ **TOPUP SUKSES!**\nPaket: {days} Hari\nAktif s/d: {exp_str}")
+                await query.edit_message_caption(f"✅ SUKSES (+{days} Hari)\nExp: {exp_str}")
+            else:
+                await query.edit_message_caption("❌ Gagal System.")
+
+    # [V5.1] MANUAL TOPUP INSTRUCTION
+    elif data.startswith("man_topup_"):
+        uid = data.split("_")[2]
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"ℹ️ **MODE MANUAL**\n\nSilakan ketik perintah berikut:\n<code>/topup {uid} [JUMLAH_HARI]</code>", parse_mode='HTML')
+
+    elif data.startswith("view_"):
         nopol_target = data.replace("view_", ""); u = get_user(update.effective_user.id)
         res = supabase.table('kendaraan').select("*").eq('nopol', nopol_target).execute()
         if res.data: 
-            # [FIX] PASS UPDATE & CONTEXT CORRECTLY
             await show_unit_detail_original(update, context, res.data[0], u)
         else: await query.edit_message_text("❌ Data unit sudah tidak tersedia.")
     elif data.startswith("adm_promote_"):
@@ -841,14 +964,9 @@ async def callback_handler(update, context):
         try: await context.bot.send_message(uid, "🎉 **SELAMAT!** Anda telah diangkat menjadi **KORLAP**.")
         except: pass
     elif data.startswith("adm_demote_"): uid = int(data.split("_")[2]); supabase.table('users').update({'role': 'matel'}).eq('user_id', uid).execute(); await query.edit_message_text(f"⬇️ User {uid} DITURUNKAN jadi MATEL.")
-    elif data.startswith("adm_topup_"): topup_quota(int(data.split("_")[2]), int(data.split("_")[3])); await query.edit_message_text("✅ Topup OK.")
     elif data == "close_panel": await query.delete_message()
-    elif data.startswith("topup_"):
-        parts = data.split("_"); uid = int(parts[1])
-        if parts[2] == "rej": await context.bot.send_message(uid, "❌ Topup DITOLAK."); await query.edit_message_caption("❌ Ditolak.")
-        else: topup_quota(uid, int(parts[2])); await context.bot.send_message(uid, f"✅ Topup {parts[2]} OK."); await query.edit_message_caption("✅ Sukses.")
-    elif data.startswith("appu_"): update_user_status(data.split("_")[1], 'active'); await query.edit_message_text("✅ User ACC."); await context.bot.send_message(data.split("_")[1], "🎉 **AKUN AKTIF!**")
-    elif data.startswith("reju_"): update_user_status(data.split("_")[1], 'rejected'); await query.edit_message_text("❌ User TOLAK."); await context.bot.send_message(data.split("_")[1], "⛔ Ditolak.")
+    elif data.startswith("appu_"): update_user_status(data.split("_")[1], 'active'); await query.edit_message_text("✅ User ACC."); await context.bot.send_message(data.split("_")[1], "🎉 **AKUN AKTIF!**\nSelamat Datang di OneAspal.")
+    elif data.startswith("reju_"): update_user_status(data.split("_")[1], 'rejected'); await query.edit_message_text("❌ User TOLAK."); await context.bot.send_message(data.split("_")[1], "⛔ Pendaftaran Ditolak.")
     elif data.startswith("v_acc_"): n=data.split("_")[2]; item=context.bot_data.get(f"prop_{n}"); supabase.table('kendaraan').upsert(item).execute(); await query.edit_message_text("✅ Masuk DB."); await context.bot.send_message(data.split("_")[3], f"✅ Data `{n}` ACC.")
     elif data == "v_rej": await query.edit_message_text("❌ Data Ditolak.")
     elif data.startswith("del_acc_"): supabase.table('kendaraan').delete().eq('nopol', data.split("_")[2]).execute(); await query.edit_message_text("✅ Dihapus."); await context.bot.send_message(data.split("_")[3], "✅ Hapus ACC.")
@@ -856,7 +974,7 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.50 (BUTTON INTERACTION FIX) STARTING...")
+    print("🚀 ONEASPAL BOT v5.1 (UI REFINEMENT & MANUAL BUTTON) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
@@ -870,6 +988,7 @@ if __name__ == '__main__':
 
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('cekkuota', cek_kuota))
+    app.add_handler(CommandHandler('infobayar', info_bayar)) 
     app.add_handler(CommandHandler('topup', admin_topup))
     app.add_handler(CommandHandler('stats', get_stats))
     app.add_handler(CommandHandler('leasing', get_leasing_list)) 
@@ -890,5 +1009,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.50 - BUTTON INTERACTION FIX)")
+    print("✅ BOT ONLINE! (v5.1 - UI REFINEMENT & MANUAL BUTTON)")
     app.run_polling()
