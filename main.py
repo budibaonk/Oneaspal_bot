@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.44 (SAFETY CAST & DEBUGGER)                  #
+#                      VERSION: 4.45 (STRICT FILTERING FIX)                    #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -100,6 +100,9 @@ COLUMN_ALIASES = {
     'branch': ['branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 'wilayah', 'region', 'areaname', 'branchname', 'resort']
 }
 
+# DAFTAR KOLOM YANG VALID DI DATABASE (PENTING AGAR TIDAK ERROR PGRST204)
+VALID_DB_COLUMNS = ['nopol', 'type', 'finance', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'branch']
+
 # ##############################################################################
 # BAGIAN 3: DEFINISI STATE CONVERSATION
 # ##############################################################################
@@ -171,7 +174,7 @@ def standardize_leasing_name(name):
 
 
 # ##############################################################################
-# BAGIAN 5: ENGINE FILE (MILITARY GRADE V2)
+# BAGIAN 5: ENGINE FILE (MILITARY GRADE V3 - STRICT FILTER)
 # ##############################################################################
 
 def normalize_text(text):
@@ -180,17 +183,16 @@ def normalize_text(text):
 
 def fix_header_position(df):
     target = COLUMN_ALIASES['nopol']
-    for i in range(min(30, len(df))): # Scan sampai 30 baris
+    for i in range(min(30, len(df))): 
         vals = [normalize_text(str(x)) for x in df.iloc[i].values]
         if any(alias in vals for alias in target):
-            df.columns = df.iloc[i] # Set header baru
-            df = df.iloc[i+1:].reset_index(drop=True) # Potong data
+            df.columns = df.iloc[i] 
+            df = df.iloc[i+1:].reset_index(drop=True) 
             return df
     return df
 
 def smart_rename_columns(df):
     new = {}; found = []
-    # Bersihkan header dari spasi aneh
     df.columns = [str(c).strip() for c in df.columns]
     
     for col in df.columns:
@@ -221,7 +223,6 @@ def read_file_robust(content, fname):
     for s in seps:
         for e in encs:
             try:
-                # Quoting NONE is crucial for dirty CSVs
                 df = pd.read_csv(io.BytesIO(content), sep=s, dtype=str, encoding=e, engine='python', on_bad_lines='skip', quoting=csv.QUOTE_NONE)
                 if len(df.columns) > 1: return df
             except: continue
@@ -291,7 +292,7 @@ async def admin_action_complete(update, context):
 
 async def admin_help(update, context):
     if update.effective_user.id != ADMIN_ID: return
-    msg = ("🔐 **ADMIN COMMANDS v4.44**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
+    msg = ("🔐 **ADMIN COMMANDS v4.45**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def list_users(update, context):
@@ -341,7 +342,7 @@ async def get_stats(update, context):
         t = supabase.table('kendaraan').select("*", count="exact", head=True).execute().count
         u = supabase.table('users').select("*", count="exact", head=True).execute().count
         k = supabase.table('users').select("*", count="exact", head=True).eq('role', 'korlap').execute().count
-        await update.message.reply_text(f"📊 **STATS v4.44**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
+        await update.message.reply_text(f"📊 **STATS v4.45**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
     except: pass
 
 async def get_leasing_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -466,7 +467,7 @@ async def notify_hit_to_group(context, u, d):
 
 
 # ==============================================================================
-# BAGIAN 10: UPLOAD SYSTEM (DIAGNOSTIC & AUTO-FIX)
+# BAGIAN 10: UPLOAD SYSTEM (STRICT FILTER)
 # ==============================================================================
 
 async def upload_start(update, context):
@@ -482,7 +483,7 @@ async def upload_start(update, context):
             context.user_data['df'] = df.to_dict(orient='records')
             await msg.delete()
             fin_status = "✅ ADA" if 'finance' in df.columns else "⚠️ TIDAK ADA"
-            scan_report = (f"✅ <b>SCAN SUKSES (v4.44)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
+            scan_report = (f"✅ <b>SCAN SUKSES (v4.45)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
             await update.message.reply_text(scan_report, reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True), parse_mode='HTML')
             return U_LEASING_ADMIN
         except Exception as e: 
@@ -505,33 +506,36 @@ async def upload_leasing_admin(update, context):
     nm = nm.upper()
     df = pd.DataFrame(context.user_data['df'])
     
-    # [FIX] Force semua data jadi STRING agar tidak ditolak DB karena beda tipe
-    df = df.astype(str)
+    df = df.astype(str) # Force string type
     
-    # 1. HANDLE FINANCE
     if nm != 'SKIP': df['finance'] = standardize_leasing_name(nm); fin_disp = nm
     else: 
         if 'finance' in df.columns: df['finance'] = df['finance'].apply(standardize_leasing_name)
         else: df['finance'] = 'UNKNOWN'; fin_disp = "AUTO CLEAN"
 
-    # 2. VALIDASI NOPOL & BERSIH-BERSIH (AUTO FIX)
     if 'nopol' in df.columns:
-        # Bersihkan nopol
         df['nopol'] = df['nopol'].str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
-        # Hapus nopol kosong/pendek
         df = df[df['nopol'].str.len() > 2]
-        # Hapus duplikat
         df = df.drop_duplicates(subset=['nopol'], keep='last').replace({'nan': '-', 'None': '-', 'NaN': '-'})
         
-        # [AUTO-FIX] ISI KOLOM KOSONG DENGAN "-"
-        required_cols = ['type', 'warna', 'tahun', 'noka', 'nosin', 'ovd', 'branch']
-        for col in required_cols:
-            if col not in df.columns: df[col] = "-"
-            else: df[col] = df[col].replace('', '-')
+        # [CRITICAL FIX] FILTER HANYA KOLOM YANG ADA DI DB (BUANG SAMPAH SEPERTI 'NO', 'CG')
+        final_df = pd.DataFrame()
+        for col in VALID_DB_COLUMNS:
+            if col in df.columns:
+                final_df[col] = df[col]
+            else:
+                final_df[col] = "-" # Isi dash jika tidak ada di file excel
 
-        context.user_data['final_df'] = df.to_dict(orient='records')
-        s = df.iloc[0]
-        prev = (f"🔎 <b>PREVIEW DATA</b>\n━━━━━━━━━━━━━━━━━━\n🏦 <b>Mode:</b> {fin_disp}\n📊 <b>Total:</b> {len(df)} Data\n\n📝 <b>SAMPEL DATA BARIS 1:</b>\n🔹 Leasing: {s.get('finance','-')}\n🔹 Nopol: <code style='color:orange'>{s.get('nopol','-')}</code>\n🔹 Unit: {s.get('type','-')}\n🔹 Noka: {s.get('noka','-')}\n🔹 OVD: {s.get('ovd','-')}\n━━━━━━━━━━━━━━━━━━\n⚠️ <b>Silakan konfirmasi untuk menyimpan data.</b>")
+        context.user_data['final_df'] = final_df.to_dict(orient='records')
+        
+        # Preview ambil dari final_df agar akurat
+        if not final_df.empty:
+            s = final_df.iloc[0]
+            prev_info = f"🔹 Leasing: {s.get('finance','-')}\n🔹 Nopol: <code style='color:orange'>{s.get('nopol','-')}</code>"
+        else:
+            prev_info = "⚠️ Data Kosong setelah filtering"
+
+        prev = (f"🔎 <b>PREVIEW DATA</b>\n━━━━━━━━━━━━━━━━━━\n🏦 <b>Mode:</b> {fin_disp}\n📊 <b>Total:</b> {len(final_df)} Data\n\n📝 <b>SAMPEL DATA BARIS 1:</b>\n{prev_info}\n━━━━━━━━━━━━━━━━━━\n⚠️ <b>Silakan konfirmasi untuk menyimpan data.</b>")
         kb = [["🚀 UPDATE DATA"], ["🗑️ HAPUS MASSAL"], ["❌ BATAL"]]
         await update.message.reply_text(prev, reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True), parse_mode='HTML'); return U_CONFIRM_UPLOAD
     else:
@@ -568,7 +572,7 @@ async def upload_confirm_admin(update, context):
         except: pass
         
         status_msg = "✅ SUKSES" if suc > 0 else "❌ GAGAL TOTAL"
-        error_info = f"\n⚠️ <b>Last Error:</b> {last_error[:150]}..." if last_error else ""
+        error_info = f"\n⚠️ <b>Last Error:</b> {last_error[:100]}..." if last_error else ""
         
         report = (f"{status_msg}\n━━━━━━━━━━━━━━━━━━\n📊 <b>Berhasil Masuk:</b> {suc:,}\n❌ <b>Gagal:</b> {total_data - suc}\n⏱ <b>Waktu:</b> {dur} detik{error_info}")
         await update.message.reply_text(report, parse_mode='HTML')
@@ -819,7 +823,7 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.44 (DEBUGGER) STARTING...")
+    print("🚀 ONEASPAL BOT v4.45 (STRICT FILTER) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
@@ -853,5 +857,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.44 - SAFETY CAST)")
+    print("✅ BOT ONLINE! (v4.45 - STRICT FILTER)")
     app.run_polling()
