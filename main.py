@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 4.42 (ENGINE UPLOAD UPGRADED)                  #
+#                      VERSION: 4.44 (SAFETY CAST & DEBUGGER)                  #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -46,7 +46,7 @@ from telegram.ext import (
 from supabase import create_client, Client
 
 # ##############################################################################
-# BAGIAN 1: KONFIGURASI SISTEM & SECURITY
+# BAGIAN 1: KONFIGURASI SISTEM
 # ##############################################################################
 
 load_dotenv()
@@ -89,15 +89,15 @@ except Exception as e:
 # ##############################################################################
 
 COLUMN_ALIASES = {
-    'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'nomorplat', 'nomorkendaraan', 'tnkb', 'licenseplate', 'plat', 'police_no'],
-    'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'assetdescription', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'merkname', 'brand'],
+    'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'nomorplat', 'nomorkendaraan', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'no. polisi'],
+    'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'assetdescription', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'merkname', 'brand', 'product'],
     'tahun': ['tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture', 'assetyear', 'manufacturingyear'],
     'warna': ['warna', 'color', 'colour', 'cat', 'kelir', 'assetcolour'],
-    'noka': ['noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 'rangka', 'chassisno', 'vinno', 'serial_number', 'bodyno', 'frameno'],
-    'nosin': ['nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'engineno', 'noengine', 'engine_number', 'machineno', 'mesinno'],
+    'noka': ['noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 'rangka', 'chassisno', 'vinno', 'serial_number', 'bodyno', 'frameno', 'no rangka', 'no. rangka'],
+    'nosin': ['nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'engineno', 'noengine', 'engine_number', 'machineno', 'mesinno', 'no mesin', 'no. mesin'],
     'finance': ['finance', 'leasing', 'lising', 'multifinance', 'cabang', 'partner', 'mitra', 'principal', 'company', 'client'],
-    'ovd': ['ovd', 'overdue', 'dpd', 'keterlambatan', 'odh', 'hari', 'telat', 'aging', 'od', 'bucket', 'daysoverdue'],
-    'branch': ['branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 'wilayah', 'region', 'areaname', 'branchname']
+    'ovd': ['ovd', 'overdue', 'dpd', 'keterlambatan', 'odh', 'hari', 'telat', 'aging', 'od', 'bucket', 'daysoverdue', 'osp'],
+    'branch': ['branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 'wilayah', 'region', 'areaname', 'branchname', 'resort']
 }
 
 # ##############################################################################
@@ -167,17 +167,11 @@ def standardize_leasing_name(name):
     clean = str(name).upper().strip()
     clean = re.sub(r'^\d+\s+', '', clean)
     clean = re.sub(r'\(.*?\)', '', clean).strip()
-    mapping = {
-        "OTTO": "OTO", "OTTO.COM": "OTO", "BRI FINANCE": "BRI",
-        "WOORI FINANCE": "WOORI", "TRUE FINANCE": "TRUE",
-        "APOLLO FINANCE": "APOLLO", "SMART FINANCE": "SMART",
-        "MITSUI": "MITSUI LEASING"
-    }
-    return mapping.get(clean, clean)
+    return clean
 
 
 # ##############################################################################
-# BAGIAN 5: ENGINE FILE (UPGRADED: MILITARY GRADE READER)
+# BAGIAN 5: ENGINE FILE (MILITARY GRADE V2)
 # ##############################################################################
 
 def normalize_text(text):
@@ -186,16 +180,19 @@ def normalize_text(text):
 
 def fix_header_position(df):
     target = COLUMN_ALIASES['nopol']
-    for i in range(min(20, len(df))):
+    for i in range(min(30, len(df))): # Scan sampai 30 baris
         vals = [normalize_text(str(x)) for x in df.iloc[i].values]
         if any(alias in vals for alias in target):
-            df.columns = df.iloc[i]
-            df = df.iloc[i+1:].reset_index(drop=True)
+            df.columns = df.iloc[i] # Set header baru
+            df = df.iloc[i+1:].reset_index(drop=True) # Potong data
             return df
     return df
 
 def smart_rename_columns(df):
     new = {}; found = []
+    # Bersihkan header dari spasi aneh
+    df.columns = [str(c).strip() for c in df.columns]
+    
     for col in df.columns:
         clean = normalize_text(col); renamed = False
         for std, aliases in COLUMN_ALIASES.items():
@@ -206,81 +203,29 @@ def smart_rename_columns(df):
     return df, found
 
 def read_file_robust(content, fname):
-    # 1. HANDLE ZIP
     if fname.lower().endswith('.zip'):
         with zipfile.ZipFile(io.BytesIO(content)) as z:
             valid = [f for f in z.namelist() if not f.startswith('__') and f.lower().endswith(('.csv','.xlsx','.xls','.txt'))]
             if not valid: raise ValueError("ZIP Kosong")
             with z.open(valid[0]) as f: content = f.read(); fname = valid[0]
      
-    # 2. HANDLE EXCEL
     if fname.lower().endswith(('.xlsx', '.xls')):
         try: return pd.read_excel(io.BytesIO(content), dtype=str)
         except: 
             try: return pd.read_excel(io.BytesIO(content), dtype=str, engine='openpyxl')
             except: pass 
             
-    # 3. HANDLE SPECIAL TXT
-    if fname.lower().endswith('.txt'):
-        try:
-            text_data = content.decode('utf-8', errors='ignore')
-            if "NOSIN;" in text_data and "NOKA;" in text_data:
-                parsed_data = []
-                lines = text_data.split('\n')
-                for line in lines:
-                    line = line.strip()
-                    if not line or "NOPOL" in line: continue 
-                    try:
-                        parts = line.split(maxsplit=1)
-                        if len(parts) < 2: continue
-                        nopol = parts[0]
-                        rest = parts[1]
-                        
-                        unit_match = re.search(r'UNIT;(.*?)NOSIN;', rest)
-                        unit_raw = unit_match.group(1).strip() if unit_match else ""
-                        nosin_match = re.search(r'NOSIN;(.*?)NOKA;', rest)
-                        nosin = nosin_match.group(1).strip() if nosin_match else ""
-                        noka_match = re.search(r'NOKA;(.*)', rest)
-                        noka = noka_match.group(1).strip() if noka_match else ""
-                        
-                        unit_parts = unit_raw.split('/')
-                        if len(unit_parts) >= 3:
-                            tahun = unit_parts[-1].strip()
-                            if not (tahun.isdigit() and len(tahun)==4): tahun = "" 
-                            type_unit = "/".join(unit_parts[:-1]) 
-                        else:
-                            type_unit = unit_raw; tahun = ""
-
-                        parsed_data.append({
-                            'nopol': nopol, 'type': type_unit, 'tahun': tahun,
-                            'nosin': nosin, 'noka': noka, 'finance': 'TAF' 
-                        })
-                    except: continue
-                if parsed_data: return pd.DataFrame(parsed_data)
-        except Exception as e: print(f"⚠️ Gagal parse TXT: {e}")
-
-    # 4. HANDLE CSV (MILITARY GRADE - ANTI CRASH)
-    encs = ['utf-8-sig', 'utf-8', 'cp1252', 'latin1', 'ISO-8859-1']
-    seps = [';', ',', '\t', '|', None] # Prioritaskan Titik Koma (;)
+    encs = ['utf-8-sig', 'utf-8', 'latin1', 'cp1252']
+    seps = [';', ',', '\t', '|'] 
     
-    for e in encs:
-        for s in seps:
+    for s in seps:
+        for e in encs:
             try:
-                # [UPDATE] PAKAI QUOTE_NONE AGAR LEBIH KEBAL
-                df = pd.read_csv(
-                    io.BytesIO(content), 
-                    sep=s, 
-                    dtype=str, 
-                    encoding=e, 
-                    engine='python', 
-                    on_bad_lines='skip',
-                    quoting=csv.QUOTE_NONE 
-                )
+                # Quoting NONE is crucial for dirty CSVs
+                df = pd.read_csv(io.BytesIO(content), sep=s, dtype=str, encoding=e, engine='python', on_bad_lines='skip', quoting=csv.QUOTE_NONE)
                 if len(df.columns) > 1: return df
-            except: 
-                continue
+            except: continue
             
-    # Fallback terakhir
     return pd.read_csv(io.BytesIO(content), sep=None, engine='python', dtype=str)
 
 
@@ -309,8 +254,7 @@ async def reject_start(update, context):
 
 async def reject_complete(update, context):
     if update.message.text == "❌ BATAL": return await cancel(update, context)
-    target_uid = context.user_data.get('reject_target_uid')
-    reason = update.message.text
+    target_uid = context.user_data.get('reject_target_uid'); reason = update.message.text
     try: supabase.table('users').delete().eq('user_id', target_uid).execute()
     except: pass
     try: 
@@ -347,7 +291,7 @@ async def admin_action_complete(update, context):
 
 async def admin_help(update, context):
     if update.effective_user.id != ADMIN_ID: return
-    msg = ("🔐 **ADMIN COMMANDS v4.42**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
+    msg = ("🔐 **ADMIN COMMANDS v4.44**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [JML]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def list_users(update, context):
@@ -397,7 +341,7 @@ async def get_stats(update, context):
         t = supabase.table('kendaraan').select("*", count="exact", head=True).execute().count
         u = supabase.table('users').select("*", count="exact", head=True).execute().count
         k = supabase.table('users').select("*", count="exact", head=True).eq('role', 'korlap').execute().count
-        await update.message.reply_text(f"📊 **STATS v4.42**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
+        await update.message.reply_text(f"📊 **STATS v4.44**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
     except: pass
 
 async def get_leasing_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -494,12 +438,10 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
     kb = [[InlineKeyboardButton("✅ 50", callback_data=f"topup_{u['user_id']}_50"), InlineKeyboardButton("✅ 100", callback_data=f"topup_{u['user_id']}_100")], [InlineKeyboardButton("❌ TOLAK", callback_data=f"topup_{u['user_id']}_rej")]]
     await context.bot.send_photo(ADMIN_ID, update.message.photo[-1].file_id, caption=msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
 
-# --- NOTIFIKASI HIT KE GROUP (RESTORED) ---
 async def notify_hit_to_group(context, u, d):
     try:
         if LOG_GROUP_ID == 0: return
         hp_raw = u.get('no_hp', '-'); hp_wa = '62' + hp_raw[1:] if hp_raw.startswith('0') else hp_raw
-        
         msg = (
             f"🚨 <b>UNIT DITEMUKAN! (HIT)</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
@@ -520,12 +462,11 @@ async def notify_hit_to_group(context, u, d):
         )
         kb = [[InlineKeyboardButton("📞 Hubungi Penemu (WA)", url=f"https://wa.me/{hp_wa}")]]
         await context.bot.send_message(LOG_GROUP_ID, msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
-    except Exception as e:
-        logger.error(f"Fail notif group: {e}")
+    except Exception as e: logger.error(f"Fail notif group: {e}")
 
 
 # ==============================================================================
-# BAGIAN 10: UPLOAD SYSTEM
+# BAGIAN 10: UPLOAD SYSTEM (DIAGNOSTIC & AUTO-FIX)
 # ==============================================================================
 
 async def upload_start(update, context):
@@ -535,14 +476,13 @@ async def upload_start(update, context):
         msg = await update.message.reply_text("⏳ **Menganalisa File...**", parse_mode='Markdown')
         try:
             f = await update.message.document.get_file(); c = await f.download_as_bytearray()
-            # [UPGRADE ENGINE BACA v4.42]
             df = read_file_robust(c, update.message.document.file_name)
             df = fix_header_position(df)
             df, found = smart_rename_columns(df)
             context.user_data['df'] = df.to_dict(orient='records')
             await msg.delete()
             fin_status = "✅ ADA" if 'finance' in df.columns else "⚠️ TIDAK ADA"
-            scan_report = (f"✅ <b>SCAN SUKSES (v4.42)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
+            scan_report = (f"✅ <b>SCAN SUKSES (v4.44)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
             await update.message.reply_text(scan_report, reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True), parse_mode='HTML')
             return U_LEASING_ADMIN
         except Exception as e: 
@@ -564,11 +504,31 @@ async def upload_leasing_admin(update, context):
     if nm == "❌ BATAL": return await cancel(update, context)
     nm = nm.upper()
     df = pd.DataFrame(context.user_data['df'])
+    
+    # [FIX] Force semua data jadi STRING agar tidak ditolak DB karena beda tipe
+    df = df.astype(str)
+    
+    # 1. HANDLE FINANCE
     if nm != 'SKIP': df['finance'] = standardize_leasing_name(nm); fin_disp = nm
-    else: df['finance'] = df['finance'].apply(standardize_leasing_name) if 'finance' in df.columns else 'UNKNOWN'; fin_disp = "AUTO CLEAN"
+    else: 
+        if 'finance' in df.columns: df['finance'] = df['finance'].apply(standardize_leasing_name)
+        else: df['finance'] = 'UNKNOWN'; fin_disp = "AUTO CLEAN"
+
+    # 2. VALIDASI NOPOL & BERSIH-BERSIH (AUTO FIX)
     if 'nopol' in df.columns:
-        df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
-        df = df.drop_duplicates(subset=['nopol'], keep='last').replace({np.nan: None})
+        # Bersihkan nopol
+        df['nopol'] = df['nopol'].str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
+        # Hapus nopol kosong/pendek
+        df = df[df['nopol'].str.len() > 2]
+        # Hapus duplikat
+        df = df.drop_duplicates(subset=['nopol'], keep='last').replace({'nan': '-', 'None': '-', 'NaN': '-'})
+        
+        # [AUTO-FIX] ISI KOLOM KOSONG DENGAN "-"
+        required_cols = ['type', 'warna', 'tahun', 'noka', 'nosin', 'ovd', 'branch']
+        for col in required_cols:
+            if col not in df.columns: df[col] = "-"
+            else: df[col] = df[col].replace('', '-')
+
         context.user_data['final_df'] = df.to_dict(orient='records')
         s = df.iloc[0]
         prev = (f"🔎 <b>PREVIEW DATA</b>\n━━━━━━━━━━━━━━━━━━\n🏦 <b>Mode:</b> {fin_disp}\n📊 <b>Total:</b> {len(df)} Data\n\n📝 <b>SAMPEL DATA BARIS 1:</b>\n🔹 Leasing: {s.get('finance','-')}\n🔹 Nopol: <code style='color:orange'>{s.get('nopol','-')}</code>\n🔹 Unit: {s.get('type','-')}\n🔹 Noka: {s.get('noka','-')}\n🔹 OVD: {s.get('ovd','-')}\n━━━━━━━━━━━━━━━━━━\n⚠️ <b>Silakan konfirmasi untuk menyimpan data.</b>")
@@ -582,8 +542,10 @@ async def upload_confirm_admin(update, context):
     if act == "❌ BATAL": return await cancel(update, context)
     msg = await update.message.reply_text("⏳ <b>MEMULAI UPDATE DATABASE...</b>\nMohon tunggu, jangan matikan bot...", parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
     data = context.user_data.get('final_df'); total_data = len(data); suc = 0; start_t = time.time()
+    last_error = ""
+    
     try:
-        BATCH = 1000 
+        BATCH = 100 
         list_nopol = [x['nopol'] for x in data] if act == "🗑️ HAPUS MASSAL" else []
         for i in range(0, total_data, BATCH):
             chunk = data[i:i+BATCH]
@@ -591,15 +553,24 @@ async def upload_confirm_admin(update, context):
                 if act == "🚀 UPDATE DATA": supabase.table('kendaraan').upsert(chunk, on_conflict='nopol').execute()
                 elif act == "🗑️ HAPUS MASSAL": supabase.table('kendaraan').delete().in_('nopol', list_nopol[i:i+BATCH]).execute()
                 suc += len(chunk)
-            except Exception as e: print(f"⚠️ Batch Error: {e}"); continue
-            if i > 0 and i % 10000 == 0:
+            except Exception as e: 
+                print(f"⚠️ Batch Error: {e}")
+                last_error = str(e) 
+                continue
+            
+            if i > 0 and i % 5000 == 0:
                 try: await msg.edit_text(f"⏳ <b>MEMPROSES DATA...</b>\n🚀 {i:,} / {total_data:,} data...", parse_mode='HTML')
                 except: pass 
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.05)
+            
         dur = round(time.time() - start_t, 2)
         try: await msg.delete()
         except: pass
-        report = (f"✅ <b>**UPLOAD SUKSES 100%!**</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>**Total Data:**</b> {suc:,}\n❌ <b>**Gagal:**</b> {total_data - suc}\n⏱ <b>**Waktu:**</b> {dur} detik\n🚀 <b>**Status:**</b> Database Updated Successfully!")
+        
+        status_msg = "✅ SUKSES" if suc > 0 else "❌ GAGAL TOTAL"
+        error_info = f"\n⚠️ <b>Last Error:</b> {last_error[:150]}..." if last_error else ""
+        
+        report = (f"{status_msg}\n━━━━━━━━━━━━━━━━━━\n📊 <b>Berhasil Masuk:</b> {suc:,}\n❌ <b>Gagal:</b> {total_data - suc}\n⏱ <b>Waktu:</b> {dur} detik{error_info}")
         await update.message.reply_text(report, parse_mode='HTML')
     except Exception as e: await update.message.reply_text(f"❌ <b>SYSTEM ERROR:</b>\n{e}", parse_mode='HTML')
     return ConversationHandler.END
@@ -683,7 +654,6 @@ async def panduan(update, context):
     else: msg = ("📖 <b>PANDUAN PENGGUNAAN ONEASPAL</b>\n\n1️⃣ <b>Cari Data Kendaraan</b>\n   - Ketik Nopol secara lengkap atau sebagian.\n   - Contoh: <code>B 1234 ABC</code> atau <code>1234</code>\n\n2️⃣ <b>Upload File (Mitra)</b>\n   - Kirim file Excel/CSV/ZIP ke bot ini.\n   - Bot akan membaca otomatis.\n\n3️⃣ <b>Upload Satuan / Kiriman</b>\n   - Gunakan perintah /tambah untuk input data manual.\n\n4️⃣ <b>Lapor Unit Selesai</b>\n   - Gunakan perintah /lapor jika unit sudah ditarik.\n\n5️⃣ <b>Cek Kuota</b>\n   - Ketik /cekkuota untuk melihat sisa HIT.\n\n6️⃣ <b>Bantuan Admin</b>\n   - Ketik /admin [pesan] untuk support.")
     await update.message.reply_text(msg, parse_mode='HTML')
 
-# --- MAIN SEARCH HANDLER (SMART LOGIC) ---
 async def handle_message(update, context):
     text = update.message.text
     if text == "🔄 SINKRONISASI DATA": return await upload_start(update, context)
@@ -699,50 +669,34 @@ async def handle_message(update, context):
     if len(kw) < 3: return await update.message.reply_text("⚠️ Minimal 3 karakter.")
 
     try:
-        # 1. CARI DATABASE
         res = supabase.table('kendaraan').select("*").or_(f"nopol.ilike.%{kw}%,noka.eq.{kw},nosin.eq.{kw}").limit(20).execute()
         data_found = res.data
         if not data_found: 
             await update.message.reply_text(f"❌ <b>TIDAK DITEMUKAN</b>\n<code>{kw}</code>", parse_mode='HTML')
             return
 
-        # 2. SMART FILTER
-        final_result = None
-        exact_match = False
+        final_result = None; exact_match = False
         for item in data_found:
             clean_db_nopol = re.sub(r'[^a-zA-Z0-9]', '', item['nopol']).upper()
-            if clean_db_nopol == kw:
-                final_result = item
-                exact_match = True
-                break
+            if clean_db_nopol == kw: final_result = item; exact_match = True; break
         
-        # 3. TENTUKAN TAMPILAN
-        if exact_match:
-            await show_unit_detail_original(update, context, final_result, u)
-        elif len(data_found) == 1:
-            await show_unit_detail_original(update, context, data_found[0], u)
-        else:
-            await show_multi_choice(update, context, data_found, kw)
+        if exact_match: await show_unit_detail_original(update, context, final_result, u)
+        elif len(data_found) == 1: await show_unit_detail_original(update, context, data_found[0], u)
+        else: await show_multi_choice(update, context, data_found, kw)
+    except Exception as e: logger.error(f"Search error: {e}"); await update.message.reply_text("❌ Error DB.")
 
-    except Exception as e: 
-        logger.error(f"Search error: {e}")
-        await update.message.reply_text("❌ Error DB.")
-
-# --- FUNGSI TAMPILAN DETAIL (RESTORED TOTAL) ---
 async def show_unit_detail_original(update, context, d, u):
     update_quota_usage(u['user_id'], u['quota'])
     info_txt = f"📢 <b>INFO:</b> {clean_text(GLOBAL_INFO)}\n━━━━━━━━━━━━━━━━━━\n" if GLOBAL_INFO else ""
-    
     txt = (
-        f"{info_txt}✅ <b>DATA DITEMUKAN</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
+        f"{info_txt}✅ <b>DATA DITEMUKAN</b>\n━━━━━━━━━━━━━━━━━━\n"
         f"🚙 <b>Unit:</b> {clean_text(d.get('type'))}\n"
         f"🔢 <b>Nopol:</b> <code>{clean_text(d.get('nopol'))}</code>\n"
         f"📅 <b>Tahun:</b> {clean_text(d.get('tahun'))}\n"
         f"🎨 <b>Warna:</b> {clean_text(d.get('warna'))}\n"
         f"----------------------------------\n"
         f"🔧 <b>Noka:</b> <code>{clean_text(d.get('noka'))}</code>\n"
-        f"⚙️ <b>Nosin:</b> <code>{clean_text(d.get('nosin'))}</code>\n"
+        f"⚙ <b>Nosin:</b> <code>{clean_text(d.get('nosin'))}</code>\n"
         f"----------------------------------\n"
         f"⚠️ <b>OVD:</b> {clean_text(d.get('ovd'))}\n"
         f"🏦 <b>Finance:</b> {clean_text(d.get('finance'))}\n"
@@ -751,11 +705,9 @@ async def show_unit_detail_original(update, context, d, u):
         f"⚠️ <b>CATATAN PENTING:</b>\n"
         f"<i>Ini bukan alat yang SAH untuk penarikan. Konfirmasi ke PIC leasing.</i>"
     )
-    
     await update.message.reply_text(txt, parse_mode='HTML')
     await notify_hit_to_group(context, u, d)
 
-# --- FUNGSI PILIHAN GANDA (SMART) ---
 async def show_multi_choice(update, context, data_list, keyword):
     txt = f"🔎 Ditemukan **{len(data_list)} data** mirip '`{keyword}`':\n\n"
     keyboard = []
@@ -769,7 +721,7 @@ async def show_multi_choice(update, context, data_list, keyword):
 
 
 # ==============================================================================
-# BAGIAN 13: HANDLER KONVERSASI (LAPOR + TAMBAH + HAPUS)
+# BAGIAN 13: HANDLER KONVERSASI
 # ==============================================================================
 
 async def add_data_start(update, context):
@@ -839,7 +791,6 @@ async def delete_unit_confirm(update, context):
 
 async def cancel(update, context): await update.message.reply_text("🚫 Batal.", reply_markup=ReplyKeyboardRemove()); return ConversationHandler.END
 
-# --- MASTER CALLBACK HANDLER ---
 async def callback_handler(update, context):
     query = update.callback_query; await query.answer(); data = query.data 
     if data.startswith("view_"):
@@ -868,7 +819,7 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v4.42 (UPGRADED) STARTING...")
+    print("🚀 ONEASPAL BOT v4.44 (DEBUGGER) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
@@ -902,5 +853,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v4.42 - UPGRADED)")
+    print("✅ BOT ONLINE! (v4.44 - SAFETY CAST)")
     app.run_polling()
