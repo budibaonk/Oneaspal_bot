@@ -815,8 +815,44 @@ async def start(update, context):
 
 async def panduan(update, context):
     u = get_user(update.effective_user.id)
-    if u and u.get('role') == 'pic': msg = ("📖 <b>PANDUAN ENTERPRISE</b>\n\n<b>1. Sinkronisasi Data</b>\nTekan '🔄 SINKRONISASI DATA', kirim file Excel.\n\n<b>2. Monitoring</b>\nKetik Nopol di kolom chat.\n\n<b>3. Akun</b>\nTekan '📂 DATABASE SAYA'.")
-    else: msg = ("📖 <b>PANDUAN PENGGUNAAN ONEASPAL</b>\n\n1️⃣ <b>Cari Data Kendaraan</b>\n   - Ketik Nopol secara lengkap atau sebagian.\n   - Contoh: <code>B 1234 ABC</code> atau <code>1234</code>\n\n2️⃣ <b>Upload File (Mitra)</b>\n   - Kirim file Excel/CSV/ZIP ke bot ini.\n   - Bot akan membaca otomatis.\n\n3️⃣ <b>Upload Satuan / Kiriman</b>\n   - Gunakan perintah /tambah untuk input data manual.\n\n4️⃣ <b>Lapor Unit Selesai</b>\n   - Gunakan perintah /lapor jika unit sudah ditarik.\n\n5️⃣ <b>Cek Kuota</b>\n   - Ketik /cekkuota untuk melihat sisa HIT.\n\n6️⃣ <b>Bantuan Admin</b>\n   - Ketik /admin [pesan] untuk support.\n7️⃣ <b>Perpanjang Langganan</b>\n   - Ketik /infobayar untuk Topup.")
+    if u and u.get('role') == 'pic': 
+        # PANDUAN KHUSUS PIC LEASING (ENTERPRISE)
+        msg = (
+            "📖 <b>PANDUAN ENTERPRISE WORKSPACE</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "1️⃣ <b>SINKRONISASI DATA (Private Cloud)</b>\n"
+            "• Klik tombol <b>🔄 SINKRONISASI DATA</b>.\n"
+            "• Upload file Excel data tarikan Anda.\n"
+            "• Data akan diamankan di server pribadi (Tidak terlihat user lain).\n\n"
+            "2️⃣ <b>MONITORING UNIT</b>\n"
+            "• Sistem bekerja otomatis 24 jam.\n"
+            "• Jika Matel menemukan unit Anda, Notifikasi akan masuk ke:\n"
+            "   👉 <b>GRUP LEASING OFFICIAL</b> (Pastikan Grup sudah didaftarkan).\n\n"
+            "3️⃣ <b>MANAJEMEN ARSIP</b>\n"
+            "• Untuk menghapus data unit yang sudah lunas/aman, gunakan fitur <b>Update/Hapus Massal</b> saat upload file baru.\n\n"
+            "<i>Butuh bantuan? Klik tombol 📞 BANTUAN TEKNIS.</i>"
+        )
+    else: 
+        # PANDUAN UNTUK MATEL / UMUM
+        msg = (
+            "📖 <b>PANDUAN PENGGUNAAN ONEASPAL</b>\n\n"
+            "1️⃣ <b>Cari Data Kendaraan</b>\n"
+            "   - Ketik Nopol secara lengkap atau sebagian.\n"
+            "   - Contoh: <code>B 1234 ABC</code> atau <code>1234</code>\n\n"
+            "2️⃣ <b>Upload File (Mitra)</b>\n"
+            "   - Kirim file Excel/CSV/ZIP ke bot ini.\n"
+            "   - Bot akan membaca otomatis.\n\n"
+            "3️⃣ <b>Upload Satuan / Kiriman</b>\n"
+            "   - Gunakan perintah /tambah untuk input data manual.\n\n"
+            "4️⃣ <b>Lapor Unit Selesai</b>\n"
+            "   - Gunakan perintah /lapor jika unit sudah ditarik.\n\n"
+            "5️⃣ <b>Cek Kuota</b>\n"
+            "   - Ketik /cekkuota untuk melihat sisa HIT.\n\n"
+            "6️⃣ <b>Bantuan Admin</b>\n"
+            "   - Ketik /admin [pesan] untuk support.\n"
+            "7️⃣ <b>Perpanjang Langganan</b>\n"
+            "   - Ketik /infobayar untuk Topup."
+        )
     await update.message.reply_text(msg, parse_mode='HTML')
 
 async def handle_message(update, context):
@@ -877,9 +913,10 @@ async def show_unit_detail_original(update, context, d, u):
         f"<i>Ini bukan alat yang SAH untuk penarikan. Konfirmasi ke PIC leasing.</i>"
     )
     await context.bot.send_message(chat_id=update.effective_chat.id, text=txt, parse_mode='HTML')
-    # [V5.5] UPDATED NOTIFICATION SYSTEM (GROUP BASED)
-    await notify_hit_to_group(context, u, d)  # Lapor ke Grup Log (Untuk Admin)
-    await notify_leasing_group(context, u, d) # Lapor ke Grup Leasing (Untuk Boss)
+    
+    # [V5.5 FIX] HANYA GROUP NOTIFIKASI (JAPRI DIMATIKAN)
+    await notify_hit_to_group(context, u, d)  # Lapor ke Grup Log Admin
+    await notify_leasing_group(context, u, d) # Lapor ke Grup Leasing (BCA/Adira/dll)
 
 async def show_multi_choice(update, context, data_list, keyword):
     txt = f"🔎 Ditemukan **{len(data_list)} data** mirip '`{keyword}`':\n\n"
