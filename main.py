@@ -1010,10 +1010,26 @@ async def callback_handler(update, context):
         update_user_status(target_uid, 'active')
         target_user = get_user(target_uid)
         await query.edit_message_text(f"✅ User {target_uid} telah Diaktifkan.")
+        
+        # --- MULAI EDIT DARI SINI ---
         if target_user and target_user.get('role') == 'pic':
-            msg_pic = (f"🎉 <b>AKUN ENTERPRISE AKTIF!</b>\nSelamat, akun PIC Leasing Anda telah diverifikasi.\n\n🔐 <b>FITUR PRIVATE CLOUD (Blind Check System)</b>\nAnda kini dapat menggunakan fitur <b>Sinkronisasi Data</b> untuk mengamankan data tarikan Anda.\n\n✅ <b>AMAN & SESUAI SOP:</b>\nData yang Anda upload <b>TIDAK BISA</b> dilihat/didownload user lain. Sistem hanya mencocokkan Nopol saat ada unit lewat.\nIni bukan 'menyebar data', melainkan <b>Arsip Digital</b> untuk menunjang performa recovery Anda.\n\n👉 <b>Cara Pakai:</b> Klik tombol <b>🔄 SINKRONISASI DATA</b> di menu utama.")
+            # Ambil nama asli user biar personal (Bukan "Pak Ujang" statis, tapi dinamis)
+            nama_pic = clean_text(target_user.get('nama_lengkap', 'Partner'))
+            
+            msg_pic = (
+                f"Selamat Pagi, Pak {nama_pic}.\n\n"
+                f"Izin memperkenalkan fitur <b>Private Enterprise</b> di OneAspal Bot.\n\n"
+                f"Kami menyediakan <b>Private Cloud</b> agar Bapak bisa menyimpan data kendaraan dengan aman menggunakan <b>Blind Check System</b>.\n\n"
+                f"🔐 <b>Keamanan Data:</b>\n"
+                f"Di sistem ini, Bapak <b>TIDAK</b> dikategorikan menyebarkan data kepada orang lain (Aman secara SOP). Bapak hanya mengarsipkan data digital untuk menunjang <b>Performance Pekerjaan</b> Bapak sendiri.\n\n"
+                f"Data Bapak <b>TIDAK BISA</b> dilihat atau didownload user lain. Sistem hanya akan memberi notifikasi kepada Bapak jika unit tersebut ditemukan di lapangan.\n\n"
+                f"Silakan dicoba fitur <b>Upload Data</b>-nya, Pak (Menu Sinkronisasi).\n\n"
+                f"<i>Jika ada pertanyaan, silakan balas pesan ini melalui tombol <b>📞 BANTUAN TEKNIS</b> di menu utama.</i>"
+            )
             try: await context.bot.send_message(target_uid, msg_pic, parse_mode='HTML')
             except: pass
+        # --- BATAS AKHIR EDIT ---
+        
         else:
             try: await context.bot.send_message(target_uid, "🎉 **AKUN AKTIF!**\nSelamat Datang di OneAspal. Silakan gunakan bot dengan bijak.", parse_mode='Markdown')
             except: pass
