@@ -660,39 +660,92 @@ async def upload_leasing_user(update, context):
     await update.message.reply_text(resp, parse_mode='Markdown'); return ConversationHandler.END
 
 async def upload_leasing_admin(update, context):
-    nm = update.message.text
-    if nm == "❌ BATAL": return await cancel(update, context)
-    nm = nm.upper()
-    df = pd.DataFrame(context.user_data['df'])
-    df = df.astype(str) # Force string
-    
-    if nm != 'SKIP': df['finance'] = standardize_leasing_name(nm); fin_disp = nm
-    else: 
-        if 'finance' in df.columns: df['finance'] = df['finance'].apply(standardize_leasing_name)
-        else: df['finance'] = 'UNKNOWN'; fin_disp = "AUTO CLEAN"
-
-    if 'nopol' in df.columns:
-        df['nopol'] = df['nopol'].str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
-        df = df[df['nopol'].str.len() > 2]
-        df = df.drop_duplicates(subset=['nopol'], keep='last').replace({'nan': '-', 'None': '-', 'NaN': '-'})
+    try:
+        nm = update.message.text
+        if nm == "❌ BATAL": return await cancel(update, context)
         
-        final_df = pd.DataFrame()
-        for col in VALID_DB_COLUMNS:
-            if col in df.columns: final_df[col] = df[col]
-            else: final_df[col] = "-"
-
-        context.user_data['final_df'] = final_df.to_dict(orient='records')
+        # [FIX 1] Tambahkan .strip() agar "SKIP " (pakai spasi) tetap terbaca "SKIP"
+        nm = nm.upper().strip()
         
-        if not final_df.empty:
-            s = final_df.iloc[0]
-            prev_info = (f"🔹 Leasing: {s.get('finance','-')}\n🔹 Nopol: <code style='color:orange'>{s.get('nopol','-')}</code>\n🔹 Unit: {s.get('type','-')}\n🔹 Noka: {s.get('noka','-')}\n🔹 OVD: {s.get('ovd','-')}")
-        else: prev_info = "⚠️ Data Kosong setelah filtering"
+        # Load Dataframe dari memory
+        if 'df' not in context.user_data:
+            await update.message.reply_text("❌ Sesi kedaluwarsa. Silakan upload ulang file.")
+            return ConversationHandler.END
+            
+        df = pd.DataFrame(context.user_data['df'])
+        df = df.astype(str) # Paksa semua jadi string untuk mencegah error tipe data
+        
+        # Logika Penentuan Nama Leasing
+        if nm != 'SKIP': 
+            # Jika Manual: Timpa semua kolom finance dengan nama baru
+            df['finance'] = standardize_leasing_name(nm)
+            fin_disp = nm
+        else: 
+            # [FIX 2] Logika SKIP yang lebih aman
+            if 'finance' in df.columns: 
+                # Apply standardize aman karena sudah di-astype(str)
+                df['finance'] = df['finance'].apply(standardize_leasing_name)
+                fin_disp = "AUTO (DARI FILE)"
+            else: 
+                df['finance'] = 'UNKNOWN'
+                fin_disp = "AUTO CLEAN (KOSONG)"
 
-        prev = (f"🔎 <b>PREVIEW DATA</b>\n━━━━━━━━━━━━━━━━━━\n🏦 <b>Mode:</b> {fin_disp}\n📊 <b>Total:</b> {len(final_df)} Data\n\n📝 <b>SAMPEL DATA BARIS 1:</b>\n{prev_info}\n━━━━━━━━━━━━━━━━━━\n⚠️ <b>Silakan konfirmasi untuk menyimpan data.</b>")
-        kb = [["🚀 UPDATE DATA"], ["🗑️ HAPUS MASSAL"], ["❌ BATAL"]]
-        await update.message.reply_text(prev, reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True), parse_mode='HTML'); return U_CONFIRM_UPLOAD
-    else:
-        await update.message.reply_text("❌ <b>ERROR:</b> Kolom NOPOL tidak ditemukan.\nPastikan file memiliki header: <i>No Polisi, Plat, Nopolisi</i>, dll.", parse_mode='HTML'); return ConversationHandler.END
+        # Filtering Nopol (Hanya ambil yang valid)
+        if 'nopol' in df.columns:
+            # Bersihkan Nopol
+            df['nopol'] = df['nopol'].str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
+            
+            # Filter Nopol yang terlalu pendek (sampah)
+            df = df[df['nopol'].str.len() > 2]
+            
+            # Hapus duplikat, ambil data baris terakhir
+            df = df.drop_duplicates(subset=['nopol'], keep='last')
+            
+            # Bersihkan nilai 'nan', 'None' menjadi '-'
+            df = df.replace({'nan': '-', 'None': '-', 'NaN': '-'})
+            
+            # Susun Final Dataframe sesuai kolom DB
+            final_df = pd.DataFrame()
+            for col in VALID_DB_COLUMNS:
+                if col in df.columns: final_df[col] = df[col]
+                else: final_df[col] = "-"
+
+            context.user_data['final_df'] = final_df.to_dict(orient='records')
+            
+            # Generate Preview
+            if not final_df.empty:
+                s = final_df.iloc[0]
+                prev_info = (
+                    f"🔹 Leasing: {s.get('finance','-')}\n"
+                    f"🔹 Nopol: <code style='color:orange'>{s.get('nopol','-')}</code>\n"
+                    f"🔹 Unit: {s.get('type','-')}\n"
+                    f"🔹 Noka: {s.get('noka','-')}\n"
+                    f"🔹 OVD: {s.get('ovd','-')}"
+                )
+            else: 
+                prev_info = "⚠️ Data Kosong setelah filtering (Cek kolom Nopol)"
+
+            prev = (
+                f"🔎 <b>PREVIEW DATA</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"🏦 <b>Mode:</b> {fin_disp}\n"
+                f"📊 <b>Total Siap Upload:</b> {len(final_df)} Data\n\n"
+                f"📝 <b>SAMPEL DATA BARIS 1:</b>\n{prev_info}\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"⚠️ <b>Silakan konfirmasi untuk menyimpan data.</b>"
+            )
+            kb = [["🚀 UPDATE DATA"], ["🗑️ HAPUS MASSAL"], ["❌ BATAL"]]
+            await update.message.reply_text(prev, reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True), parse_mode='HTML')
+            return U_CONFIRM_UPLOAD
+        else:
+            await update.message.reply_text("❌ <b>ERROR:</b> Kolom NOPOL tidak ditemukan.\nPastikan file memiliki header: <i>No Polisi, Plat, Nopolisi</i>, dll.", parse_mode='HTML')
+            return ConversationHandler.END
+
+    except Exception as e:
+        # [FIX 3] Tangkap Error dan Lapor ke User (Anti-Silent Crash)
+        logger.error(f"Upload Error: {e}")
+        await update.message.reply_text(f"❌ <b>TERJADI KESALAHAN SYSTEM:</b>\n{e}\n\n<i>Silakan coba upload ulang atau hubungi admin.</i>", parse_mode='HTML')
+        return ConversationHandler.END
 
 async def upload_confirm_admin(update, context):
     act = update.message.text
