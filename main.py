@@ -828,7 +828,12 @@ async def panduan(update, context):
             "• Sistem bekerja otomatis 24 jam.\n"
             "• Jika Matel menemukan unit Anda, Notifikasi akan masuk ke:\n"
             "   👉 <b>GRUP LEASING OFFICIAL</b> (Pastikan Grup sudah didaftarkan).\n\n"
-            "3️⃣ <b>MANAJEMEN ARSIP</b>\n"
+            "3️⃣ <b>CEK STATUS DATA (VALIDASI)</b>\n"
+            "• Ingin memastikan data sudah masuk atau sudah terhapus?\n"
+            "• Cukup <b>ketik Nopol</b> unit tersebut di sini.\n"
+            "• Jika muncul = Data Aktif (Tayang).\n"
+            "• Jika 'Tidak Ditemukan' = Data Sudah Bersih.\n\n"
+            "4️⃣ <b>MANAJEMEN ARSIP</b>\n"
             "• Untuk menghapus data unit yang sudah lunas/aman, gunakan fitur <b>Update/Hapus Massal</b> saat upload file baru.\n\n"
             "<i>Butuh bantuan? Klik tombol 📞 BANTUAN TEKNIS.</i>"
         )
