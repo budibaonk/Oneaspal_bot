@@ -72,8 +72,8 @@ GLOBAL_INFO = ""
 BANK_INFO = """
 🏧 <b>METODE PEMBAYARAN</b>
 ━━━━━━━━━━━━━━━━━━
-<b>BCA:</b> 1234-5678-90
-<b>A/N:</b> PT ONE ASPAL INDONESIA
+<b>BCA:</b> UNDER CONSTRUCTION
+<b>A/N:</b> UNDER CONSTRUCTION
 ━━━━━━━━━━━━━━━━━━
 👇 <b>LANGKAH SELANJUTNYA:</b>
 1. Transfer sesuai nominal paket.
