@@ -928,10 +928,31 @@ async def register_kota(update, context):
 async def register_agency(update, context): 
     msg = update.message.text
     if msg == "❌ BATAL": return await cancel(update, context)
-    if len(msg) < 3 or msg.strip() == "-": await update.message.reply_text("⚠️ **Nama PT/Agency Wajib Diisi!**\nMinimal 3 huruf. Silakan ketik ulang:"); return R_AGENCY
+    
+    if len(msg) < 3 or msg.strip() == "-": 
+        await update.message.reply_text("⚠️ **Nama PT/Agency Wajib Diisi!**\nMinimal 3 huruf. Silakan ketik ulang:"); return R_AGENCY
+    
     context.user_data['r_agency'] = msg.upper()
-    summary = (f"📝 **KONFIRMASI DATA**\n👤 Nama: {context.user_data['r_nama']}\n📱 HP: {context.user_data['r_hp']}\n📧 Email: {context.user_data['r_email']}\n📍 Kota: {context.user_data['r_kota']}\n🏢 Agency: {context.user_data['r_agency']}")
-    await update.message.reply_text(f"{summary}\n\n✅ Kirim Pendaftaran?", reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ ULANGI"]], resize_keyboard=True)); return R_CONFIRM
+    
+    # [REVISI] Menggunakan HTML format agar RAPI & TEBAL
+    summary = (
+        f"📝 <b>KONFIRMASI DATA</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>Nama:</b> {clean_text(context.user_data.get('r_nama'))}\n"
+        f"📱 <b>HP:</b> {clean_text(context.user_data.get('r_hp'))}\n"
+        f"📧 <b>Email:</b> {clean_text(context.user_data.get('r_email'))}\n"
+        f"📍 <b>Kota:</b> {clean_text(context.user_data.get('r_kota'))}\n"
+        f"🏢 <b>Agency:</b> {clean_text(context.user_data.get('r_agency'))}\n"
+        f"━━━━━━━━━━━━━━━━━━"
+    )
+    
+    # Tambahkan parse_mode='HTML'
+    await update.message.reply_text(
+        f"{summary}\n\n✅ <b>Data sudah benar?</b>", 
+        reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ ULANGI"]], resize_keyboard=True),
+        parse_mode='HTML'
+    )
+    return R_CONFIRM
 
 async def register_confirm(update, context):
     if update.message.text != "✅ KIRIM": return await cancel(update, context)
