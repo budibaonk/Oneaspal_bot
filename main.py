@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 5.7 (FINAL COMBO: NOTIF GROUP + REJECT REASON) #
+#                      VERSION: 5.8 (ANALYTICS & BI EDITION)                   #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -89,7 +89,7 @@ except ValueError:
     ADMIN_ID = 0
     LOG_GROUP_ID = 0
 
-print(f"✅ [BOOT] SYSTEM STARTING v5.7... ADMIN ID: {ADMIN_ID}")
+print(f"✅ [BOOT] SYSTEM STARTING v5.8... ADMIN ID: {ADMIN_ID}")
 
 if not URL or not KEY or not TOKEN:
     print("❌ [CRITICAL] Credential tidak lengkap! Cek .env")
@@ -135,11 +135,11 @@ U_LEASING_USER, U_LEASING_ADMIN, U_CONFIRM_UPLOAD = range(19, 22)
 REJECT_REASON = 22
 ADMIN_ACT_REASON = 23
 SUPPORT_MSG = 24
-VAL_REJECT_REASON = 25  # <--- NEW STATE UNTUK ALASAN PENOLAKAN /TAMBAH
+VAL_REJECT_REASON = 25  # STATE UNTUK ALASAN PENOLAKAN /TAMBAH
 
 
 # ##############################################################################
-# BAGIAN 4: FUNGSI HELPER UTAMA (SUBSCRIPTION LOGIC)
+# BAGIAN 4: FUNGSI HELPER UTAMA (SUBSCRIPTION & LOGGING)
 # ##############################################################################
 
 async def post_init(application: Application):
@@ -233,6 +233,21 @@ def standardize_leasing_name(name):
     clean = re.sub(r'^\d+\s+', '', clean)
     clean = re.sub(r'\(.*?\)', '', clean).strip()
     return clean
+
+# [NEW v5.8] FUNGSI MENCATAT HIT KE DATABASE LOG
+def log_successful_hit(user_id, user_name, unit_data):
+    try:
+        leasing_raw = str(unit_data.get('finance', 'UNKNOWN')).upper().strip()
+        data = {
+            "user_id": user_id,
+            "nama_matel": user_name,
+            "leasing": leasing_raw,
+            "nopol": unit_data.get('nopol'),
+            "unit": unit_data.get('type')
+        }
+        supabase.table('finding_logs').insert(data).execute()
+    except Exception as e:
+        logger.error(f"Gagal mencatat Log HIT: {e}")
 
 
 # ##############################################################################
@@ -337,7 +352,7 @@ async def reject_complete(update, context):
     except: pass
     await update.message.reply_text("✅ Proses Selesai.", reply_markup=ReplyKeyboardRemove()); return ConversationHandler.END
 
-# --- [NEW] REJECTION LOGIC (VALIDASI /TAMBAH) ---
+# --- REJECTION LOGIC (VALIDASI /TAMBAH) ---
 async def val_reject_start(update, context):
     query = update.callback_query; await query.answer()
     data = query.data.split("_")
@@ -394,13 +409,56 @@ async def admin_action_complete(update, context):
 
 
 # ##############################################################################
-# BAGIAN 7: FITUR ADMIN - USER MANAGER
+# BAGIAN 7: FITUR ADMIN - USER MANAGER & ANALYTICS
 # ##############################################################################
 
 async def admin_help(update, context):
     if update.effective_user.id != ADMIN_ID: return
-    msg = ("🔐 **ADMIN COMMANDS v5.7**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n🏢 **LEASING GROUP**\n• `/setgroup [NAMA_LEASING]`\n_(Gunakan di dalam Grup Notif)_" + "\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [HARI]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
+    msg = ("🔐 **ADMIN COMMANDS v5.8**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n📊 **ANALYTICS**\n• `/rekap` (Hit Harian)\n\n🏢 **LEASING GROUP**\n• `/setgroup [NAMA_LEASING]`\n_(Gunakan di dalam Grup Notif)_" + "\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [HARI]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
     await update.message.reply_text(msg, parse_mode='Markdown')
+
+# [NEW v5.8] REKAP HIT HARIAN PER LEASING
+async def rekap_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    
+    msg = await update.message.reply_text("⏳ **Sedang menghitung data hari ini...**", parse_mode='Markdown')
+    
+    try:
+        # 1. Tentukan Range Waktu Hari Ini (00:00 - 23:59 WIB)
+        now = datetime.now(TZ_JAKARTA)
+        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # 2. Tarik Data dari Supabase (Table finding_logs)
+        res = supabase.table('finding_logs').select("leasing").gte('created_at', start_of_day.isoformat()).execute()
+        data = res.data
+        
+        if not data:
+            return await msg.edit_text("📊 **REKAP HARIAN**\n\nBelum ada unit ditemukan (HIT) hari ini.")
+
+        # 3. Hitung Grouping per Leasing
+        counts = Counter([d['leasing'] for d in data])
+        total_hits = len(data)
+        
+        # 4. Susun Laporan
+        report = (
+            f"📊 **REKAP TEMUAN (HIT) HARI INI**\n"
+            f"📅 Tanggal: {now.strftime('%d %b %Y')}\n"
+            f"🔥 **Total Unit Ketemu:** {total_hits} Unit\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+        )
+        
+        # Urutkan dari yang terbanyak
+        for leasing, jumlah in counts.most_common():
+            if leasing in ["-", "UNKNOWN", "NAN"]: leasing = "LAIN-LAIN"
+            report += f"🔹 **{leasing}:** {jumlah} Unit\n"
+            
+        report += "━━━━━━━━━━━━━━━━━━\n#OneAspalAnalytics"
+        
+        await msg.edit_text(report, parse_mode='Markdown')
+        
+    except Exception as e:
+        logger.error(f"Rekap Error: {e}")
+        await msg.edit_text(f"❌ Gagal menarik data rekap: {e}")
 
 async def list_users(update, context):
     if update.effective_user.id != ADMIN_ID: return
@@ -485,7 +543,7 @@ async def get_stats(update, context):
         t = supabase.table('kendaraan').select("*", count="exact", head=True).execute().count
         u = supabase.table('users').select("*", count="exact", head=True).execute().count
         k = supabase.table('users').select("*", count="exact", head=True).eq('role', 'korlap').execute().count
-        await update.message.reply_text(f"📊 **STATS v5.7**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
+        await update.message.reply_text(f"📊 **STATS v5.8**\n📂 Data: `{t:,}`\n👥 Total User: `{u}`\n🎖️ Korlap: `{k}`", parse_mode='Markdown')
     except: pass
 
 async def get_leasing_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -696,7 +754,7 @@ async def upload_start(update, context):
             context.user_data['df'] = df.to_dict(orient='records')
             await msg.delete()
             fin_status = "✅ ADA" if 'finance' in df.columns else "⚠️ TIDAK ADA"
-            scan_report = (f"✅ <b>SCAN SUKSES (v5.7)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
+            scan_report = (f"✅ <b>SCAN SUKSES (v5.8)</b>\n━━━━━━━━━━━━━━━━━━\n📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n📁 <b>Total Baris:</b> {len(df)}\n🏦 <b>Kolom Leasing:</b> {fin_status}\n━━━━━━━━━━━━━━━━━━\n\n👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>")
             await update.message.reply_text(scan_report, reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True), parse_mode='HTML')
             return U_LEASING_ADMIN
         except Exception as e: 
@@ -992,6 +1050,10 @@ async def handle_message(update, context):
 
 async def show_unit_detail_original(update, context, d, u):
     increment_daily_usage(u['user_id'], u.get('daily_usage', 0))
+    
+    # [NEW v5.8] LOGGING HIT FOR ANALYTICS
+    log_successful_hit(u['user_id'], u.get('nama_lengkap'), d)
+
     info_txt = f"📢 <b>INFO:</b> {clean_text(GLOBAL_INFO)}\n━━━━━━━━━━━━━━━━━━\n" if GLOBAL_INFO else ""
     txt = (
         f"{info_txt}✅ <b>DATA DITEMUKAN</b>\n━━━━━━━━━━━━━━━━━━\n"
@@ -1012,7 +1074,7 @@ async def show_unit_detail_original(update, context, d, u):
     )
     await context.bot.send_message(chat_id=update.effective_chat.id, text=txt, parse_mode='HTML')
     
-    # [FIX] GROUP NOTIFICATION (LOG ADMIN & LEASING GROUP)
+    # NOTIFIKASI KE ADMIN PUSAT & GROUP LEASING (JIKA ADA)
     await notify_hit_to_group(context, u, d)  
     await notify_leasing_group(context, u, d) 
 
@@ -1061,7 +1123,7 @@ async def add_confirm(update, context):
     await update.message.reply_text("✅ **Permintaan Terkirim!**\nAdmin akan memverifikasi data Anda.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
     msg_admin = (f"📥 **PENGAJUAN DATA BARU**\n━━━━━━━━━━━━━━━━━━\n👤 **Mitra:** {clean_text(u.get('nama_lengkap'))}\n🏢 **Agency:** {clean_text(u.get('agency'))}\n━━━━━━━━━━━━━━━━━━\n🔢 **Nopol:** `{n}`\n🚙 **Unit:** {context.user_data['a_type']}\n🏦 **Leasing:** {context.user_data['a_leasing']}\n📄 **No. Kiriman:** {context.user_data['a_nokiriman']}\n⚠️ **OVD:** {context.user_data['a_ovd']}\n📝 **Ket:** {context.user_data['a_ket']}\n━━━━━━━━━━━━━━━━━━")
     
-    # [V5.7 UPDATE] BUTTON TOLAK DENGAN CALLBACK DATA LENGKAP UNTUK REJECT REASON
+    # BUTTON TOLAK DENGAN CALLBACK DATA LENGKAP UNTUK REJECT REASON
     kb = [[InlineKeyboardButton("✅ Terima", callback_data=f"v_acc_{n}_{u['user_id']}"), InlineKeyboardButton("❌ Tolak", callback_data=f"v_rej_{n}_{u['user_id']}")]]
     
     await context.bot.send_message(ADMIN_ID, msg_admin, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown'); return ConversationHandler.END
@@ -1153,6 +1215,7 @@ async def callback_handler(update, context):
             except: pass
             
     elif data.startswith("reju_"): update_user_status(data.split("_")[1], 'rejected'); await query.edit_message_text("❌ User TOLAK."); await context.bot.send_message(data.split("_")[1], "⛔ Pendaftaran Ditolak.")
+    
     elif data.startswith("v_acc_"): 
         n=data.split("_")[2]
         item=context.bot_data.get(f"prop_{n}")
@@ -1163,21 +1226,21 @@ async def callback_handler(update, context):
         else:
             await query.edit_message_text("⚠️ Data kedaluwarsa (Restart bot).")
 
-    # elif data == "v_rej": ...  <-- OLD HANDLER, NOW HANDLED BY ConversationHandler (val_reject_start)
+    # elif data == "v_rej": ...  <-- OLD HANDLER (REPLACED BY CONVERSATION HANDLER)
     
     elif data.startswith("del_acc_"): supabase.table('kendaraan').delete().eq('nopol', data.split("_")[2]).execute(); await query.edit_message_text("✅ Dihapus."); await context.bot.send_message(data.split("_")[3], "✅ Hapus ACC.")
     elif data.startswith("del_rej_"): await query.edit_message_text("❌ Ditolak."); await context.bot.send_message(data.split("_")[2], "❌ Hapus TOLAK.")
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v5.7 (FINAL - REASON REJECT + NEW NOTIF) STARTING...")
+    print("🚀 ONEASPAL BOT v5.8 (ANALYTICS & BI READY) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
     app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(admin_action_start, pattern='^adm_(ban|unban|del)_')], states={ADMIN_ACT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_action_complete)]}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]))
     app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(reject_start, pattern='^reju_')], states={REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, reject_complete)]}, fallbacks=[CommandHandler('cancel', cancel)]))
     
-    # [V5.7 NEW] HANDLER UNTUK PENOLAKAN /TAMBAH (REJECTION REASON)
+    # HANDLER UNTUK PENOLAKAN /TAMBAH (REJECTION REASON)
     app.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(val_reject_start, pattern='^v_rej_')], 
         states={VAL_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, val_reject_complete)]}, 
@@ -1196,6 +1259,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('topup', admin_topup))
     app.add_handler(CommandHandler('stats', get_stats))
     app.add_handler(CommandHandler('leasing', get_leasing_list)) 
+    app.add_handler(CommandHandler('rekap', rekap_harian)) # NEW COMMAND
     app.add_handler(CommandHandler('users', list_users))
     app.add_handler(CommandHandler('angkat_korlap', angkat_korlap)) 
     app.add_handler(CommandHandler('testgroup', test_group))
@@ -1215,5 +1279,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v5.7 - FINAL COMBO)")
+    print("✅ BOT ONLINE! (v5.8 - ANALYTICS READY)")
     app.run_polling()
