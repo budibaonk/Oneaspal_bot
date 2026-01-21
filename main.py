@@ -416,7 +416,27 @@ async def admin_action_complete(update, context):
 
 async def admin_help(update, context):
     if update.effective_user.id != ADMIN_ID: return
-    msg = ("🔐 **ADMIN COMMANDS v6.0**\n\n👮‍♂️ **ROLE**\n• `/angkat_korlap [ID] [KOTA]`\n\n📊 **ANALYTICS**\n• `/rekap` (Hit Murni Matel)\n\n🏢 **LEASING GROUP**\n• `/setgroup [NAMA_LEASING]`\n_(Gunakan di dalam Grup Notif)_" + "\n\n👥 **USERS**\n• `/users`\n• `/m_ID`\n• `/topup [ID] [HARI]`\n• `/balas [ID] [MSG]`\n\n⚙️ **SYSTEM**\n• `/stats`\n• `/leasing`")
+    msg = (
+        "🔐 **ADMIN COMMANDS v6.1 (Update)**\n\n"
+        "📢 **INFO / PENGUMUMAN**\n"
+        "• `/setinfo [Pesan]` (Pasang Banner)\n"
+        "• `/delinfo` (Hapus Banner)\n\n"
+        "👮‍♂️ **ROLE**\n"
+        "• `/angkat_korlap [ID] [KOTA]`\n\n"
+        "📊 **ANALYTICS**\n"
+        "• `/rekap` (Hit Murni Matel)\n\n"
+        "🏢 **LEASING GROUP**\n"
+        "• `/setgroup [NAMA_LEASING]`\n"
+        "_(Gunakan di dalam Grup Notif)_\n\n"
+        "👥 **USERS**\n"
+        "• `/users`\n"
+        "• `/m_ID`\n"
+        "• `/topup [ID] [HARI]`\n"
+        "• `/balas [ID] [MSG]`\n\n"
+        "⚙️ **SYSTEM**\n"
+        "• `/stats`\n"
+        "• `/leasing`"
+    )
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def rekap_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -622,8 +642,14 @@ async def support_send(update, context):
 async def cek_kuota(update, context):
     u = get_user(update.effective_user.id)
     if not u or u['status']!='active': return
+    
+    # --- LOGIC BANNER INFO ---
+    global GLOBAL_INFO
+    info_banner = f"📢 <b>INFO PUSAT:</b> {clean_text(GLOBAL_INFO)}\n━━━━━━━━━━━━━━━━━━\n" if GLOBAL_INFO else ""
+    # -------------------------
+
     if u.get('role') == 'pic':
-        msg = (f"📂 **DATABASE SAYA**\n━━━━━━━━━━━━━━━━━━\n👤 **User:** {u.get('nama_lengkap')}\n🏢 **Leasing:** {u.get('agency')}\n🔋 **Status Akses:** UNLIMITED (Enterprise)\n━━━━━━━━━━━━━━━━━━\n✅ Sinkronisasi data berjalan normal.")
+        msg = (f"{info_banner}📂 **DATABASE SAYA**\n━━━━━━━━━━━━━━━━━━\n👤 **User:** {u.get('nama_lengkap')}\n🏢 **Leasing:** {u.get('agency')}\n🔋 **Status Akses:** UNLIMITED (Enterprise)\n━━━━━━━━━━━━━━━━━━\n✅ Sinkronisasi data berjalan normal.")
     else:
         exp_date = u.get('expiry_date')
         if exp_date:
@@ -634,7 +660,7 @@ async def cek_kuota(update, context):
             else: status_aktif += f"\n⏳ Sisa Waktu: {remaining.days} Hari"
         else: status_aktif = "❌ SUDAH EXPIRED"
         role_msg = f"🎖️ **KORLAP {u.get('wilayah_korlap','')}**" if u.get('role')=='korlap' else f"🛡️ **MITRA LAPANGAN**"
-        msg = (f"💳 **INFO LANGGANAN**\n━━━━━━━━━━━━━━━━━━\n{role_msg}\n👤 {u.get('nama_lengkap')}\n\n{status_aktif}\n📊 <b>Cek Hari Ini:</b> {u.get('daily_usage', 0)}x\n━━━━━━━━━━━━━━━━━━\n<i>Perpanjang? Ketik /infobayar</i>")
+        msg = (f"{info_banner}💳 **INFO LANGGANAN**\n━━━━━━━━━━━━━━━━━━\n{role_msg}\n👤 {u.get('nama_lengkap')}\n\n{status_aktif}\n📊 <b>Cek Hari Ini:</b> {u.get('daily_usage', 0)}x\n━━━━━━━━━━━━━━━━━━\n<i>Perpanjang? Ketik /infobayar</i>")
     await update.message.reply_text(msg, parse_mode='HTML')
 
 async def info_bayar(update, context):
@@ -1052,7 +1078,12 @@ async def show_unit_detail_original(update, context, d, u):
     await notify_leasing_group(context, u, d) 
 
 async def show_multi_choice(update, context, data_list, keyword):
-    txt = f"🔎 Ditemukan **{len(data_list)} data** mirip '`{keyword}`':\n\n"
+    # --- LOGIC BANNER INFO ---
+    global GLOBAL_INFO
+    info_txt = f"📢 INFO: {GLOBAL_INFO}\n\n" if GLOBAL_INFO else ""
+    # -------------------------
+    
+    txt = f"{info_txt}🔎 Ditemukan **{len(data_list)} data** mirip '`{keyword}`':\n\n"
     keyboard = []
     for i, item in enumerate(data_list):
         nopol = item['nopol']; unit = item.get('type', 'Unknown')[:10]; leasing = item.get('finance', 'Unknown')
