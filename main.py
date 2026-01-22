@@ -31,7 +31,8 @@ from telegram import (
     InlineKeyboardMarkup, 
     ReplyKeyboardMarkup, 
     ReplyKeyboardRemove, 
-    constants
+    constants,
+    LinkPreviewOptions  # <--- TAMBAHKAN INI (JANGAN LUPA KOMA DI ATASNYA)
 )
 from telegram.ext import (
     Application,
@@ -601,15 +602,23 @@ async def list_users(update, context):
         
         msg = f"📋 <b>DAFTAR MITRA (Total: {len(active_list)})</b>\n━━━━━━━━━━━━━━━━━━\n"
         
+        # --- Helper Options untuk Mematikan Preview Link ---
+        no_preview = LinkPreviewOptions(is_disabled=True)
+        # -------------------------------------------------
+
         if pic_list:
             msg += "🏦 <b>INTERNAL LEASING (PIC)</b>\n"
             for i, u in enumerate(pic_list, 1):
                 nama = clean_text(u.get('nama_lengkap'))
                 agency = clean_text(u.get('agency'))
-                wa_link = format_wa_link(u.get('no_hp')) # Pakai Helper Tadi
+                wa_link = format_wa_link(u.get('no_hp')) 
                 uid = u['user_id']
                 entry = (f"{i}. 🤝 <b>{nama}</b>\n   📱 {wa_link} | 🏢 {agency}\n   ⚙️ /m_{uid}\n\n")
-                if len(msg) + len(entry) > 4000: await update.message.reply_text(msg, parse_mode='HTML'); msg = ""
+                
+                # Cek panjang pesan, jika kepanjangan kirim dulu
+                if len(msg) + len(entry) > 4000: 
+                    await update.message.reply_text(msg, parse_mode='HTML', link_preview_options=no_preview)
+                    msg = ""
                 msg += entry
             msg += "━━━━━━━━━━━━━━━━━━\n"
 
@@ -620,13 +629,19 @@ async def list_users(update, context):
                 icon = "🎖️" if role == 'korlap' else "🛡️"
                 nama = clean_text(u.get('nama_lengkap'))
                 agency = clean_text(u.get('agency'))
-                wa_link = format_wa_link(u.get('no_hp')) # Pakai Helper Tadi
+                wa_link = format_wa_link(u.get('no_hp'))
                 uid = u['user_id']
                 entry = (f"{i}. {icon} <b>{nama}</b>\n   📱 {wa_link} | 🏢 {agency}\n   ⚙️ /m_{uid}\n\n")
-                if len(msg) + len(entry) > 4000: await update.message.reply_text(msg, parse_mode='HTML'); msg = ""
+                
+                # Cek panjang pesan
+                if len(msg) + len(entry) > 4000: 
+                    await update.message.reply_text(msg, parse_mode='HTML', link_preview_options=no_preview)
+                    msg = ""
                 msg += entry
             
-        if msg: await update.message.reply_text(msg, parse_mode='HTML')
+        # Kirim sisa pesan dengan Preview Dimatikan
+        if msg: await update.message.reply_text(msg, parse_mode='HTML', link_preview_options=no_preview)
+
     except Exception as e: await update.message.reply_text(f"❌ Error: {e}")
 
 async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
