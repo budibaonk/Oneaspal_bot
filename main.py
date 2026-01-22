@@ -1039,38 +1039,62 @@ async def upload_leasing_admin(update, context):
 async def upload_confirm_admin(update, context):
     act = update.message.text
     if act == "❌ BATAL": return await cancel(update, context)
-    msg = await update.message.reply_text("⏳ <b>MEMULAI UPDATE DATABASE...</b>\nMohon tunggu, jangan matikan bot...", parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
-    data = context.user_data.get('final_df'); total_data = len(data); suc = 0; start_t = time.time()
+    
+    msg = await update.message.reply_text("⏳ <b>MEMULAI UPDATE DATABASE (Turbo Mode)...</b>\nBot bisa digunakan sambil menunggu proses ini.", parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
+    
+    data = context.user_data.get('final_df')
+    total_data = len(data)
+    suc = 0
+    start_t = time.time()
     last_error = ""
     
     try:
-        BATCH = 50 
+        # --- [UPDATE PENTING] NAIKKAN BATCH BIAR NGEBUT ---
+        # Lama: 50 (Terlalu kecil, banyak jeda network)
+        # Baru: 2000 (Sekali angkut langsung banyak)
+        BATCH = 2000 
+        # --------------------------------------------------
+
         list_nopol = [x['nopol'] for x in data] if act == "🗑️ HAPUS MASSAL" else []
+        
         for i in range(0, total_data, BATCH):
             chunk = data[i:i+BATCH]
             try:
-                if act == "🚀 UPDATE DATA": supabase.table('kendaraan').upsert(chunk, on_conflict='nopol').execute()
-                elif act == "🗑️ HAPUS MASSAL": supabase.table('kendaraan').delete().in_('nopol', list_nopol[i:i+BATCH]).execute()
+                # --- NON-BLOCKING UPLOAD (Jalur Belakang) ---
+                if act == "🚀 UPDATE DATA": 
+                    await asyncio.to_thread(lambda: supabase.table('kendaraan').upsert(chunk, on_conflict='nopol').execute())
+                    
+                elif act == "🗑️ HAPUS MASSAL": 
+                    chunk_nopol = list_nopol[i:i+BATCH]
+                    await asyncio.to_thread(lambda: supabase.table('kendaraan').delete().in_('nopol', chunk_nopol).execute())
+                
                 suc += len(chunk)
+                # --------------------------------------------
+                
             except Exception as e:
+                # Retry Logic (Jika gagal, coba batch kecil pelan-pelan)
                 if '57014' in str(e) or 'timeout' in str(e).lower():
-                    mini_batch_size = 5
-                    for j in range(0, len(chunk), mini_batch_size):
-                        mini_chunk = chunk[j:j+mini_batch_size]
-                        try:
-                            if act == "🚀 UPDATE DATA": supabase.table('kendaraan').upsert(mini_chunk, on_conflict='nopol').execute()
-                            elif act == "🗑️ HAPUS MASSAL": 
-                                mini_nopol = [x['nopol'] for x in mini_chunk]
-                                supabase.table('kendaraan').delete().in_('nopol', mini_nopol).execute()
-                            suc += len(mini_chunk)
-                            await asyncio.sleep(0.5) 
-                        except Exception as e2: last_error = str(e2); continue
-                else: last_error = str(e); continue
+                    try:
+                        await asyncio.sleep(1) 
+                        mini_batch = 100 # Coba angkut dikit-dikit kalau server lagi berat
+                        for j in range(0, len(chunk), mini_batch):
+                            sub_chunk = chunk[j:j+mini_batch]
+                            if act == "🚀 UPDATE DATA": 
+                                await asyncio.to_thread(lambda: supabase.table('kendaraan').upsert(sub_chunk, on_conflict='nopol').execute())
+                            elif act == "🗑️ HAPUS MASSAL":
+                                sub_nopol = [x['nopol'] for x in sub_chunk]
+                                await asyncio.to_thread(lambda: supabase.table('kendaraan').delete().in_('nopol', sub_nopol).execute())
+                            suc += len(sub_chunk)
+                    except Exception as e2: last_error = str(e2); continue
+                else: 
+                    last_error = str(e); continue
             
-            if i > 0 and i % 500 == 0:
-                try: await msg.edit_text(f"⏳ <b>MEMPROSES DATA...</b>\n🚀 {i:,} / {total_data:,} data...", parse_mode='HTML')
+            # Update Progress Bar (Biar admin tau jalan)
+            if i > 0:
+                try: await msg.edit_text(f"⏳ <b>SPEED UPLOAD...</b>\n🚀 {min(i+BATCH, total_data):,} / {total_data:,} data...", parse_mode='HTML')
                 except: pass 
-            await asyncio.sleep(0.1)
+            
+            await asyncio.sleep(0.01) # Napas dikit
             
         dur = round(time.time() - start_t, 2)
         try: await msg.delete()
@@ -1078,9 +1102,21 @@ async def upload_confirm_admin(update, context):
         
         status_msg = "✅ SUKSES" if suc > 0 else "❌ GAGAL TOTAL"
         error_info = f"\n⚠️ <b>Last Error:</b> {last_error[:100]}..." if last_error else ""
-        report = (f"{status_msg}\n━━━━━━━━━━━━━━━━━━\n📊 <b>Berhasil Masuk:</b> {suc:,}\n❌ <b>Gagal:</b> {total_data - suc}\n⏱ <b>Waktu:</b> {dur} detik{error_info}")
+        
+        report = (
+            f"{status_msg}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"📊 <b>Berhasil Masuk:</b> {suc:,}\n"
+            f"❌ <b>Gagal:</b> {total_data - suc}\n"
+            f"⏱ <b>Waktu:</b> {dur} detik{error_info}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"<i>Database sudah sinkron.</i>"
+        )
         await update.message.reply_text(report, parse_mode='HTML')
-    except Exception as e: await update.message.reply_text(f"❌ <b>SYSTEM ERROR:</b>\n{e}", parse_mode='HTML')
+        
+    except Exception as e: 
+        await update.message.reply_text(f"❌ <b>SYSTEM ERROR:</b>\n{e}", parse_mode='HTML')
+        
     return ConversationHandler.END
 
 
