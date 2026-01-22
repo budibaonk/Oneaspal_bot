@@ -726,26 +726,52 @@ async def get_stats(update, context):
     except: pass
 
 async def get_leasing_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Cek Admin
     if update.effective_user.id != ADMIN_ID: return
-    msg = await update.message.reply_text("⏳ *Memulai Audit Leasing...*", parse_mode='Markdown')
+    
+    # Pesan Tunggu
+    msg = await update.message.reply_text("⏳ *Sedang Menghitung (5 Juta Data)...*\n_Mengambil rekap langsung dari Database..._", parse_mode='Markdown')
+    
     try:
-        counts = Counter(); off = 0; BATCH = 1000
-        while True:
-            res = supabase.table('kendaraan').select("finance").range(off, off+BATCH-1).execute()
-            data = res.data; 
-            if not data: break
-            counts.update([str(d.get('finance')).strip().upper() if d.get('finance') else "UNKNOWN" for d in data])
-            if len(data) < BATCH: break
-            off += BATCH
-            if off % 50000 == 0:
-                try: await msg.edit_text(f"⏳ *Sedang Menghitung...*\nSudah scan: `{off:,}` data", parse_mode='Markdown')
-                except: pass
-        rpt = "🏦 **AUDIT LEASING (FINAL)**\n━━━━━━━━━━━━━━━━━━\n"
-        for k, v in counts.most_common():
-            if k not in ["UNKNOWN", "NONE", "NAN", "-"]: rpt += f"🔹 **{k}:** `{v:,}`\n"
-        if len(rpt) > 4000: rpt = rpt[:4000] + "\n...(dan lainnya)"
+        # --- [NEW] PANGGIL FUNGSI SQL (SERVER-SIDE CALCULATION) ---
+        # Kita suruh Supabase yang hitung, Bot tinggal terima hasil jadi.
+        # Ini hanya butuh waktu 1-2 detik.
+        response = await asyncio.to_thread(lambda: supabase.rpc('get_leasing_summary').execute())
+        data = response.data # Isinya list: [{'finance': 'BCA', 'total': 15000}, ...]
+        
+        if not data:
+            return await msg.edit_text("❌ Database Kosong atau Fungsi SQL belum dipasang.")
+
+        # Format Laporan
+        rpt = "🏦 **AUDIT LEASING (LIVE)**\n━━━━━━━━━━━━━━━━━━\n"
+        
+        # Hitung Total Keseluruhan (Opsional, buat info tambahan)
+        total_global = sum(d['total'] for d in data)
+        rpt += f"📦 **Total Data:** `{total_global:,}` Unit\n"
+        rpt += "━━━━━━━━━━━━━━━━━━\n"
+
+        # Loop data hasil RPC (Sudah terurut dari terbesar di SQL)
+        for item in data:
+            k = str(item.get('finance', 'UNKNOWN')).upper()
+            v = item.get('total', 0)
+            
+            # Filter nama aneh (biar rapi)
+            if k not in ["UNKNOWN", "NONE", "NAN", "-", "", "NULL"]: 
+                entry = f"🔹 **{k}:** `{v:,}`\n"
+                
+                # Cek batas karakter Telegram (4096 char)
+                if len(rpt) + len(entry) > 4000:
+                    rpt += "\n...(dan leasing kecil lainnya)"
+                    break # Stop loop jika pesan kepenuhan
+                
+                rpt += entry
+        
+        # Kirim Laporan Akhir
         await msg.edit_text(rpt, parse_mode='Markdown')
-    except Exception as e: await msg.edit_text(f"❌ Error: {e}")
+        
+    except Exception as e: 
+        logger.error(f"Audit Error: {e}")
+        await msg.edit_text(f"❌ **Error:** {e}\n\n_Pastikan sudah run script SQL 'get_leasing_summary' di Supabase._")
 
 async def set_info(update, context):
     global GLOBAL_INFO; 
