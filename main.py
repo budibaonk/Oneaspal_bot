@@ -21,7 +21,7 @@ import csv
 import zipfile 
 import html
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 import pytz 
 from dotenv import load_dotenv
 
@@ -610,6 +610,26 @@ async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==============================================================================
 # BAGIAN 8: FITUR AUDIT & ADMIN UTILS
 # ==============================================================================
+
+# [NEW] FITUR AUTO CLEANUP LOGS
+async def auto_cleanup_logs(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Menghapus data finding_logs yang lebih tua dari 5 hari.
+    Dijalankan otomatis oleh JobQueue.
+    """
+    try:
+        # Hitung batas waktu (Sekarang - 5 Hari)
+        cutoff_date = datetime.now(TZ_JAKARTA) - timedelta(days=5)
+        cutoff_str = cutoff_date.isoformat()
+        
+        # Hapus data di Supabase (lt = less than / kurang dari tanggal cutoff)
+        res = supabase.table('finding_logs').delete().lt('created_at', cutoff_str).execute()
+        
+        # Log ke terminal admin (opsional)
+        print(f"🧹 [AUTO CLEANUP] Log lama (< {cutoff_date.strftime('%d-%b')}) berhasil dihapus.")
+        
+    except Exception as e:
+        logger.error(f"❌ AUTO CLEANUP ERROR: {e}")
 
 async def get_stats(update, context):
     if update.effective_user.id != ADMIN_ID: return
