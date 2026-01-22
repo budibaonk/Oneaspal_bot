@@ -1038,7 +1038,14 @@ async def register_email(update, context):
 async def register_kota(update, context): 
     if update.message.text == "❌ BATAL": return await cancel(update, context)
     context.user_data['r_kota'] = update.message.text
-    txt = "5️⃣ **Nama Leasing / Finance:**\n_(Contoh: BCA Finance, Adira, ACC)_" if context.user_data['reg_role'] == 'pic' else "5️⃣ **Nama Agency / PT:**\n_(Wajib isi nama PT tempat Anda bernaung)_"
+    
+    # --- LOGIC PENENTUAN PERTANYAAN SELANJUTNYA ---
+    if context.user_data['reg_role'] == 'pic':
+        txt = "5️⃣ **Nama Leasing / Finance:**\n_(Contoh: BCA Finance, Adira, ACC)_"
+    else:
+        # [UPDATE] PERTEGAS INSTRUKSI NAMA PT
+        txt = "5️⃣ **Nama Agency / PT:**\n_(Wajib isi NAMA LENGKAP PT, BUKAN SINGKATAN!)\nContoh: PT ELANG PERKASA (✅) | EP (❌)_"
+        
     await update.message.reply_text(txt, parse_mode='Markdown'); return R_AGENCY
 async def register_agency(update, context): 
     msg = update.message.text
@@ -1357,6 +1364,19 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo_topup))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+    # ------------------------------------------------------------------
+    # [NEW] JOB QUEUE (JADWAL OTOMATIS)
+    # ------------------------------------------------------------------
+    job_queue = app.job_queue
     
+    # Jalankan auto_cleanup_logs setiap hari jam 03:00 WIB
+    job_queue.run_daily(
+        auto_cleanup_logs, 
+        time=time(hour=3, minute=0, second=0, tzinfo=TZ_JAKARTA), 
+        days=(0, 1, 2, 3, 4, 5, 6) # Setiap hari (Senin-Minggu)
+    )
+    print("⏰ Jadwal Cleanup Otomatis: AKTIF (Jam 03:00 WIB)")
+    # ------------------------------------------------------------------
+
     print("✅ BOT ONLINE! (v6.2 - DYNAMIC REKAP)")
     app.run_polling()
