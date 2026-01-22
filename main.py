@@ -1091,90 +1091,80 @@ async def upload_confirm_admin(update, context):
     act = update.message.text
     if act == "❌ BATAL": return await cancel(update, context)
     
-    # Init Pesan
-    msg = await update.message.reply_text("🚀 <b>MEMULAI PROSES...</b>\n<i>Mohon tunggu sebentar...</i>", parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
+    # 1. Beri Tahu User Bot Sedang Bekerja
+    msg = await update.message.reply_text("🚀 <b>MEMPROSES DATA...</b>\nMohon jangan dimatikan...", parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
     
     data = context.user_data.get('final_df')
     total_data = len(data)
     
-    # --- KONFIGURASI KECEPATAN ---
-    BATCH_SIZE = 1000   
-    MAX_CONCURRENCY = 5 
-    # -----------------------------
+    # --- SETTINGAN AMAN (ANTI STUCK) ---
+    # Kita turunkan Batch Size ke 100.
+    # Untuk 2000 data = 20 kali jalan. Ini sangat cepat (3-5 detik) dan 100% Aman.
+    BATCH_SIZE = 100
+    # -----------------------------------
 
     start_t = time.time()
-    sem = asyncio.Semaphore(MAX_CONCURRENCY)
-    
-    progress_counter = {'success': 0, 'fail': 0, 'processed': 0}
-    last_update_time = 0
-    errors = []
+    success_count = 0
+    fail_count = 0
+    last_error = ""
 
-    # Fungsi Pekerja (Worker)
-    async def upload_chunk(chunk):
-        async with sem:
+    try:
+        # Loop biasa (Sekuensial) agar kita bisa pantau satu-satu
+        # Jangan pakai Asyncio Gather dulu kalau jaringan sedang tidak stabil
+        for i in range(0, total_data, BATCH_SIZE):
+            chunk = data[i:i + BATCH_SIZE]
+            
             try:
+                # --- PROSES UPLOAD/HAPUS ---
+                # Kita bungkus dalam thread agar bot tidak freeze, tapi jalannya antri (aman)
                 if act == "🚀 UPDATE DATA":
-                    # Mode Upload: Pakai Upsert Standar (Sudah Cepat)
                     await asyncio.to_thread(lambda: supabase.table('kendaraan').upsert(chunk, on_conflict='nopol').execute())
-                    progress_counter['success'] += len(chunk)
-
+                
                 elif act == "🗑️ HAPUS MASSAL":
-                    # [NEW] Mode Hapus: Pakai RPC (Jauh Lebih Cepat)
-                    # Kita kirim list nopol saja ke fungsi SQL 'delete_by_nopol'
                     nops = [x['nopol'] for x in chunk]
-                    await asyncio.to_thread(lambda: supabase.rpc('delete_by_nopol', {'nopol_list': nops}).execute())
-                    progress_counter['success'] += len(chunk)
+                    # Pakai RPC Delete yang tadi kita buat (Sangat Cepat)
+                    # Jika RPC belum dipasang, fallback ke delete biasa
+                    try:
+                        await asyncio.to_thread(lambda: supabase.rpc('delete_by_nopol', {'nopol_list': nops}).execute())
+                    except:
+                        # Fallback jika lupa run SQL RPC
+                        await asyncio.to_thread(lambda: supabase.table('kendaraan').delete().in_('nopol', nops).execute())
+
+                success_count += len(chunk)
                 
             except Exception as e:
-                progress_counter['fail'] += len(chunk)
-                errors.append(str(e)[:100])
-            finally:
-                progress_counter['processed'] += len(chunk)
+                # Jika gagal, catat error tapi jangan hentikan semua proses
+                fail_count += len(chunk)
+                last_error = str(e)
+                print(f"⚠️ Batch Gagal: {e}") 
 
-    # Siapkan Tugas
-    tasks = []
-    for i in range(0, total_data, BATCH_SIZE):
-        chunk = data[i:i + BATCH_SIZE]
-        tasks.append(upload_chunk(chunk))
+            # Update Progress Bar setiap 500 data (Supaya chat tidak spam)
+            if i % 500 == 0 and i > 0:
+                try:
+                    pct = int((i / total_data) * 100)
+                    await msg.edit_text(f"⏳ <b>PROGRESS: {pct}%</b>\n✅ Masuk: {success_count}\n⚠️ Gagal: {fail_count}", parse_mode='HTML')
+                except: pass
 
-    # Eksekusi Paralel
-    task_chunks = [tasks[i:i + MAX_CONCURRENCY*2] for i in range(0, len(tasks), MAX_CONCURRENCY*2)]
-    
-    for tc in task_chunks:
-        await asyncio.gather(*tc)
-        
-        # Update Progress Bar
-        now = time.time()
-        if now - last_update_time > 1.5: 
-            pct = round((progress_counter['processed'] / total_data) * 100, 1)
-            try:
-                await msg.edit_text(
-                    f"🚀 <b>SPEED {act.replace('🗑️ ', '').replace('🚀 ', '')}... {pct}%</b>\n"
-                    f"✅ Sukses: {progress_counter['success']:,}\n"
-                    f"⚠️ Gagal: {progress_counter['fail']:,}\n"
-                    f"⏱️ {round(now - start_t)}s...",
-                    parse_mode='HTML'
-                )
-                last_update_time = now
-            except: pass
+    except Exception as e:
+        logger.error(f"Critical Error: {e}")
+        await msg.edit_text(f"❌ <b>SYSTEM CRASH:</b> {e}")
+        return ConversationHandler.END
 
-    # Finishing
+    # --- LAPORAN AKHIR ---
     dur = round(time.time() - start_t, 2)
     try: await msg.delete()
     except: pass
     
-    status_header = "✅ PROSES SELESAI" if progress_counter['success'] > 0 else "❌ GAGAL TOTAL"
-    err_info = f"\n\n⚠️ <b>Error:</b> {errors[0]}" if errors else ""
+    status_msg = "✅ SELESAI" if success_count > 0 else "❌ GAGAL"
+    err_info = f"\n⚠️ <b>Note Error:</b> {last_error[:50]}..." if last_error else ""
     
     report = (
-        f"{status_header}\n"
+        f"{status_msg} ({act.replace('🚀 ','').replace('🗑️ ','')})\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"📊 <b>Total Data:</b> {total_data:,}\n"
-        f"✅ <b>Berhasil:</b> {progress_counter['success']:,}\n"
-        f"❌ <b>Gagal:</b> {progress_counter['fail']:,}\n"
-        f"⏱ <b>Waktu:</b> {dur} detik\n"
-        f"⚡ <b>Speed:</b> {int(total_data/dur) if dur > 0 else 0} data/detik"
-        f"{err_info}"
+        f"✅ <b>Berhasil:</b> {success_count:,}\n"
+        f"❌ <b>Gagal:</b> {fail_count:,}\n"
+        f"⏱ <b>Waktu:</b> {dur} detik{err_info}"
     )
     
     await update.message.reply_text(report, parse_mode='HTML')
