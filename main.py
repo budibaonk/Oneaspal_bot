@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 6.2 (DYNAMIC REKAP EDITION)                    #
+#                      VERSION: 6.6 (TURBO PARALLEL & ASYNC CORE)              #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -32,7 +32,7 @@ from telegram import (
     ReplyKeyboardMarkup, 
     ReplyKeyboardRemove, 
     constants,
-    LinkPreviewOptions  # <--- TAMBAHKAN INI (JANGAN LUPA KOMA DI ATASNYA)
+    LinkPreviewOptions  # FITUR MATIKAN PREVIEW WA
 )
 from telegram.ext import (
     Application,
@@ -86,7 +86,7 @@ BANK_INFO = """
 
 # --- DIAGNOSTIC STARTUP ---
 print("\n" + "="*50)
-print("🔍 SYSTEM DIAGNOSTIC STARTUP (v6.2)")
+print("🔍 SYSTEM DIAGNOSTIC STARTUP (v6.6)")
 print("="*50)
 
 try:
@@ -124,10 +124,6 @@ print("="*50 + "\n")
 
 # ##############################################################################
 # BAGIAN 2: KAMUS DATA
-# ##############################################################################
-
-# ##############################################################################
-# BAGIAN 2: KAMUS DATA (UPDATED v6.3)
 # ##############################################################################
 
 COLUMN_ALIASES = {
@@ -468,7 +464,7 @@ async def admin_action_complete(update, context):
 async def admin_help(update, context):
     if update.effective_user.id != ADMIN_ID: return
     msg = (
-        "🔐 **ADMIN COMMANDS v6.2**\n\n"
+        "🔐 **ADMIN COMMANDS v6.6**\n\n"
         "📢 **INFO / PENGUMUMAN**\n"
         "• `/setinfo [Pesan]` (Pasang Banner)\n"
         "• `/delinfo` (Hapus Banner)\n\n"
@@ -1090,92 +1086,99 @@ async def upload_leasing_admin(update, context):
         await update.message.reply_text(f"❌ <b>TERJADI KESALAHAN SYSTEM:</b>\n{e}\n\n<i>Silakan coba upload ulang atau hubungi admin.</i>", parse_mode='HTML')
         return ConversationHandler.END
 
-    except Exception as e:
-        logger.error(f"Upload Error: {e}")
-        await update.message.reply_text(f"❌ <b>TERJADI KESALAHAN SYSTEM:</b>\n{e}\n\n<i>Silakan coba upload ulang atau hubungi admin.</i>", parse_mode='HTML')
-        return ConversationHandler.END
-
+# --- [PERBAIKAN UTAMA: PARALLEL UPLOAD] ---
 async def upload_confirm_admin(update, context):
     act = update.message.text
     if act == "❌ BATAL": return await cancel(update, context)
     
-    msg = await update.message.reply_text("⏳ <b>MEMULAI UPDATE DATABASE (Turbo Mode)...</b>\nBot bisa digunakan sambil menunggu proses ini.", parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
+    # Init Pesan
+    msg = await update.message.reply_text("🚀 <b>MEMULAI TURBO UPLOAD (5 Jalur Paralel)...</b>\n<i>Mohon tunggu, ini akan jauh lebih cepat.</i>", parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
     
     data = context.user_data.get('final_df')
     total_data = len(data)
-    suc = 0
-    start_t = time.time()
-    last_error = ""
     
-    try:
-        # --- [UPDATE PENTING] NAIKKAN BATCH BIAR NGEBUT ---
-        # Lama: 50 (Terlalu kecil, banyak jeda network)
-        # Baru: 2000 (Sekali angkut langsung banyak)
-        BATCH = 2000 
-        # --------------------------------------------------
+    # --- KONFIGURASI KECEPATAN ---
+    BATCH_SIZE = 1000   # Ukuran per truk (Jangan terlalu besar biar gak timeout di paralel)
+    MAX_CONCURRENCY = 5 # Jumlah truk yang jalan bareng (5 Jalur)
+    # -----------------------------
 
-        list_nopol = [x['nopol'] for x in data] if act == "🗑️ HAPUS MASSAL" else []
-        
-        for i in range(0, total_data, BATCH):
-            chunk = data[i:i+BATCH]
+    start_t = time.time()
+    sem = asyncio.Semaphore(MAX_CONCURRENCY) # Polisi tidur pembatas jalur
+    
+    # Variable untuk tracking progress
+    progress_counter = {'success': 0, 'fail': 0, 'processed': 0}
+    last_update_time = 0
+    errors = []
+
+    # Fungsi Pekerja (Worker)
+    async def upload_chunk(chunk):
+        async with sem: # Ambil tiket masuk jalur
             try:
-                # --- NON-BLOCKING UPLOAD (Jalur Belakang) ---
-                if act == "🚀 UPDATE DATA": 
+                if act == "🚀 UPDATE DATA":
+                    # Kirim data ke Supabase (Upsert)
                     await asyncio.to_thread(lambda: supabase.table('kendaraan').upsert(chunk, on_conflict='nopol').execute())
-                    
-                elif act == "🗑️ HAPUS MASSAL": 
-                    chunk_nopol = list_nopol[i:i+BATCH]
-                    await asyncio.to_thread(lambda: supabase.table('kendaraan').delete().in_('nopol', chunk_nopol).execute())
+                elif act == "🗑️ HAPUS MASSAL":
+                    nops = [x['nopol'] for x in chunk]
+                    await asyncio.to_thread(lambda: supabase.table('kendaraan').delete().in_('nopol', nops).execute())
                 
-                suc += len(chunk)
-                # --------------------------------------------
-                
+                progress_counter['success'] += len(chunk)
             except Exception as e:
-                # Retry Logic (Jika gagal, coba batch kecil pelan-pelan)
-                if '57014' in str(e) or 'timeout' in str(e).lower():
-                    try:
-                        await asyncio.sleep(1) 
-                        mini_batch = 100 # Coba angkut dikit-dikit kalau server lagi berat
-                        for j in range(0, len(chunk), mini_batch):
-                            sub_chunk = chunk[j:j+mini_batch]
-                            if act == "🚀 UPDATE DATA": 
-                                await asyncio.to_thread(lambda: supabase.table('kendaraan').upsert(sub_chunk, on_conflict='nopol').execute())
-                            elif act == "🗑️ HAPUS MASSAL":
-                                sub_nopol = [x['nopol'] for x in sub_chunk]
-                                await asyncio.to_thread(lambda: supabase.table('kendaraan').delete().in_('nopol', sub_nopol).execute())
-                            suc += len(sub_chunk)
-                    except Exception as e2: last_error = str(e2); continue
-                else: 
-                    last_error = str(e); continue
-            
-            # Update Progress Bar (Biar admin tau jalan)
-            if i > 0:
-                try: await msg.edit_text(f"⏳ <b>SPEED UPLOAD...</b>\n🚀 {min(i+BATCH, total_data):,} / {total_data:,} data...", parse_mode='HTML')
-                except: pass 
-            
-            await asyncio.sleep(0.01) # Napas dikit
-            
-        dur = round(time.time() - start_t, 2)
-        try: await msg.delete()
-        except: pass
+                progress_counter['fail'] += len(chunk)
+                errors.append(str(e)[:100])
+            finally:
+                progress_counter['processed'] += len(chunk)
+
+    # Siapkan Tumpukan Tugas
+    tasks = []
+    for i in range(0, total_data, BATCH_SIZE):
+        chunk = data[i:i + BATCH_SIZE]
+        tasks.append(upload_chunk(chunk))
+
+    # --- EKSEKUSI PARALEL ---
+    # Kita pecah task jadi kelompok-kelompok kecil agar bisa update progress bar
+    # Kalau langsung gather semua, progress bar baru muncul pas selesai semua (user bingung)
+    
+    # Task list chunking untuk visualisasi progress bar
+    task_chunks = [tasks[i:i + MAX_CONCURRENCY*2] for i in range(0, len(tasks), MAX_CONCURRENCY*2)]
+    
+    for tc in task_chunks:
+        await asyncio.gather(*tc)
         
-        status_msg = "✅ SUKSES" if suc > 0 else "❌ GAGAL TOTAL"
-        error_info = f"\n⚠️ <b>Last Error:</b> {last_error[:100]}..." if last_error else ""
-        
-        report = (
-            f"{status_msg}\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"📊 <b>Berhasil Masuk:</b> {suc:,}\n"
-            f"❌ <b>Gagal:</b> {total_data - suc}\n"
-            f"⏱ <b>Waktu:</b> {dur} detik{error_info}\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"<i>Database sudah sinkron.</i>"
-        )
-        await update.message.reply_text(report, parse_mode='HTML')
-        
-    except Exception as e: 
-        await update.message.reply_text(f"❌ <b>SYSTEM ERROR:</b>\n{e}", parse_mode='HTML')
-        
+        # Update Progress di Telegram (Setiap beberapa batch selesai)
+        now = time.time()
+        if now - last_update_time > 1.5: # Update tiap 1.5 detik (biar gak kena limit Telegram)
+            pct = round((progress_counter['processed'] / total_data) * 100, 1)
+            try:
+                await msg.edit_text(
+                    f"🚀 <b>SPEED UPLOAD... {pct}%</b>\n"
+                    f"✅ Masuk: {progress_counter['success']:,}\n"
+                    f"⚠️ Gagal: {progress_counter['fail']:,}\n"
+                    f"⏱️ {round(now - start_t)}s berjalan...",
+                    parse_mode='HTML'
+                )
+                last_update_time = now
+            except: pass
+
+    # --- FINISHING ---
+    dur = round(time.time() - start_t, 2)
+    try: await msg.delete()
+    except: pass
+    
+    status_header = "✅ UPLOAD SELESAI" if progress_counter['success'] > 0 else "❌ GAGAL TOTAL"
+    err_info = f"\n\n⚠️ <b>Sampel Error:</b> {errors[0]}" if errors else ""
+    
+    report = (
+        f"{status_header}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"📊 <b>Total Data:</b> {total_data:,}\n"
+        f"✅ <b>Berhasil:</b> {progress_counter['success']:,}\n"
+        f"❌ <b>Gagal:</b> {progress_counter['fail']:,}\n"
+        f"⏱ <b>Waktu Total:</b> {dur} detik\n"
+        f"⚡ <b>Kecepatan:</b> {int(total_data/dur) if dur > 0 else 0} data/detik"
+        f"{err_info}"
+    )
+    
+    await update.message.reply_text(report, parse_mode='HTML')
     return ConversationHandler.END
 
 
@@ -1517,7 +1520,7 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v6.2 (DYNAMIC REKAP EDITION) STARTING...")
+    print("🚀 ONEASPAL BOT v6.6 (TURBO PARALLEL & ASYNC CORE) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
@@ -1554,7 +1557,7 @@ if __name__ == '__main__':
     
     app.add_handler(CommandHandler('panduan', panduan))
     app.add_handler(CommandHandler('setinfo', set_info)) 
-    app.add_handler(CommandHandler('delinfo', del_info))      
+    app.add_handler(CommandHandler('delinfo', del_info))       
     app.add_handler(CommandHandler('addagency', add_agency)) 
     app.add_handler(CommandHandler('adminhelp', admin_help)) 
     
@@ -1566,6 +1569,7 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo_topup))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+    
     # ------------------------------------------------------------------
     # [NEW] JOB QUEUE (JADWAL OTOMATIS)
     # ------------------------------------------------------------------
@@ -1580,5 +1584,5 @@ if __name__ == '__main__':
     print("⏰ Jadwal Cleanup Otomatis: AKTIF (Jam 03:00 WIB)")
     # ------------------------------------------------------------------
 
-    print("✅ BOT ONLINE! (v6.2 - DYNAMIC REKAP)")
+    print("✅ BOT ONLINE! (v6.6 - TURBO PARALLEL)")
     app.run_polling()
