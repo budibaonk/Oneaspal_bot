@@ -1175,12 +1175,13 @@ async def register_confirm(update, context):
     try:
         supabase.table('users').insert(d).execute()
         
-        # Respon ke User
+        # Respon ke User (Tetap sama)
         if role_db == 'pic': await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nAkses Enterprise Workspace sedang diverifikasi Admin.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
         else: await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nData Mitra sedang diverifikasi Admin Pusat.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
         
-        # [UPDATE] Format Link WA untuk Admin
+        # [UPDATE] Format Link WA & MATIKAN PREVIEW
         wa_link = format_wa_link(d['no_hp'])
+        no_preview = LinkPreviewOptions(is_disabled=True) # <--- Jurus Hilangkan Gambar
         
         msg_admin = (
             f"🔔 <b>REGISTRASI BARU ({role_db.upper()})</b>\n"
@@ -1196,7 +1197,15 @@ async def register_confirm(update, context):
         )
         
         kb = [[InlineKeyboardButton("✅ TERIMA (AKTIFKAN)", callback_data=f"appu_{d['user_id']}")], [InlineKeyboardButton("❌ TOLAK (HAPUS)", callback_data=f"reju_{d['user_id']}")]]
-        await context.bot.send_message(ADMIN_ID, msg_admin, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+        
+        # Kirim ke Admin dengan opsi No Preview
+        await context.bot.send_message(
+            ADMIN_ID, 
+            msg_admin, 
+            reply_markup=InlineKeyboardMarkup(kb), 
+            parse_mode='HTML', 
+            link_preview_options=no_preview # <--- Pasang di sini
+        )
         
     except Exception as e: 
         logger.error(f"Reg Error: {e}")
