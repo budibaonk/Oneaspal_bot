@@ -278,6 +278,22 @@ def clean_text(text):
     if not text: return "-"
     return html.escape(str(text))
 
+def format_wa_link(phone_number):
+    """
+    Mengubah 0812xxx menjadi link WhatsApp https://wa.me/62812xxx
+    """
+    if not phone_number: return "-"
+    
+    # Bersihkan nomor dari spasi atau strip
+    clean_hp = re.sub(r'[^0-9]', '', str(phone_number))
+    
+    # Ubah format lokal (08xxx) ke internasional (628xxx)
+    if clean_hp.startswith('0'):
+        clean_hp = '62' + clean_hp[1:]
+    
+    # Buat Link HTML
+    return f'<a href="https://wa.me/{clean_hp}">{phone_number}</a>'
+
 def standardize_leasing_name(name):
     if not name: return "UNKNOWN"
     clean = str(name).upper().strip()
@@ -584,16 +600,15 @@ async def list_users(update, context):
         if not active_list: return await update.message.reply_text("📂 Tidak ada mitra aktif.")
         
         msg = f"📋 <b>DAFTAR MITRA (Total: {len(active_list)})</b>\n━━━━━━━━━━━━━━━━━━\n"
-        now = datetime.now(TZ_JAKARTA)
         
         if pic_list:
             msg += "🏦 <b>INTERNAL LEASING (PIC)</b>\n"
             for i, u in enumerate(pic_list, 1):
                 nama = clean_text(u.get('nama_lengkap'))
                 agency = clean_text(u.get('agency'))
-                kota = clean_text(u.get('alamat'))
+                wa_link = format_wa_link(u.get('no_hp')) # Pakai Helper Tadi
                 uid = u['user_id']
-                entry = (f"{i}. 🤝 <b>{nama}</b>\n   UNLIMITED | 🏢 {agency} | 📍 {kota}\n   ⚙️ /m_{uid}\n\n")
+                entry = (f"{i}. 🤝 <b>{nama}</b>\n   📱 {wa_link} | 🏢 {agency}\n   ⚙️ /m_{uid}\n\n")
                 if len(msg) + len(entry) > 4000: await update.message.reply_text(msg, parse_mode='HTML'); msg = ""
                 msg += entry
             msg += "━━━━━━━━━━━━━━━━━━\n"
@@ -603,18 +618,11 @@ async def list_users(update, context):
             for i, u in enumerate(field_list, 1):
                 role = u.get('role', 'matel')
                 icon = "🎖️" if role == 'korlap' else "🛡️"
-                exp_str = u.get('expiry_date')
-                if exp_str:
-                    exp_dt = datetime.fromisoformat(exp_str.replace('Z', '+00:00')).astimezone(TZ_JAKARTA)
-                    delta = exp_dt - now
-                    days_left_str = "❌ EXP" if delta.days < 0 else f"⏳ {delta.days} Hari"
-                else: days_left_str = "❌ NULL"
-
                 nama = clean_text(u.get('nama_lengkap'))
                 agency = clean_text(u.get('agency'))
-                kota = clean_text(u.get('alamat'))
+                wa_link = format_wa_link(u.get('no_hp')) # Pakai Helper Tadi
                 uid = u['user_id']
-                entry = (f"{i}. {icon} <b>{nama}</b>\n   {days_left_str} | 🏢 {agency} | 📍 {kota}\n   ⚙️ /m_{uid}\n\n")
+                entry = (f"{i}. {icon} <b>{nama}</b>\n   📱 {wa_link} | 🏢 {agency}\n   ⚙️ /m_{uid}\n\n")
                 if len(msg) + len(entry) > 4000: await update.message.reply_text(msg, parse_mode='HTML'); msg = ""
                 msg += entry
             
@@ -627,13 +635,31 @@ async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tid = int(update.message.text.split('_')[1])
         u = get_user(tid)
         if not u: return await update.message.reply_text("❌ User tidak ditemukan.")
+        
         role_now = u.get('role', 'matel'); status_now = u.get('status', 'active')
         info_role = "🎖️ KORLAP" if role_now == 'korlap' else f"🛡️ {role_now.upper()}"
         wilayah = f"({u.get('wilayah_korlap', '-')})" if role_now == 'korlap' else ""
         icon_status = "✅ AKTIF" if status_now == 'active' else "⛔ BANNED"
+        
         expiry = u.get('expiry_date', 'EXPIRED')
         if expiry != 'EXPIRED': expiry = datetime.fromisoformat(expiry.replace('Z', '+00:00')).astimezone(TZ_JAKARTA).strftime('%d %b %Y')
-        msg = (f"👮‍♂️ <b>USER MANAGER</b>\n━━━━━━━━━━━━━━━━━━\n👤 <b>Nama:</b> {clean_text(u.get('nama_lengkap'))}\n🏅 <b>Role:</b> {info_role} {wilayah}\n📊 <b>Status:</b> {icon_status}\n📱 <b>ID:</b> <code>{tid}</code>\n📅 <b>Exp:</b> {expiry}\n🏢 <b>Agency:</b> {clean_text(u.get('agency'))}\n━━━━━━━━━━━━━━━━━━")
+        
+        # [UPDATE] Link WA
+        wa_link = format_wa_link(u.get('no_hp'))
+        
+        msg = (
+            f"👮‍♂️ <b>USER MANAGER</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Nama:</b> {clean_text(u.get('nama_lengkap'))}\n"
+            f"📱 <b>WA:</b> {wa_link}\n" # Ini yang baru
+            f"🏅 <b>Role:</b> {info_role} {wilayah}\n"
+            f"📊 <b>Status:</b> {icon_status}\n"
+            f"📱 <b>ID:</b> <code>{tid}</code>\n"
+            f"📅 <b>Exp:</b> {expiry}\n"
+            f"🏢 <b>Agency:</b> {clean_text(u.get('agency'))}\n"
+            f"━━━━━━━━━━━━━━━━━━"
+        )
+        
         btn_role = InlineKeyboardButton("⬇️ BERHENTIKAN KORLAP", callback_data=f"adm_demote_{tid}") if role_now == 'korlap' else InlineKeyboardButton("🎖️ ANGKAT KORLAP", callback_data=f"adm_promote_{tid}")
         btn_ban = InlineKeyboardButton("⛔ BAN USER", callback_data=f"adm_ban_{tid}") if status_now == 'active' else InlineKeyboardButton("✅ UNBAN (PULIHKAN)", callback_data=f"adm_unban_{tid}")
         kb = [[InlineKeyboardButton("📅 +5 Hari", callback_data=f"adm_topup_{tid}_5"), InlineKeyboardButton("📅 +30 Hari", callback_data=f"adm_topup_{tid}_30")], [btn_role], [btn_ban, InlineKeyboardButton("🗑️ HAPUS DATA", callback_data=f"adm_del_{tid}")], [InlineKeyboardButton("❌ TUTUP PANEL", callback_data="close_panel")]]
@@ -1094,14 +1120,37 @@ async def register_confirm(update, context):
     if update.message.text != "✅ KIRIM": return await cancel(update, context)
     role_db = context.user_data.get('reg_role', 'matel'); quota_init = 5000 if role_db == 'pic' else 1000
     d = {"user_id": update.effective_user.id, "nama_lengkap": context.user_data['r_nama'], "no_hp": context.user_data['r_hp'], "email": context.user_data['r_email'], "alamat": context.user_data['r_kota'], "agency": context.user_data['r_agency'], "quota": quota_init, "status": "pending", "role": role_db, "ref_korlap": None}
+    
     try:
         supabase.table('users').insert(d).execute()
+        
+        # Respon ke User
         if role_db == 'pic': await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nAkses Enterprise Workspace sedang diverifikasi Admin.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
         else: await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nData Mitra sedang diverifikasi Admin Pusat.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
-        msg_admin = (f"🔔 <b>REGISTRASI BARU ({role_db.upper()})</b>\n━━━━━━━━━━━━━━━━━━\n👤 <b>Nama:</b> {clean_text(d['nama_lengkap'])}\n🆔 <b>User ID:</b> <code>{d['user_id']}</code>\n🏢 <b>Agency:</b> {clean_text(d['agency'])}\n📍 <b>Domisili:</b> {clean_text(d['alamat'])}\n📱 <b>HP/WA:</b> {clean_text(d['no_hp'])}\n📧 <b>Email:</b> {clean_text(d['email'])}\n━━━━━━━━━━━━━━━━━━\n<i>Silakan validasi data mitra ini.</i>")
+        
+        # [UPDATE] Format Link WA untuk Admin
+        wa_link = format_wa_link(d['no_hp'])
+        
+        msg_admin = (
+            f"🔔 <b>REGISTRASI BARU ({role_db.upper()})</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Nama:</b> {clean_text(d['nama_lengkap'])}\n"
+            f"🆔 <b>User ID:</b> <code>{d['user_id']}</code>\n"
+            f"🏢 <b>Agency:</b> {clean_text(d['agency'])}\n"
+            f"📍 <b>Domisili:</b> {clean_text(d['alamat'])}\n"
+            f"📱 <b>HP/WA:</b> {wa_link} 👈 <i>(Klik Cek)</i>\n"
+            f"📧 <b>Email:</b> {clean_text(d['email'])}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"<i>Silakan validasi data mitra ini.</i>"
+        )
+        
         kb = [[InlineKeyboardButton("✅ TERIMA (AKTIFKAN)", callback_data=f"appu_{d['user_id']}")], [InlineKeyboardButton("❌ TOLAK (HAPUS)", callback_data=f"reju_{d['user_id']}")]]
         await context.bot.send_message(ADMIN_ID, msg_admin, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
-    except Exception as e: logger.error(f"Reg Error: {e}"); await update.message.reply_text("❌ Gagal Terkirim. User ID Anda mungkin sudah terdaftar sebelumnya.", reply_markup=ReplyKeyboardRemove())
+        
+    except Exception as e: 
+        logger.error(f"Reg Error: {e}")
+        await update.message.reply_text("❌ Gagal Terkirim. User ID Anda mungkin sudah terdaftar sebelumnya.", reply_markup=ReplyKeyboardRemove())
+    
     return ConversationHandler.END
 
 
