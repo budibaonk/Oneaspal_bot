@@ -659,14 +659,14 @@ async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         expiry = u.get('expiry_date', 'EXPIRED')
         if expiry != 'EXPIRED': expiry = datetime.fromisoformat(expiry.replace('Z', '+00:00')).astimezone(TZ_JAKARTA).strftime('%d %b %Y')
         
-        # [UPDATE] Link WA
+        # Format Link WA
         wa_link = format_wa_link(u.get('no_hp'))
         
         msg = (
             f"👮‍♂️ <b>USER MANAGER</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"👤 <b>Nama:</b> {clean_text(u.get('nama_lengkap'))}\n"
-            f"📱 <b>WA:</b> {wa_link}\n" # Ini yang baru
+            f"📱 <b>WA:</b> {wa_link}\n"
             f"🏅 <b>Role:</b> {info_role} {wilayah}\n"
             f"📊 <b>Status:</b> {icon_status}\n"
             f"📱 <b>ID:</b> <code>{tid}</code>\n"
@@ -678,7 +678,17 @@ async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         btn_role = InlineKeyboardButton("⬇️ BERHENTIKAN KORLAP", callback_data=f"adm_demote_{tid}") if role_now == 'korlap' else InlineKeyboardButton("🎖️ ANGKAT KORLAP", callback_data=f"adm_promote_{tid}")
         btn_ban = InlineKeyboardButton("⛔ BAN USER", callback_data=f"adm_ban_{tid}") if status_now == 'active' else InlineKeyboardButton("✅ UNBAN (PULIHKAN)", callback_data=f"adm_unban_{tid}")
         kb = [[InlineKeyboardButton("📅 +5 Hari", callback_data=f"adm_topup_{tid}_5"), InlineKeyboardButton("📅 +30 Hari", callback_data=f"adm_topup_{tid}_30")], [btn_role], [btn_ban, InlineKeyboardButton("🗑️ HAPUS DATA", callback_data=f"adm_del_{tid}")], [InlineKeyboardButton("❌ TUTUP PANEL", callback_data="close_panel")]]
-        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+        
+        # [UPDATE] Matikan Preview Link WA
+        no_preview = LinkPreviewOptions(is_disabled=True)
+        
+        await update.message.reply_text(
+            msg, 
+            reply_markup=InlineKeyboardMarkup(kb), 
+            parse_mode='HTML', 
+            link_preview_options=no_preview # <--- Pasang di sini
+        )
+        
     except Exception as e: await update.message.reply_text(f"❌ Error Panel: {e}")
 
 
