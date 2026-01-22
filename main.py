@@ -125,16 +125,50 @@ print("="*50 + "\n")
 # BAGIAN 2: KAMUS DATA
 # ##############################################################################
 
+# ##############################################################################
+# BAGIAN 2: KAMUS DATA (UPDATED v6.3)
+# ##############################################################################
+
 COLUMN_ALIASES = {
-    'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'nomorplat', 'nomorkendaraan', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'no. polisi'],
-    'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'assetdescription', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'merkname', 'brand', 'product', 'tipekendaraan', 'tipeunit', 'typekendaraan', 'typeunit'],
-    'tahun': ['tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture', 'assetyear', 'manufacturingyear'],
-    'warna': ['warna', 'color', 'colour', 'cat', 'kelir', 'assetcolour'],
-    'noka': ['noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 'rangka', 'chassisno', 'vinno', 'serial_number', 'bodyno', 'frameno', 'no rangka', 'no. rangka'],
-    'nosin': ['nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'engineno', 'noengine', 'engine_number', 'machineno', 'mesinno', 'no mesin', 'no. mesin'],
-    'finance': ['finance', 'leasing', 'lising', 'multifinance', 'cabang', 'partner', 'mitra', 'principal', 'company', 'client'],
-    'ovd': ['ovd', 'overdue', 'dpd', 'keterlambatan', 'odh', 'hari', 'telat', 'aging', 'od', 'bucket', 'daysoverdue', 'osp'],
-    'branch': ['branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 'wilayah', 'region', 'areaname', 'branchname', 'resort']
+    'nopol': [
+        'nopol', 'nopolisi', 'nomorpolisi', 'noplat', 'nomorplat', 'nomorkendaraan', 
+        'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'no. polisi',
+        'plate_number', 'platenumber', 'nomor_plat'
+    ],
+    'type': [
+        'type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'assetdescription', 
+        'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'merkname', 
+        'brand', 'product', 'tipekendaraan', 'tipeunit', 'typekendaraan', 'typeunit'
+    ],
+    'tahun': [
+        'tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture', 
+        'assetyear', 'manufacturingyear', 'prod_year', 'production_year'
+    ],
+    'warna': [
+        'warna', 'color', 'colour', 'cat', 'kelir', 'assetcolour'
+    ],
+    'noka': [
+        'noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 
+        'rangka', 'chassisno', 'vinno', 'serial_number', 'bodyno', 
+        'frameno', 'no rangka', 'no. rangka', 'chassis_number', 'chassisnumber'
+    ],
+    'nosin': [
+        'nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'engineno', 
+        'noengine', 'engine_number', 'machineno', 'mesinno', 
+        'no mesin', 'no. mesin', 'enginenumber'
+    ],
+    'finance': [
+        'finance', 'leasing', 'lising', 'lesing', 'multifinance', 
+        'partner', 'mitra', 'principal', 'company', 'client', 'pembiayaan'
+    ],
+    'ovd': [
+        'ovd', 'overdue', 'dpd', 'keterlambatan', 'odh', 'hari', 'telat', 
+        'aging', 'od', 'bucket', 'daysoverdue', 'osp', 'days_late'
+    ],
+    'branch': [
+        'branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 'wilayah', 
+        'region', 'areaname', 'branchname', 'resort', 'cab'
+    ]
 }
 
 VALID_DB_COLUMNS = ['nopol', 'type', 'finance', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'branch']
