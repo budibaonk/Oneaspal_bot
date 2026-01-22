@@ -1086,86 +1086,85 @@ async def upload_leasing_admin(update, context):
         await update.message.reply_text(f"❌ <b>TERJADI KESALAHAN SYSTEM:</b>\n{e}\n\n<i>Silakan coba upload ulang atau hubungi admin.</i>", parse_mode='HTML')
         return ConversationHandler.END
 
-# --- [PERBAIKAN UTAMA: PARALLEL UPLOAD] ---
+# --- [PERBAIKAN: RPC DELETE MASSAL] ---
 async def upload_confirm_admin(update, context):
     act = update.message.text
     if act == "❌ BATAL": return await cancel(update, context)
     
     # Init Pesan
-    msg = await update.message.reply_text("🚀 <b>MEMULAI TURBO UPLOAD (5 Jalur Paralel)...</b>\n<i>Mohon tunggu, ini akan jauh lebih cepat.</i>", parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
+    msg = await update.message.reply_text("🚀 <b>MEMULAI PROSES...</b>\n<i>Mohon tunggu sebentar...</i>", parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
     
     data = context.user_data.get('final_df')
     total_data = len(data)
     
     # --- KONFIGURASI KECEPATAN ---
-    BATCH_SIZE = 1000   # Ukuran per truk (Jangan terlalu besar biar gak timeout di paralel)
-    MAX_CONCURRENCY = 5 # Jumlah truk yang jalan bareng (5 Jalur)
+    BATCH_SIZE = 1000   
+    MAX_CONCURRENCY = 5 
     # -----------------------------
 
     start_t = time.time()
-    sem = asyncio.Semaphore(MAX_CONCURRENCY) # Polisi tidur pembatas jalur
+    sem = asyncio.Semaphore(MAX_CONCURRENCY)
     
-    # Variable untuk tracking progress
     progress_counter = {'success': 0, 'fail': 0, 'processed': 0}
     last_update_time = 0
     errors = []
 
     # Fungsi Pekerja (Worker)
     async def upload_chunk(chunk):
-        async with sem: # Ambil tiket masuk jalur
+        async with sem:
             try:
                 if act == "🚀 UPDATE DATA":
-                    # Kirim data ke Supabase (Upsert)
+                    # Mode Upload: Pakai Upsert Standar (Sudah Cepat)
                     await asyncio.to_thread(lambda: supabase.table('kendaraan').upsert(chunk, on_conflict='nopol').execute())
+                    progress_counter['success'] += len(chunk)
+
                 elif act == "🗑️ HAPUS MASSAL":
+                    # [NEW] Mode Hapus: Pakai RPC (Jauh Lebih Cepat)
+                    # Kita kirim list nopol saja ke fungsi SQL 'delete_by_nopol'
                     nops = [x['nopol'] for x in chunk]
-                    await asyncio.to_thread(lambda: supabase.table('kendaraan').delete().in_('nopol', nops).execute())
+                    await asyncio.to_thread(lambda: supabase.rpc('delete_by_nopol', {'nopol_list': nops}).execute())
+                    progress_counter['success'] += len(chunk)
                 
-                progress_counter['success'] += len(chunk)
             except Exception as e:
                 progress_counter['fail'] += len(chunk)
                 errors.append(str(e)[:100])
             finally:
                 progress_counter['processed'] += len(chunk)
 
-    # Siapkan Tumpukan Tugas
+    # Siapkan Tugas
     tasks = []
     for i in range(0, total_data, BATCH_SIZE):
         chunk = data[i:i + BATCH_SIZE]
         tasks.append(upload_chunk(chunk))
 
-    # --- EKSEKUSI PARALEL ---
-    # Kita pecah task jadi kelompok-kelompok kecil agar bisa update progress bar
-    # Kalau langsung gather semua, progress bar baru muncul pas selesai semua (user bingung)
-    
-    # Task list chunking untuk visualisasi progress bar
+    # Eksekusi Paralel
     task_chunks = [tasks[i:i + MAX_CONCURRENCY*2] for i in range(0, len(tasks), MAX_CONCURRENCY*2)]
     
     for tc in task_chunks:
         await asyncio.gather(*tc)
         
-        # Update Progress di Telegram (Setiap beberapa batch selesai)
+        # Update Progress Bar
         now = time.time()
-        if now - last_update_time > 1.5: # Update tiap 1.5 detik (biar gak kena limit Telegram)
+        if now - last_update_time > 1.5: 
             pct = round((progress_counter['processed'] / total_data) * 100, 1)
             try:
                 await msg.edit_text(
-                    f"🚀 <b>SPEED UPLOAD... {pct}%</b>\n"
-                    f"✅ Masuk: {progress_counter['success']:,}\n"
+                    f"🚀 <b>SPEED {act.replace('🗑️ ', '').replace('🚀 ', '')}... {pct}%</b>\n"
+                    f"✅ Sukses: {progress_counter['success']:,}\n"
                     f"⚠️ Gagal: {progress_counter['fail']:,}\n"
-                    f"⏱️ {round(now - start_t)}s berjalan...",
+                    f"⏱️ {round(now - start_t)}s...",
                     parse_mode='HTML'
                 )
                 last_update_time = now
             except: pass
 
-    # --- FINISHING ---
+    # Finishing
     dur = round(time.time() - start_t, 2)
     try: await msg.delete()
     except: pass
     
-    status_header = "✅ UPLOAD SELESAI" if progress_counter['success'] > 0 else "❌ GAGAL TOTAL"
-    err_info = f"\n\n⚠️ <b>Sampel Error:</b> {errors[0]}" if errors else ""
+    status_header = "✅ PROSES SELESAI" if progress_counter['success'] > 0 else "❌ GAGAL TOTAL"
+    err_info = f"\n\n⚠️ <b>Error:</b> {errors[0]}" if errors else ""
     
     report = (
         f"{status_header}\n"
@@ -1173,8 +1172,8 @@ async def upload_confirm_admin(update, context):
         f"📊 <b>Total Data:</b> {total_data:,}\n"
         f"✅ <b>Berhasil:</b> {progress_counter['success']:,}\n"
         f"❌ <b>Gagal:</b> {progress_counter['fail']:,}\n"
-        f"⏱ <b>Waktu Total:</b> {dur} detik\n"
-        f"⚡ <b>Kecepatan:</b> {int(total_data/dur) if dur > 0 else 0} data/detik"
+        f"⏱ <b>Waktu:</b> {dur} detik\n"
+        f"⚡ <b>Speed:</b> {int(total_data/dur) if dur > 0 else 0} data/detik"
         f"{err_info}"
     )
     
