@@ -899,18 +899,20 @@ async def upload_leasing_admin(update, context):
     try:
         nm = update.message.text
         if nm == "❌ BATAL": return await cancel(update, context)
+        
         nm = nm.upper().strip()
         
         if 'df' not in context.user_data:
             await update.message.reply_text("❌ Sesi kedaluwarsa. Silakan upload ulang file.")
             return ConversationHandler.END
 
-        msg = await update.message.reply_text("⏳ **Membersihkan Data...**", parse_mode='Markdown')
+        msg = await update.message.reply_text("⏳ **Membersihkan & Merapikan Data...**", parse_mode='Markdown')
         
-        # Helper Clean Function
+        # --- FUNGSI CLEANING DI BACKGROUND THREAD ---
         def clean_data(raw_data, leasing_name):
             df = pd.DataFrame(raw_data).astype(str)
             
+            # 1. Standarisasi Nama Leasing
             if leasing_name != 'SKIP': 
                 df['finance'] = standardize_leasing_name(leasing_name)
                 fin_disp = leasing_name
@@ -922,45 +924,83 @@ async def upload_leasing_admin(update, context):
                     df['finance'] = 'UNKNOWN'
                     fin_disp = "AUTO CLEAN (KOSONG)"
 
+            # 2. Bersihkan Nopol (Hapus spasi & karakter aneh)
             if 'nopol' in df.columns:
                 df['nopol'] = df['nopol'].str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
+                # Hapus nopol yang terlalu pendek (sampah)
                 df = df[df['nopol'].str.len() > 2]
+                # Hapus duplikat di dalam file ini (ambil yang paling bawah/terbaru)
                 df = df.drop_duplicates(subset=['nopol'], keep='last')
-                df = df.replace({'nan': '-', 'None': '-', 'NaN': '-'})
+                # Ganti 'nan' string jadi '-'
+                df = df.replace({'nan': '-', 'None': '-', 'NaN': '-', '': '-'})
                 
+                # 3. Susun sesuai kolom Database yang Valid
                 final_df = pd.DataFrame()
                 for col in VALID_DB_COLUMNS:
                     if col in df.columns: final_df[col] = df[col]
                     else: final_df[col] = "-"
+                
                 return final_df.to_dict(orient='records'), fin_disp
             else:
                 return None, None
 
+        # Jalankan Cleaning tanpa membekukan bot
         final_data, fin_disp = await asyncio.to_thread(clean_data, context.user_data['df'], nm)
         context.user_data['final_df'] = final_data
         
-        await msg.delete()
+        # Hapus pesan tunggu
+        try: await msg.delete()
+        except: pass
 
         if final_data is None:
             await update.message.reply_text("❌ <b>ERROR:</b> Kolom NOPOL tidak ditemukan.\nPastikan file memiliki header: <i>No Polisi, Plat, Nopolisi</i>, dll.", parse_mode='HTML')
             return ConversationHandler.END
 
+        if not final_data:
+            await update.message.reply_text("⚠️ Data Kosong setelah filtering (Cek apakah kolom Nopol valid?)")
+            return ConversationHandler.END
+
+        # --- PREVIEW DETIL (DINAMIS - SEMUA KOLOM) ---
+        s = final_data[0] # Ambil sampel baris pertama
+        
+        details_list = []
+        # Urutan prioritas agar enak dibaca
+        priority_cols = ['nopol', 'type', 'finance', 'ovd', 'noka', 'nosin', 'tahun', 'warna', 'branch']
+        
+        # 1. Tampilkan kolom prioritas dulu
+        for key in priority_cols:
+            val = s.get(key, '-')
+            # Hanya tampilkan jika datanya ada (bukan '-' atau kosong)
+            if val and str(val).strip() not in ['-', 'nan', 'None', '', 'UNKNOWN']:
+                if key == 'nopol': 
+                    val = f"<code>{val}</code>" # Highlight Nopol
+                details_list.append(f"🔹 <b>{key.upper()}:</b> {val}")
+        
+        # 2. Tampilkan sisa kolom lainnya (jika ada custom column yang masuk valid_db)
+        for k, v in s.items():
+            if k not in priority_cols and v and str(v).strip() not in ['-', 'nan', 'None', '']:
+                details_list.append(f"🔸 <b>{k.upper()}:</b> {v}")
+
+        prev_info = "\n".join(details_list)
+        # -----------------------------------
+
         prev = (
-            f"🔎 <b>PREVIEW DATA</b>\n"
+            f"🔎 <b>PREVIEW DATA SIAP UPLOAD</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"🏦 <b>Mode:</b> {fin_disp}\n"
-            f"📊 <b>Total Siap Upload:</b> {len(final_data)} Data\n\n"
-            f"📝 <b>SAMPEL DATA BARIS 1:</b>\n{final_data[0].get('nopol')} | {final_data[0].get('type')}\n"
+            f"🏦 <b>Mode Leasing:</b> {fin_disp}\n"
+            f"📊 <b>Total Data Bersih:</b> {len(final_data):,} Baris\n\n"
+            f"📝 <b>SAMPEL DATA PERTAMA:</b>\n{prev_info}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"⚠️ <b>Silakan konfirmasi untuk menyimpan data.</b>"
+            f"⚠️ <b>Pastikan data di atas sudah sesuai?</b>"
         )
+        
         kb = [["🚀 UPDATE DATA"], ["🗑️ HAPUS MASSAL"], ["❌ BATAL"]]
         await update.message.reply_text(prev, reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True), parse_mode='HTML')
         return U_CONFIRM_UPLOAD
 
     except Exception as e:
         logger.error(f"Upload Error: {e}")
-        await update.message.reply_text(f"❌ <b>TERJADI KESALAHAN SYSTEM:</b>\n{e}", parse_mode='HTML')
+        await update.message.reply_text(f"❌ <b>TERJADI KESALAHAN SYSTEM:</b>\n{e}\n\n<i>Silakan coba upload ulang atau hubungi admin.</i>", parse_mode='HTML')
         return ConversationHandler.END
 
 # --- BACKGROUND WORKER (THE FIX) ---
