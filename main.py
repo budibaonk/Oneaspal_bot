@@ -2,7 +2,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 6.0 (DIAGNOSTIC & DEBUGGER EDITION)            #
+#                      VERSION: 6.2 (DYNAMIC REKAP EDITION)                    #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -85,7 +85,7 @@ BANK_INFO = """
 
 # --- DIAGNOSTIC STARTUP ---
 print("\n" + "="*50)
-print("🔍 SYSTEM DIAGNOSTIC STARTUP")
+print("🔍 SYSTEM DIAGNOSTIC STARTUP (v6.2)")
 print("="*50)
 
 try:
@@ -417,14 +417,16 @@ async def admin_action_complete(update, context):
 async def admin_help(update, context):
     if update.effective_user.id != ADMIN_ID: return
     msg = (
-        "🔐 **ADMIN COMMANDS v6.1 (Update)**\n\n"
+        "🔐 **ADMIN COMMANDS v6.2**\n\n"
         "📢 **INFO / PENGUMUMAN**\n"
         "• `/setinfo [Pesan]` (Pasang Banner)\n"
         "• `/delinfo` (Hapus Banner)\n\n"
         "👮‍♂️ **ROLE**\n"
         "• `/angkat_korlap [ID] [KOTA]`\n\n"
-        "📊 **ANALYTICS**\n"
-        "• `/rekap` (Hit Murni Matel)\n\n"
+        "📊 **ANALYTICS (NEW)**\n"
+        "• `/rekap` (Rekap Global Hari Ini)\n"
+        "• `/rekap[Leasing]` (Rekap Khusus)\n"
+        "  _Contoh: /rekapJtii, /rekapAdira_\n\n"
         "🏢 **LEASING GROUP**\n"
         "• `/setgroup [NAMA_LEASING]`\n"
         "_(Gunakan di dalam Grup Notif)_\n\n"
@@ -476,6 +478,61 @@ async def rekap_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Rekap Error: {e}")
         await msg.edit_text(f"❌ Gagal menarik data rekap: {e}")
+
+# [NEW v6.2] REKAP SPESIFIK LEASING (COMMAND DINAMIS)
+async def rekap_spesifik(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    
+    # Parse Command: /rekapBCA -> BCA
+    raw_text = update.message.text.split()[0] # Ambil command saja
+    target_leasing = raw_text.lower().replace("/rekap", "").strip().upper()
+    
+    if not target_leasing: return # Harusnya masuk ke handler /rekap biasa
+    
+    msg = await update.message.reply_text(f"⏳ **Mencari Data Temuan: {target_leasing}...**", parse_mode='Markdown')
+    
+    try:
+        now = datetime.now(TZ_JAKARTA)
+        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # Query ILIKE agar fleksibel (Misal: /rekapAdira -> match 'ADIRA DINAMIKA', 'ADIRA FINANCE')
+        res = supabase.table('finding_logs').select("*")\
+            .gte('created_at', start_of_day.isoformat())\
+            .ilike('leasing', f'%{target_leasing}%')\
+            .execute()
+        
+        data = res.data
+        total_hits = len(data)
+        
+        if total_hits == 0:
+            return await msg.edit_text(f"📊 **REKAP HARIAN: {target_leasing}**\n\nNihil. Belum ada unit ditemukan hari ini.")
+            
+        # Header Laporan
+        report = (
+            f"📊 **LAPORAN HARIAN KHUSUS: {target_leasing}**\n"
+            f"📅 Tanggal: {now.strftime('%d %b %Y')}\n"
+            f"🔥 **Total Hit:** {total_hits} Unit\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+        )
+        
+        # Detail Unit (Tampilkan max 15 agar tidak kepanjangan)
+        limit_show = 15
+        for i, d in enumerate(data[:limit_show]):
+            nopol = d.get('nopol', '-')
+            unit = d.get('unit', '-')
+            matel = d.get('nama_matel', 'Matel')
+            report += f"{i+1}. {nopol} | {unit} (Oleh: {matel})\n"
+            
+        if total_hits > limit_show:
+            report += f"\n... dan {total_hits - limit_show} unit lainnya."
+            
+        report += "\n━━━━━━━━━━━━━━━━━━\n#OneAspalAnalytics"
+        
+        await msg.edit_text(report, parse_mode='Markdown')
+        
+    except Exception as e:
+        logger.error(f"Rekap Spesifik Error: {e}")
+        await msg.edit_text(f"❌ Error: {e}")
 
 async def list_users(update, context):
     if update.effective_user.id != ADMIN_ID: return
@@ -1231,7 +1288,7 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v6.0 (DEBUGGER EDITION) STARTING...")
+    print("🚀 ONEASPAL BOT v6.2 (DYNAMIC REKAP EDITION) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
@@ -1271,10 +1328,15 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('delinfo', del_info))      
     app.add_handler(CommandHandler('addagency', add_agency)) 
     app.add_handler(CommandHandler('adminhelp', admin_help)) 
+    
+    # -------------------------------------------------------------
+    # NEW HANDLER FOR DYNAMIC COMMANDS /rekapLeasing
+    # -------------------------------------------------------------
+    app.add_handler(MessageHandler(filters.Regex(r'^/rekap[a-zA-Z0-9]+$') & filters.COMMAND, rekap_spesifik))
         
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo_topup))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("✅ BOT ONLINE! (v6.0 - DIAGNOSTIC READY)")
+    print("✅ BOT ONLINE! (v6.2 - DYNAMIC REKAP)")
     app.run_polling()
