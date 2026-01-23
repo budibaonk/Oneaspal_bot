@@ -942,6 +942,55 @@ async def notify_leasing_group(context, matel_user, unit_data):
     except Exception as e: 
         logger.error(f"Error Notify Leasing: {e}")
 
+
+async def notify_agency_group(context, matel_user, unit_data):
+    """
+    Mengirim notifikasi ke Grup Agency milik si Penemu Unit.
+    """
+    user_agency = str(matel_user.get('agency', '')).strip().upper()
+    if len(user_agency) < 3: return
+
+    try:
+        # Ambil daftar grup agency dari database
+        res = supabase.table('agency_groups').select("*").execute()
+        groups = res.data
+        
+        target_group_ids = []
+        for g in groups:
+            g_name = str(g['agency_name']).upper()
+            # Logika Cek: Apakah Nama PT User cocok dengan Nama Grup Terdaftar
+            if g_name == user_agency or g_name in user_agency:
+                target_group_ids.append(g['group_id'])
+        
+        if not target_group_ids: return
+
+        # Siapkan Pesan
+        clean_num = re.sub(r'[^0-9]', '', str(matel_user.get('no_hp')))
+        if clean_num.startswith('0'): clean_num = '62' + clean_num[1:]
+        
+        msg_group = (
+            f"👮‍♂️ <b>LAPORAN ANGGOTA ({user_agency})</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Anggota:</b> {clean_text(matel_user.get('nama_lengkap'))}\n"
+            f"📍 <b>Lokasi:</b> {clean_text(matel_user.get('alamat'))}\n\n"
+            f"🚙 <b>Unit:</b> {clean_text(unit_data.get('type'))}\n"
+            f"🔢 <b>Nopol:</b> {clean_text(unit_data.get('nopol'))}\n"
+            f"🏦 <b>Leasing:</b> {clean_text(unit_data.get('finance'))}\n"
+            f"⚠️ <b>OVD:</b> {clean_text(unit_data.get('ovd'))}\n"
+            f"━━━━━━━━━━━━━━━━━━"
+        )
+
+        kb = [[InlineKeyboardButton("📞 Hubungi Anggota", url=f"https://wa.me/{clean_num}")]]
+
+        for gid in target_group_ids:
+            try: 
+                await context.bot.send_message(gid, msg_group, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+            except Exception as e: 
+                logger.error(f"Gagal kirim grup agency {gid}: {e}")
+            
+    except Exception as e: 
+        logger.error(f"Error Notify Agency: {e}")
+
 # [V6.0] NOTIF GROUP ADMIN PUSAT (DEBUGGED)
 async def notify_hit_to_group(context, u, d):
     try:
@@ -997,6 +1046,25 @@ async def set_leasing_group(update, context):
     except Exception as e:
         await update.message.reply_text(f"❌ Gagal set grup: {e}")
 
+# [NEW FEATURE] REGISTER AGENCY GROUP
+async def set_agency_group(update, context):
+    if update.effective_user.id != ADMIN_ID: return
+    if update.effective_chat.type not in ['group', 'supergroup']:
+        return await update.message.reply_text("⚠️ Perintah ini hanya bisa digunakan di dalam GRUP Agency.")
+    
+    if not context.args:
+        return await update.message.reply_text("⚠️ Format: `/setagency [NAMA_PT]`\nContoh: `/setagency PT ELANG PERKASA`")
+    
+    agency_name = " ".join(context.args).upper()
+    chat_id = update.effective_chat.id
+    
+    try:
+        # Hapus mapping lama jika ada, lalu insert baru
+        supabase.table('agency_groups').delete().eq('group_id', chat_id).execute()
+        supabase.table('agency_groups').insert({"group_id": chat_id, "agency_name": agency_name}).execute()
+        await update.message.reply_text(f"✅ <b>AGENCY TERDAFTAR!</b>\n\nGrup ini sekarang adalah <b>MONITORING ROOM</b> untuk: <b>{agency_name}</b>.\nSetiap Matel dari PT ini menemukan unit, notifikasi masuk sini.", parse_mode='HTML')
+    except Exception as e:
+        await update.message.reply_text(f"❌ Gagal set grup: {e}")
 
 # ==============================================================================
 # BAGIAN 10: UPLOAD SYSTEM (BACKGROUND WORKER + DYNAMIC PREVIEW)
@@ -1465,8 +1533,9 @@ async def show_unit_detail_original(update, context, d, u):
     await context.bot.send_message(chat_id=update.effective_chat.id, text=txt, parse_mode='HTML')
     
     # 3. NOTIFIKASI GROUP (SEMUA ROLE HARUS MUNCUL UNTUK TESTING)
-    await notify_hit_to_group(context, u, d)  
-    await notify_leasing_group(context, u, d) 
+    await notify_hit_to_group(context, u, d)    # Ke Admin Pusat
+    await notify_leasing_group(context, u, d)   # Ke Leasing (BCA/Adira/dll)
+    await notify_agency_group(context, u, d)    # Ke Agency (PT Elang/dll) <-- BARU 
 
 async def show_multi_choice(update, context, data_list, keyword):
     # --- LOGIC BANNER INFO ---
@@ -1669,6 +1738,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('balas', admin_reply))
     
     app.add_handler(CommandHandler('setgroup', set_leasing_group)) 
+    app.add_handler(CommandHandler('setagency', set_agency_group)) # <--- TAMBAHKAN INI
     
     app.add_handler(ConversationHandler(entry_points=[CommandHandler('admin', contact_admin), MessageHandler(filters.Regex('^📞 BANTUAN TEKNIS$'), contact_admin)], states={SUPPORT_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, support_send)]}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)])) 
     
