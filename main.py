@@ -313,56 +313,48 @@ def smart_rename_columns(df):
     df.rename(columns=new, inplace=True)
     return df, found
 
+# ==============================================================================
+# BAGIAN 5: ENGINE FILE (DEBUG MODE)
+# ==============================================================================
+
 def read_file_robust(content, fname):
     """
-    Versi OPTIMIZED: Lebih agresif membaca CSV/Excel agar tidak stuck.
+    Versi SUPER ROBUST: Mampu membaca CSV bandel & Excel.
     """
-    # 1. Handle ZIP
-    if fname.lower().endswith('.zip'):
+    fname = fname.lower()
+    
+    # 1. Cek ZIP
+    if fname.endswith('.zip'):
         with zipfile.ZipFile(io.BytesIO(content)) as z:
-            valid = [f for f in z.namelist() if not f.startswith('__') and f.lower().endswith(('.csv','.xlsx','.xls','.txt'))]
-            if not valid: raise ValueError("ZIP Kosong atau tidak ada file Excel/CSV")
+            valid = [f for f in z.namelist() if f.endswith(('.csv','.xlsx','.xls'))]
+            if not valid: raise ValueError("ZIP Kosong")
             with z.open(valid[0]) as f: 
                 content = f.read()
-                fname = valid[0] # Update nama file jadi file dalam zip
-     
-    # 2. Handle EXCEL (.xlsx / .xls)
-    if fname.lower().endswith(('.xlsx', '.xls')):
+                fname = valid[0].lower()
+    
+    # 2. Cek EXCEL
+    if fname.endswith(('.xlsx', '.xls')):
         try: return pd.read_excel(io.BytesIO(content), dtype=str)
-        except: 
-            try: return pd.read_excel(io.BytesIO(content), dtype=str, engine='openpyxl')
-            except Exception as e: raise ValueError(f"Gagal baca Excel: {e}")
-            
-    # 3. Handle CSV (Turbo Mode)
-    # Langsung coba baca dengan pemisah ';' (paling umum di Indonesia)
+        except Exception as e: raise ValueError(f"Gagal baca Excel: {e}")
+
+    # 3. Cek CSV (Coba berbagai jurus)
+    # Jurus 1: Pemisah Titik Koma (;) - Paling umum di Indo
     try:
-        # engine='c' jauh lebih cepat daripada 'python'
-        df = pd.read_csv(io.BytesIO(content), sep=';', dtype=str, on_bad_lines='skip', encoding='utf-8')
-        if len(df.columns) > 1: return df
+        return pd.read_csv(io.BytesIO(content), sep=';', dtype=str, on_bad_lines='skip', encoding='utf-8')
     except: pass
     
+    # Jurus 2: Pemisah Koma (,)
     try:
-        # Coba Comma ','
-        df = pd.read_csv(io.BytesIO(content), sep=',', dtype=str, on_bad_lines='skip', encoding='utf-8')
-        if len(df.columns) > 1: return df
+        return pd.read_csv(io.BytesIO(content), sep=',', dtype=str, on_bad_lines='skip', encoding='utf-8')
     except: pass
     
-    # 4. Handle CSV (Compatibility Mode - Jika Turbo Gagal)
-    # Baru coba tebak-tebakan encoding (sedikit lebih lambat tapi kuat)
-    configs = [
-        {'sep': ';', 'enc': 'latin1'},
-        {'sep': ',', 'enc': 'latin1'},
-        {'sep': '\t', 'enc': 'utf-16'}
-    ]
-    
-    for cfg in configs:
-        try:
-            df = pd.read_csv(io.BytesIO(content), sep=cfg['sep'], dtype=str, encoding=cfg['enc'], on_bad_lines='skip')
-            if len(df.columns) > 1: return df
-        except: continue
-            
+    # Jurus 3: Encoding Latin1 (Windows Legacy)
+    try:
+        return pd.read_csv(io.BytesIO(content), sep=';', dtype=str, on_bad_lines='skip', encoding='latin1')
+    except: pass
+
     # Menyerah
-    raise ValueError("Format file tidak dikenali. Pastikan file CSV (pemisah ; atau ,) atau Excel.")
+    raise ValueError("Format file tidak bisa dibaca. Pastikan CSV (Pemisah ; atau ,) atau Excel.")
 
 
 # ##############################################################################
@@ -1215,84 +1207,88 @@ async def stop_upload_command(update, context):
 async def upload_start(update, context):
     if not get_user(update.effective_user.id): return
     
-    # Ambil File ID
     context.user_data['fid'] = update.message.document.file_id
+    fname = update.message.document.file_name
     
-    # Jika Admin -> Masuk mode cleaning data
+    # Jika Admin -> Proses Cleaning
     if update.effective_user.id == ADMIN_ID:
-        msg = await update.message.reply_text("⏳ **Menganalisa File...**\n_(Mohon tunggu, file sedang dibaca di background)_", parse_mode='Markdown')
+        # A. KIRIM STATUS AWAL
+        status_msg = await update.message.reply_text("⏳ **MEMULAI PROSES...**\nStep 1: Mendownload File...", parse_mode='Markdown')
         
         try:
-            # 1. Download File (Ini sudah async, jadi aman)
+            # B. DOWNLOAD FILE
             f = await update.message.document.get_file()
             c = await f.download_as_bytearray()
-            file_name = update.message.document.file_name
+            await status_msg.edit_text("⏳ **MEMULAI PROSES...**\n✅ Step 1: Download Selesai\nStep 2: Membaca & Menganalisa Data...")
+            
+            # --- FUNGSI BACKGROUND (AGAR BOT TIDAK STUCK) ---
+            def process_background(content, filename):
+                df = read_file_robust(content, filename)   # Baca File
+                df = fix_header_position(df)               # Cari Header
+                df, found = smart_rename_columns(df)       # Rename Kolom
+                
+                # Cek Kolom Wajib
+                if 'nopol' not in df.columns:
+                    raise ValueError(f"Kolom NOPOL tidak ditemukan.\nKolom terbaca: {', '.join(found)}")
+                
+                return df.to_dict(orient='records'), found, df
 
-            # --- [FIX START] MEMINDAHKAN PROSES BERAT KE BACKGROUND THREAD ---
-            # Fungsi pembantu untuk dijalankan di thread terpisah
-            def process_file_background(content, fname):
-                # Baca File
-                df_raw = read_file_robust(content, fname)
-                # Perbaiki Header
-                df_fixed = fix_header_position(df_raw)
-                # Rename Kolom
-                df_final, cols_found = smart_rename_columns(df_fixed)
-                # Convert ke Dict (Berat untuk file besar)
-                return df_final.to_dict(orient='records'), cols_found, df_final
+            # C. EKSEKUSI DI BACKGROUND
+            # (Disini biasanya macet kalau memori penuh / library kurang)
+            data_dict, found, df_check = await asyncio.to_thread(process_background, c, fname)
+            
+            await status_msg.edit_text("⏳ **MEMULAI PROSES...**\n✅ Step 1: Download Selesai\n✅ Step 2: Analisa Selesai\nStep 3: Menyiapkan Preview...")
 
-            # Eksekusi di Background (Bot TIDAK AKAN STUCK di sini lagi)
-            data_dict, found, df_check = await asyncio.to_thread(process_file_background, c, file_name)
-            # --- [FIX END] ---
-
-            # Simpan ke memori user
+            # D. SUKSES - SIMPAN KE MEMORI
             context.user_data['df'] = data_dict
+            context.user_data['cols'] = found
             
-            await msg.delete()
+            # Hapus pesan status, ganti dengan Laporan
+            await status_msg.delete()
             
-            # Cek kolom Finance & Nopol
-            fin_status = "✅ ADA" if 'finance' in df_check.columns else "⚠️ TIDAK ADA"
-            nopol_status = "✅ ADA" if 'nopol' in df_check.columns else "❌ TIDAK ADA"
+            fin_status = "✅ ADA" if 'finance' in df_check.columns else "⚠️ TIDAK ADA (Akan ditanya)"
             
-            if 'nopol' not in df_check.columns:
-                 await update.message.reply_text(f"❌ <b>GAGAL:</b> Kolom NOPOL tidak ditemukan.\nKolom terdeteksi: {', '.join(found)}", parse_mode='HTML')
-                 return ConversationHandler.END
-
-            scan_report = (
-                f"✅ <b>SCAN SUKSES (Async Mode)</b>\n"
+            rpt = (
+                f"✅ <b>FILE BERHASIL DIBACA!</b>\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
-                f"📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n"
-                f"📁 <b>Total Baris:</b> {len(data_dict):,}\n"
-                f"🏦 <b>Kolom Leasing:</b> {fin_status}\n"
-                f"🔢 <b>Kolom Nopol:</b> {nopol_status}\n"
-                f"━━━━━━━━━━━━━━━━━━\n\n"
-                f"👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n"
-                f"<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>"
+                f"📁 <b>Nama File:</b> {fname}\n"
+                f"📊 <b>Total Baris:</b> {len(data_dict):,}\n"
+                f"📝 <b>Kolom Dikenali:</b> {', '.join(found)}\n"
+                f"🏦 <b>Info Leasing:</b> {fin_status}\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"👉 <b>MASUKKAN NAMA LEASING:</b>\n"
+                f"<i>(Ketik 'SKIP' jika sudah ada kolom finance di file)</i>"
             )
-            await update.message.reply_text(scan_report, reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True), parse_mode='HTML')
+            
+            await update.message.reply_text(rpt, reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True), parse_mode='HTML')
             return U_LEASING_ADMIN
             
-        except Exception as e: 
-            logger.error(f"File Read Error: {e}")
-            await msg.edit_text(f"❌ <b>Error Membaca File:</b>\n{str(e)[:200]}...", parse_mode='HTML')
+        except ValueError as ve:
+            await status_msg.edit_text(f"❌ <b>GAGAL BACA FILE:</b>\n{str(ve)}", parse_mode='HTML')
             return ConversationHandler.END
             
-    # Jika User Biasa -> Kirim ke Admin
+        except Exception as e:
+            logger.error(f"Upload Error: {e}")
+            await status_msg.edit_text(f"❌ <b>SYSTEM ERROR:</b>\n{str(e)[:200]}...", parse_mode='HTML')
+            return ConversationHandler.END
+            
+    # Jika User Biasa
     else:
         await update.message.reply_text("📄 File diterima. Ketik Nama Leasing:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
         return U_LEASING_USER
-
+    
 async def upload_leasing_user(update, context): 
     nm = update.message.text
     if nm == "❌ BATAL": return await cancel(update, context)
     
     u = get_user(update.effective_user.id)
+    # Kirim file ke Admin untuk dicek
     await context.bot.send_document(ADMIN_ID, context.user_data['fid'], caption=f"📥 **UPLOAD USER ({u.get('role').upper()})**\n👤 {u['nama_lengkap']}\n🏦 {nm}")
     
     resp = "✅ **SINKRONISASI BERHASIL**" if u.get('role') == 'pic' else "✅ **TERKIRIM KE ADMIN**"
     await update.message.reply_text(resp, parse_mode='Markdown')
     return ConversationHandler.END
 
-# 4. HANDLER PROSES DATA (CLEANING & PREVIEW)
 async def upload_leasing_admin(update, context):
     try:
         nm = update.message.text
@@ -1353,12 +1349,11 @@ async def upload_leasing_admin(update, context):
             await update.message.reply_text("⚠️ Data Kosong setelah filtering (Cek kolom Nopol)")
             return ConversationHandler.END
 
-        # --- PREVIEW DINAMIS (Tampilkan semua kolom yang ada) ---
+        # --- PREVIEW DINAMIS ---
         s = final_data[0] 
         details_list = []
         priority_cols = ['nopol', 'type', 'finance', 'ovd', 'noka', 'nosin', 'tahun', 'warna', 'branch']
         
-        # Kolom Prioritas
         for key in priority_cols:
             val = s.get(key, '-')
             if val and str(val).strip() not in ['-', 'nan', 'None', '', 'UNKNOWN']:
@@ -1371,7 +1366,7 @@ async def upload_leasing_admin(update, context):
                 details_list.append(f"🔸 <b>{k.upper()}:</b> {v}")
 
         prev_info = "\n".join(details_list)
-        # --------------------------------------------------------
+        # -----------------------
 
         prev = (
             f"🔎 <b>PREVIEW DATA SIAP UPLOAD</b>\n"
@@ -1389,6 +1384,20 @@ async def upload_leasing_admin(update, context):
     except Exception as e:
         await update.message.reply_text(f"❌ <b>SYSTEM ERROR:</b>\n{e}", parse_mode='HTML')
         return ConversationHandler.END
+
+async def upload_confirm_admin(update, context):
+    act = update.message.text
+    if act == "❌ BATAL": return await cancel(update, context)
+    
+    data = context.user_data.get('final_df')
+    chat_id = update.effective_chat.id
+    
+    await update.message.reply_text("🆗 Perintah diterima. Memproses di latar belakang...", reply_markup=ReplyKeyboardRemove())
+    
+    # Panggil Background Worker sebagai Task terpisah
+    asyncio.create_task(background_upload_process(update, context, act, data, chat_id))
+    
+    return ConversationHandler.END
 
 # 5. HANDLER KONFIRMASI (TRIGGER BACKGROUND)
 async def upload_confirm_admin(update, context):
