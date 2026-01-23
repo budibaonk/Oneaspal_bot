@@ -1054,70 +1054,61 @@ async def set_agency_group(update, context):
 # 1. FUNGSI KERJA DI LATAR BELAKANG (SAFE MODE & VERBOSE ERROR)
 # ==============================================================================
 async def background_upload_process(update, context, act, data, chat_id):
-    # Tombol Panic Button
     stop_kb = InlineKeyboardMarkup([[InlineKeyboardButton("⛔ HENTIKAN PROSES", callback_data="stop_upload_task")]])
-    
     status_msg = await context.bot.send_message(
         chat_id=chat_id, 
-        text=f"🚀 <b>MEMULAI {act}...</b>\nMohon tunggu, sedang menghangatkan mesin...", 
+        text=f"🚀 <b>MEMULAI {act}...</b>\nSedang membersihkan data kotor...", 
         parse_mode='HTML', 
         reply_markup=stop_kb
     )
     
-    BATCH_SIZE = 50 # Kita naikkan sedikit karena data Bapak cuma ratusan
+    BATCH_SIZE = 50 
     total = len(data)
     success = 0
     fail = 0
     errors = []
-    
     context.user_data['stop_signal'] = False
     start_time = time.time()
     error_sent = False 
-    
-    # --- HELPER: PEMBERSIH DATA EXTREME ---
-    def clean_payload(chunk_data):
-        """Memastikan data 100% string murni agar JSON Supabase tidak error"""
+
+    def clean_payload_extreme(chunk_data):
+        """Mesin cuci data: Buang spasi liar dan titik di akhir noka/nosin"""
         clean_chunk = []
         for item in chunk_data:
             new_item = {}
             for k, v in item.items():
-                # Paksa jadi string, hilangkan spasi aneh, ganti Nan/None jadi strip
-                val = str(v).strip()
+                val = str(v).strip() # Buang spasi depan/belakang
                 if val.lower() in ['nan', 'none', 'null', '', 'nat']: 
                     val = "-"
+                
+                # Khusus Nopol, Noka, Nosin: Buang semua titik atau karakter aneh di akhir
+                if k in ['nopol', 'noka', 'nosin']:
+                    val = val.replace(" ", "").replace(".", "").upper()
+                
                 new_item[k] = val
             clean_chunk.append(new_item)
         return clean_chunk
 
-    # --- HELPER: EKSEKUTOR THREAD ---
     def execute_db(chunk, action):
-        """Fungsi sinkronus untuk dijalankan di dalam thread"""
         try:
-            clean_data = clean_payload(chunk)
+            clean_data = clean_payload_extreme(chunk)
             nops = [x['nopol'] for x in clean_data]
-            
             if action == "🚀 UPDATE DATA":
-                # Upsert (Insert or Update)
-                supabase.table('kendaraan').upsert(clean_data, on_conflict='nopol').execute()
+                # Gunakan try-except internal untuk menangkap error database spesifik
+                res = supabase.table('kendaraan').upsert(clean_data, on_conflict='nopol').execute()
             elif action == "🗑️ HAPUS MASSAL":
-                # Delete
                 supabase.table('kendaraan').delete().in_('nopol', nops).execute()
-            return None # Sukses = Return None
+            return None
         except Exception as e:
-            return str(e) # Gagal = Return Error String
+            return str(e)
 
     try:
-        # Loop per Batch
         for i in range(0, total, BATCH_SIZE):
-            # Cek Sinyal Stop
             if context.user_data.get('stop_signal'):
                 await status_msg.edit_text("⛔ <b>BERHENTI OLEH USER.</b>", reply_markup=None)
                 return
 
             chunk = data[i:i+BATCH_SIZE]
-            
-            # --- JALANKAN DI BACKGROUND THREAD (SAFE WRAPPER) ---
-            # Kita pakai wrapper execute_db agar error tertangkap rapi
             result_error = await asyncio.to_thread(execute_db, chunk, act)
             
             if result_error is None:
@@ -1125,52 +1116,22 @@ async def background_upload_process(update, context, act, data, chat_id):
             else:
                 fail += len(chunk)
                 errors.append(result_error)
-                print(f"❌ Batch Error: {result_error}")
-                
-                # JIKA ERROR, LANGSUNG LAPOR KE CHAT (Biar gak stuck diam)
                 if not error_sent:
-                    err_preview = result_error[:300] # Ambil 300 huruf pertama
-                    await context.bot.send_message(
-                        chat_id, 
-                        f"⚠️ <b>DIAGNOSA ERROR:</b>\nData gagal masuk database. Kemungkinan format data excel bermasalah.\n\n<code>{err_preview}</code>", 
-                        parse_mode='HTML'
-                    )
+                    await context.bot.send_message(chat_id, f"⚠️ <b>DB REJECTED:</b>\n<code>{result_error[:300]}</code>", parse_mode='HTML')
                     error_sent = True
 
-            # Update Laporan Progress (Setiap batch atau setiap 2 detik)
             if i % BATCH_SIZE == 0:
                 pct = int(((i + len(chunk))/total)*100)
-                try:
-                    await status_msg.edit_text(
-                        f"⏳ <b>PROGRESS: {pct}%</b>\n"
-                        f"✅ Sukses: {success}\n"
-                        f"❌ Gagal: {fail}", 
-                        parse_mode='HTML', 
-                        reply_markup=stop_kb
-                    )
-                except: pass # Abaikan jika pesan sama (Telegram error)
-            
-            await asyncio.sleep(0.2) # Jeda nafas agar bot tidak di-banned Telegram
+                try: await status_msg.edit_text(f"⏳ <b>PROGRESS: {pct}%</b>\n✅ Sukses: {success}\n❌ Gagal: {fail}", parse_mode='HTML', reply_markup=stop_kb)
+                except: pass
+            await asyncio.sleep(0.2)
 
-        # FINAL REPORT
         dur = round(time.time() - start_time, 1)
-        err_report = f"\n⚠️ <b>Sebab Error:</b> {errors[0]}" if errors else ""
-        
-        final_emoji = "✅" if success > 0 else "❌"
-        final_rpt = (
-            f"{final_emoji} <b>SELESAI ({act})</b>\n"
-            f"⏱️ Waktu: {dur}s\n"
-            f"📦 Total Data: {total:,}\n"
-            f"✅ Berhasil: {success:,}\n"
-            f"❌ Gagal: {fail:,}"
-            f"{err_report}"
-        )
-        
+        final_rpt = (f"✅ <b>SELESAI ({act})</b>\n📦 Total: {total:,}\n✅ Berhasil: {success:,}\n❌ Gagal: {fail:,}")
         await status_msg.edit_text(final_rpt, parse_mode='HTML', reply_markup=None)
 
     except Exception as e:
-        logger.error(f"Critical Upload Error: {e}")
-        await status_msg.edit_text(f"❌ <b>SYSTEM CRASH:</b> {e}", reply_markup=None)
+        await status_msg.edit_text(f"❌ <b>CRITICAL ERROR:</b> {e}", reply_markup=None)
 
 # 2. COMMAND STOP (DARURAT)
 async def stop_upload_command(update, context):
