@@ -20,6 +20,7 @@ import asyncio
 import csv 
 import zipfile 
 import html
+import difflib
 from collections import Counter
 from datetime import datetime, timedelta, time
 import pytz 
@@ -945,7 +946,7 @@ async def notify_leasing_group(context, matel_user, unit_data):
 
 async def notify_agency_group(context, matel_user, unit_data):
     """
-    Mengirim notifikasi ke Grup Agency milik si Penemu Unit.
+    Mengirim notifikasi ke Grup Agency dengan Logika Fuzzy (Anti-Typo).
     """
     user_agency = str(matel_user.get('agency', '')).strip().upper()
     if len(user_agency) < 3: return
@@ -958,8 +959,19 @@ async def notify_agency_group(context, matel_user, unit_data):
         target_group_ids = []
         for g in groups:
             g_name = str(g['agency_name']).upper()
-            # Logika Cek: Apakah Nama PT User cocok dengan Nama Grup Terdaftar
-            if g_name == user_agency or g_name in user_agency:
+            
+            # 1. Cek Exact Match / Substring (Cara Lama - Cepat)
+            is_match = g_name in user_agency or user_agency in g_name
+            
+            # 2. Cek Fuzzy Match (Cara Baru - Anti Typo)
+            # Hitung kemiripan teks (0.0 sampai 1.0)
+            if not is_match:
+                similarity = difflib.SequenceMatcher(None, g_name, user_agency).ratio()
+                # Jika kemiripan di atas 80% (Misal: "ELANG PERKASA" vs "ELANG PREKASA")
+                if similarity > 0.8:
+                    is_match = True
+            
+            if is_match:
                 target_group_ids.append(g['group_id'])
         
         if not target_group_ids: return
@@ -1379,10 +1391,19 @@ async def register_kota(update, context):
     if context.user_data['reg_role'] == 'pic':
         txt = "5️⃣ **Nama Leasing / Finance:**\n_(Contoh: BCA Finance, Adira, ACC)_"
     else:
-        # [UPDATE] PERTEGAS INSTRUKSI NAMA PT
-        txt = "5️⃣ **Nama Agency / PT:**\n_(Wajib isi NAMA LENGKAP PT, BUKAN SINGKATAN!)\nContoh: PT ELANG PERKASA (✅) | EP (❌)_"
+        # [UPDATE] PERTEGAS INSTRUKSI NAMA PT AGAR TIDAK TYPO/SINGKAT
+        txt = (
+            "5️⃣ **Nama Agency / PT (WAJIB LENGKAP)**\n\n"
+            "⚠️ <b>INFO PENTING:</b>\n"
+            "Sistem menggunakan <i>Auto-Detection</i>. Mohon tulis nama PT <b>SESUAI LEGALITAS</b> dan <b>JANGAN DISINGKAT</b>.\n\n"
+            "❌ <i>Salah:</i> EP, Elang, PT EP\n"
+            "✅ <i>Benar:</i> <b>PT ELANG PERKASA</b>\n\n"
+            "👉 <i>Silakan ketik Nama Agency Anda:</i>"
+        )
         
-    await update.message.reply_text(txt, parse_mode='Markdown'); return R_AGENCY
+    await update.message.reply_text(txt, parse_mode='HTML')
+    return R_AGENCY
+
 async def register_agency(update, context): 
     msg = update.message.text
     if msg == "❌ BATAL": return await cancel(update, context)
@@ -1419,7 +1440,7 @@ async def register_confirm(update, context):
         else: 
             await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nData Mitra sedang diverifikasi Admin Pusat.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
         
-        # --- [FIX DISINI] FORMAT WA LINK ---
+        # Link WA
         wa_link = format_wa_link(d['no_hp']) 
         
         msg_admin = (
@@ -1429,14 +1450,22 @@ async def register_confirm(update, context):
             f"🆔 <b>User ID:</b> <code>{d['user_id']}</code>\n"
             f"🏢 <b>Agency:</b> {clean_text(d['agency'])}\n"
             f"📍 <b>Domisili:</b> {clean_text(d['alamat'])}\n"
-            f"📱 <b>HP/WA:</b> {wa_link}\n"  # <-- SUDAH PAKAI LINK
+            f"📱 <b>HP/WA:</b> {wa_link}\n"
             f"📧 <b>Email:</b> {clean_text(d['email'])}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"<i>Silakan validasi data mitra ini.</i>"
         )
         
         kb = [[InlineKeyboardButton("✅ TERIMA (AKTIFKAN)", callback_data=f"appu_{d['user_id']}")], [InlineKeyboardButton("❌ TOLAK (HAPUS)", callback_data=f"reju_{d['user_id']}")]]
-        await context.bot.send_message(ADMIN_ID, msg_admin, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+        
+        # [FIX] Tambahkan link_preview_options=LinkPreviewOptions(is_disabled=True)
+        await context.bot.send_message(
+            ADMIN_ID, 
+            msg_admin, 
+            reply_markup=InlineKeyboardMarkup(kb), 
+            parse_mode='HTML',
+            link_preview_options=LinkPreviewOptions(is_disabled=True)
+        )
         
     except Exception as e: 
         logger.error(f"Reg Error: {e}")
