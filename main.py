@@ -23,7 +23,8 @@ import html
 import difflib
 from collections import Counter
 from datetime import datetime, timedelta, time
-import pytz 
+import pytz
+import urllib.parse
 from dotenv import load_dotenv
 
 from telegram import (
@@ -1663,34 +1664,68 @@ async def handle_message(update, context):
     except Exception as e: logger.error(f"Search error: {e}"); await update.message.reply_text("❌ Error DB.")
 
 async def show_unit_detail_original(update, context, d, u):
-    increment_daily_usage(u['user_id'], u.get('daily_usage', 0))
-    
-    # 1. ANALYTICS (HANYA MATEL)
-    user_role = u.get('role', 'matel')
-    if user_role != 'pic':
-        log_successful_hit(u['user_id'], u.get('nama_lengkap'), d)
-
-    # 2. TAMPILKAN KE USER (SEMUA ROLE)
-    info_txt = f"📢 <b>INFO:</b> {clean_text(GLOBAL_INFO)}\n━━━━━━━━━━━━━━━━━━\n" if GLOBAL_INFO else ""
+    """
+    Menampilkan detail unit ke User + Tombol Share WA Legal
+    """
+    # 1. Format Teks untuk Tampilan di Telegram
     txt = (
-        f"{info_txt}✅ <b>DATA DITEMUKAN</b>\n"
+        f"🚨 <b>UNIT DITEMUKAN! (HIT)</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"🚙 <b>Unit:</b> {clean_text(d.get('type'))}\n"
-        f"🔢 <b>Nopol:</b> <code>{clean_text(d.get('nopol'))}</code>\n"
-        f"📅 <b>Tahun:</b> {clean_text(d.get('tahun'))}\n"
-        f"🎨 <b>Warna:</b> {clean_text(d.get('warna'))}\n"
+        f"🚙 <b>Unit:</b> {d['type']}\n"
+        f"🔢 <b>Nopol:</b> {d['nopol']}\n"
+        f"🎨 <b>Warna:</b> {d.get('warna', '-')}\n"
+        f"📅 <b>Tahun:</b> {d.get('tahun', '-')}\n"
         f"----------------------------------\n"
-        f"🔧 <b>Noka:</b> <code>{clean_text(d.get('noka'))}</code>\n"
-        f"⚙️ <b>Nosin:</b> <code>{clean_text(d.get('nosin'))}</code>\n"
+        f"🔧 <b>Noka:</b> {d.get('noka', '-')}\n"
+        f"⚙️ <b>Nosin:</b> {d.get('nosin', '-')}\n"
         f"----------------------------------\n"
-        f"⚠️ <b>OVD:</b> {clean_text(d.get('ovd'))}\n"
-        f"🏦 <b>Finance:</b> {clean_text(d.get('finance'))}\n"
-        f"🏢 <b>Branch:</b> {clean_text(d.get('branch'))}\n"
+        f"🏦 <b>Finance:</b> {d['finance']}\n"
+        f"⚠️ <b>OVD:</b> {d['ovd']}\n"
+        f"🏢 <b>Branch:</b> {d.get('branch', '-')}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"⚠️ <b>CATATAN PENTING:</b>\n"
-        f"<i>Ini bukan alat yang SAH untuk penarikan. Konfirmasi ke PIC leasing.</i>"
+        f"Informasi ini BUKAN alat yang SAH untuk penarikan unit (Eksekusi).\n"
+        f"Mohon untuk konfirmasi ke Pic Leasing atau Kantor."
     )
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=txt, parse_mode='HTML')
+    
+    # 2. Format Teks untuk SHARE WA (URL Encoded)
+    # Ini teks yang akan muncul otomatis di WA saat tombol diklik
+    share_text = (
+        f"*LAPORAN TEMUAN UNIT (ONE ASPAL)*\n"
+        f"----------------------------------\n"
+        f"🚙 Unit: {d['type']}\n"
+        f"🔢 Nopol: {d['nopol']}\n"
+        f"🏦 Finance: {d['finance']}\n"
+        f"⚠️ OVD: {d['ovd']}\n"
+        f"📍 Lokasi: {u['alamat']}\n"
+        f"👤 Penemu: {u['nama_lengkap']} ({u.get('agency')})\n"
+        f"----------------------------------\n"
+        f"⚠️ *PENTING & DISCLAIMER:*\n"
+        f"Informasi ini BUKAN alat yang SAH untuk penarikan unit (Eksekusi).\n"
+        f"Mohon untuk konfirmasi ke Pic Leasing atau Kantor."
+    )
+    
+    # Encode teks agar bisa jadi Link WA
+    encoded_text = urllib.parse.quote(share_text)
+    wa_url = f"https://wa.me/?text={encoded_text}"
+    
+    # 3. Buat Tombol
+    kb = [
+        [InlineKeyboardButton("📲 SHARE KE WA (Lapor PIC)", url=wa_url)]
+    ]
+    
+    # Kirim Pesan ke User
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id, 
+        text=txt, 
+        reply_markup=InlineKeyboardMarkup(kb), 
+        parse_mode='HTML'
+    )
+    
+    # Panggil Notifikasi ke Grup (Admin, Leasing, Agency)
+    # Pastikan fungsi-fungsi ini sudah ada di update sebelumnya
+    await notify_hit_to_group(context, u, d)
+    await notify_leasing_group(context, u, d)
+    await notify_agency_group(context, u, d)
     
     # 3. NOTIFIKASI GROUP (SEMUA ROLE HARUS MUNCUL UNTUK TESTING)
     await notify_hit_to_group(context, u, d)    # Ke Admin Pusat
