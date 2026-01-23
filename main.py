@@ -312,35 +312,55 @@ def smart_rename_columns(df):
     return df, found
 
 def read_file_robust(content, fname):
+    """
+    Versi OPTIMIZED: Lebih agresif membaca CSV/Excel agar tidak stuck.
+    """
+    # 1. Handle ZIP
     if fname.lower().endswith('.zip'):
         with zipfile.ZipFile(io.BytesIO(content)) as z:
             valid = [f for f in z.namelist() if not f.startswith('__') and f.lower().endswith(('.csv','.xlsx','.xls','.txt'))]
-            if not valid: raise ValueError("ZIP Kosong")
-            with z.open(valid[0]) as f: content = f.read(); fname = valid[0]
+            if not valid: raise ValueError("ZIP Kosong atau tidak ada file Excel/CSV")
+            with z.open(valid[0]) as f: 
+                content = f.read()
+                fname = valid[0] # Update nama file jadi file dalam zip
      
+    # 2. Handle EXCEL (.xlsx / .xls)
     if fname.lower().endswith(('.xlsx', '.xls')):
         try: return pd.read_excel(io.BytesIO(content), dtype=str)
         except: 
             try: return pd.read_excel(io.BytesIO(content), dtype=str, engine='openpyxl')
-            except: pass 
+            except Exception as e: raise ValueError(f"Gagal baca Excel: {e}")
             
+    # 3. Handle CSV (Turbo Mode)
+    # Langsung coba baca dengan pemisah ';' (paling umum di Indonesia)
+    try:
+        # engine='c' jauh lebih cepat daripada 'python'
+        df = pd.read_csv(io.BytesIO(content), sep=';', dtype=str, on_bad_lines='skip', encoding='utf-8')
+        if len(df.columns) > 1: return df
+    except: pass
+    
+    try:
+        # Coba Comma ','
+        df = pd.read_csv(io.BytesIO(content), sep=',', dtype=str, on_bad_lines='skip', encoding='utf-8')
+        if len(df.columns) > 1: return df
+    except: pass
+    
+    # 4. Handle CSV (Compatibility Mode - Jika Turbo Gagal)
+    # Baru coba tebak-tebakan encoding (sedikit lebih lambat tapi kuat)
     configs = [
-        {'sep': ';', 'enc': 'utf-8-sig', 'quote': csv.QUOTE_NONE},
-        {'sep': ';', 'enc': 'latin1',    'quote': csv.QUOTE_NONE},
-        {'sep': ',', 'enc': 'utf-8-sig', 'quote': csv.QUOTE_MINIMAL}, 
-        {'sep': ',', 'enc': 'latin1',    'quote': csv.QUOTE_MINIMAL},
-        {'sep': '\t', 'enc': 'utf-16',   'quote': csv.QUOTE_MINIMAL}, 
-        {'sep': '\t', 'enc': 'utf-8',    'quote': csv.QUOTE_MINIMAL}
+        {'sep': ';', 'enc': 'latin1'},
+        {'sep': ',', 'enc': 'latin1'},
+        {'sep': '\t', 'enc': 'utf-16'}
     ]
     
     for cfg in configs:
         try:
-            df = pd.read_csv(io.BytesIO(content), sep=cfg['sep'], dtype=str, encoding=cfg['enc'], engine='python', on_bad_lines='skip', quoting=cfg['quote'])
+            df = pd.read_csv(io.BytesIO(content), sep=cfg['sep'], dtype=str, encoding=cfg['enc'], on_bad_lines='skip')
             if len(df.columns) > 1: return df
         except: continue
             
-    try: return pd.read_csv(io.BytesIO(content), sep=None, engine='python', dtype=str)
-    except: return pd.DataFrame()
+    # Menyerah
+    raise ValueError("Format file tidak dikenali. Pastikan file CSV (pemisah ; atau ,) atau Excel.")
 
 
 # ##############################################################################
@@ -1306,16 +1326,54 @@ async def register_agency(update, context):
 
 async def register_confirm(update, context):
     if update.message.text != "✅ KIRIM": return await cancel(update, context)
-    role_db = context.user_data.get('reg_role', 'matel'); quota_init = 5000 if role_db == 'pic' else 1000
-    d = {"user_id": update.effective_user.id, "nama_lengkap": context.user_data['r_nama'], "no_hp": context.user_data['r_hp'], "email": context.user_data['r_email'], "alamat": context.user_data['r_kota'], "agency": context.user_data['r_agency'], "quota": quota_init, "status": "pending", "role": role_db, "ref_korlap": None}
+    
+    role_db = context.user_data.get('reg_role', 'matel')
+    quota_init = 5000 if role_db == 'pic' else 1000
+    
+    d = {
+        "user_id": update.effective_user.id, 
+        "nama_lengkap": context.user_data['r_nama'], 
+        "no_hp": context.user_data['r_hp'], 
+        "email": context.user_data['r_email'], 
+        "alamat": context.user_data['r_kota'], 
+        "agency": context.user_data['r_agency'], 
+        "quota": quota_init, 
+        "status": "pending", 
+        "role": role_db, 
+        "ref_korlap": None
+    }
+    
     try:
         supabase.table('users').insert(d).execute()
-        if role_db == 'pic': await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nAkses Enterprise Workspace sedang diverifikasi Admin.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
-        else: await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nData Mitra sedang diverifikasi Admin Pusat.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
-        msg_admin = (f"🔔 <b>REGISTRASI BARU ({role_db.upper()})</b>\n━━━━━━━━━━━━━━━━━━\n👤 <b>Nama:</b> {clean_text(d['nama_lengkap'])}\n🆔 <b>User ID:</b> <code>{d['user_id']}</code>\n🏢 <b>Agency:</b> {clean_text(d['agency'])}\n📍 <b>Domisili:</b> {clean_text(d['alamat'])}\n📱 <b>HP/WA:</b> {clean_text(d['no_hp'])}\n📧 <b>Email:</b> {clean_text(d['email'])}\n━━━━━━━━━━━━━━━━━━\n<i>Silakan validasi data mitra ini.</i>")
+        
+        if role_db == 'pic': 
+            await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nAkses Enterprise Workspace sedang diverifikasi Admin.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
+        else: 
+            await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nData Mitra sedang diverifikasi Admin Pusat.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
+        
+        # --- [FIX DISINI] FORMAT WA LINK ---
+        wa_link = format_wa_link(d['no_hp']) 
+        
+        msg_admin = (
+            f"🔔 <b>REGISTRASI BARU ({role_db.upper()})</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Nama:</b> {clean_text(d['nama_lengkap'])}\n"
+            f"🆔 <b>User ID:</b> <code>{d['user_id']}</code>\n"
+            f"🏢 <b>Agency:</b> {clean_text(d['agency'])}\n"
+            f"📍 <b>Domisili:</b> {clean_text(d['alamat'])}\n"
+            f"📱 <b>HP/WA:</b> {wa_link}\n"  # <-- SUDAH PAKAI LINK
+            f"📧 <b>Email:</b> {clean_text(d['email'])}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"<i>Silakan validasi data mitra ini.</i>"
+        )
+        
         kb = [[InlineKeyboardButton("✅ TERIMA (AKTIFKAN)", callback_data=f"appu_{d['user_id']}")], [InlineKeyboardButton("❌ TOLAK (HAPUS)", callback_data=f"reju_{d['user_id']}")]]
         await context.bot.send_message(ADMIN_ID, msg_admin, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
-    except Exception as e: logger.error(f"Reg Error: {e}"); await update.message.reply_text("❌ Gagal Terkirim. User ID Anda mungkin sudah terdaftar sebelumnya.", reply_markup=ReplyKeyboardRemove())
+        
+    except Exception as e: 
+        logger.error(f"Reg Error: {e}")
+        await update.message.reply_text("❌ Gagal Terkirim. User ID Anda mungkin sudah terdaftar sebelumnya.", reply_markup=ReplyKeyboardRemove())
+    
     return ConversationHandler.END
 
 
