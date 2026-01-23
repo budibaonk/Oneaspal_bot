@@ -1189,7 +1189,7 @@ async def upload_confirm_admin(update, context):
 
     suc = 0
     fail = 0
-    BATCH = 200 # Turunkan drastis biar DB bisa napas
+    BATCH = 200 # Batch dikecilkan ke 200 untuk mencegah Timeout Database
     start_time = time.time()
     
     # --- [HELPER] FUNGSI EKSEKUTOR DI BACKGROUND THREAD ---
@@ -1203,7 +1203,6 @@ async def upload_confirm_admin(update, context):
             s_local = len(batch_data)
         except Exception as e:
             # Jika gagal (misal ada 1 data error), masuk mode lambat (SAFE MODE)
-            # print(f"⚠️ Batch Gagal: {e}. Mengaktifkan mode satu-per-satu...")
             for x in batch_data:
                 try: 
                     supabase.table('kendaraan').upsert([x], on_conflict='nopol').execute()
@@ -1227,9 +1226,9 @@ async def upload_confirm_admin(update, context):
             suc += s_batch
             fail += f_batch
             
-            # Update Status setiap beberapa batch (jangan tiap batch biar ga kena limit Telegram)
+            # Update Status setiap beberapa batch
             current_batch = (i // BATCH) + 1
-            if current_batch % 2 == 0 or current_batch == total_batches:
+            if current_batch % 5 == 0 or current_batch == total_batches: # Update tiap 5 batch
                 try: 
                     progress_text = (
                         f"⏳ **MENGUPLOAD...**\n"
@@ -1239,7 +1238,7 @@ async def upload_confirm_admin(update, context):
                         f"⏱ Estimasi: {int(time.time() - start_time)}s berjalan..."
                     )
                     await status_msg.edit_text(progress_text, parse_mode='Markdown')
-                except: pass # Abaikan error edit message jika terlalu cepat
+                except: pass 
             
             # Beri napas sedikit untuk event loop
             await asyncio.sleep(0.05)
@@ -1269,7 +1268,6 @@ async def upload_confirm_admin(update, context):
     context.user_data.pop('df_records', None)
     
     return ConversationHandler.END
-
 
 # ==============================================================================
 # BAGIAN 11: REGISTRASI & START
