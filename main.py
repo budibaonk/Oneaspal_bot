@@ -1188,6 +1188,42 @@ async def upload_start(update, context):
         await msg.edit_text(f"❌ Error Analisa: {e}")
     return ConversationHandler.END
 
+async def upload_leasing_user(update, context):
+    """
+    Menangani pengiriman file dari User Biasa (Bukan Admin).
+    File hanya diteruskan ke Admin untuk verifikasi.
+    """
+    nm = update.message.text
+    if nm == "❌ BATAL": 
+        return await cancel(update, context)
+        
+    u = get_user(update.effective_user.id)
+    if not u: 
+        return ConversationHandler.END
+        
+    # Ambil file_id dari data yang disimpan di upload_start
+    fid = context.user_data.get('upload_file_id')
+    
+    # Kirim file ke Admin sebagai laporan pengajuan
+    await context.bot.send_document(
+        ADMIN_ID, 
+        fid, 
+        caption=(
+            f"📥 **PENGAJUAN DATA MITRA**\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 **Nama:** {u['nama_lengkap']}\n"
+            f"🏦 **Leasing:** {nm.upper()}\n"
+            f"🆔 **User ID:** `{u['user_id']}`"
+        )
+    )
+    
+    await update.message.reply_text(
+        "✅ **File Berhasil Dikirim!**\n"
+        "Data Anda sedang dalam antrean verifikasi Admin.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    return ConversationHandler.END
+
 async def upload_leasing_admin(update, context):
     nm = update.message.text.upper()
     if nm == "❌ BATAL": return await cancel(update, context)
