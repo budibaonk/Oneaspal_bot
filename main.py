@@ -1740,6 +1740,27 @@ async def callback_handler(update, context):
     elif data.startswith("del_acc_"): supabase.table('kendaraan').delete().eq('nopol', data.split("_")[2]).execute(); await query.edit_message_text("✅ Dihapus."); await context.bot.send_message(data.split("_")[3], "✅ Hapus ACC.")
     elif data.startswith("del_rej_"): await query.edit_message_text("❌ Ditolak."); await context.bot.send_message(data.split("_")[2], "❌ Hapus TOLAK.")
 
+from telegram import Update, ReplyKeyboardRemove
+from telegram.ext import ContextTypes, ConversationHandler
+
+async def stop_upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Menghentikan proses upload bukti transfer dan mereset state percakapan.
+    """
+    await update.message.reply_text(
+        "❌ **Proses Dibatalkan.**\n\n"
+        "Kamu telah membatalkan proses upload. Jika ingin melakukan upgrade lagi, "
+        "silakan gunakan perintah yang sesuai.",
+        reply_markup=ReplyKeyboardRemove(), # Menghapus custom keyboard jika ada
+        parse_mode='Markdown'
+    )
+
+    # Menghapus data sementara yang mungkin tersimpan di context.user_data
+    context.user_data.clear()
+
+    # Sangat penting: mengembalikan END untuk menutup ConversationHandler
+    return ConversationHandler.END
+
 
 if __name__ == '__main__':
     print("🚀 ONEASPAL BOT v6.28 (STABLE MASTERPIECE ULTRA) STARTING...")
