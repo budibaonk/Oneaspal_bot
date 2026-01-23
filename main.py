@@ -996,7 +996,7 @@ async def upload_confirm_admin(update, context):
     if update.message.text != "🚀 EKSEKUSI": return await cancel(update, context)
     
     status_msg = await update.message.reply_text(
-        "⏳ **MEMULAI UPLOAD...**\n_Menyiapkan data (Anti-Freeze Mode)..._", 
+        "⏳ **MEMULAI UPLOAD...**\n_Menyiapkan data (Fast Mode)..._", 
         reply_markup=ReplyKeyboardRemove(), 
         parse_mode='Markdown'
     )
@@ -1005,7 +1005,7 @@ async def upload_confirm_admin(update, context):
     if not data:
         return await status_msg.edit_text("❌ **ERROR:** Data kosong.")
 
-    # 1. SANITASI DATA (Ubah tipe aneh jadi standar)
+    # SANITASI: Ubah data aneh jadi string standar
     try:
         data = json.loads(json.dumps(data, default=str))
     except Exception as e:
@@ -1013,43 +1013,40 @@ async def upload_confirm_admin(update, context):
 
     suc = 0
     fail = 0
-    BATCH = 200 # Batch Size 200 (Aman)
+    BATCH = 100 # Batch 100 sangat aman
     start_time = time.time()
     
-    # --- WORKER THREAD (SYNC) ---
+    # --- WORKER THREAD ---
     def process_batch_sync(batch_data):
         s_local = 0
         f_local = 0
         try:
-            # Upsert Batch sekaligus
-            supabase.table('kendaraan').upsert(batch_data, on_conflict='nopol').execute()
+            # [TRICK] count=None agar Supabase tidak perlu menghitung balik (Lebih Cepat)
+            supabase.table('kendaraan').upsert(batch_data, on_conflict='nopol', count=None).execute()
             s_local = len(batch_data)
         except Exception as e:
-            # [FIX] JANGAN Loop satu-satu jika gagal karena Timeout! 
-            # Langsung anggap gagal 1 batch agar tidak Stuck.
-            print(f"⚠️ Batch Gagal (Skip): {e}")
+            print(f"⚠️ Batch Gagal: {e}")
             f_local = len(batch_data)
         return s_local, f_local
-    # ----------------------------
+    # ---------------------
 
     try:
         total_batches = (len(data) + BATCH - 1) // BATCH
         
         for i in range(0, len(data), BATCH):
-            # Cek Stop Signal
             if context.user_data.get('stop_signal'):
-                await status_msg.edit_text("🛑 **UPLOAD DIHENTIKAN USER.**")
+                await status_msg.edit_text("🛑 **DIHENTIKAN.**")
                 break
 
             batch = data[i:i+BATCH]
             
-            # Jalan di Thread terpisah (Non-Blocking)
+            # Eksekusi Async
             s_batch, f_batch = await asyncio.to_thread(process_batch_sync, batch)
             
             suc += s_batch
             fail += f_batch
             
-            # Update Status (Tiap 5 batch atau terakhir)
+            # Update Status (Responsif)
             current_batch = (i // BATCH) + 1
             if current_batch % 5 == 0 or current_batch == total_batches:
                 try: 
@@ -1064,31 +1061,20 @@ async def upload_confirm_admin(update, context):
                     await status_msg.edit_text(txt)
                 except: pass 
             
-            # Jeda napas sedikit
             await asyncio.sleep(0.1)
 
         duration = round(time.time() - start_time, 2)
-        
-        report = (
-            f"✅ **UPLOAD SELESAI!**\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"📊 Total Data: {len(data)}\n"
-            f"✅ Berhasil: {suc}\n"
-            f"❌ Gagal: {fail}\n"
-            f"⏱ Waktu: {duration} detik"
-        )
+        report = f"✅ **SELESAI!**\n📊 Total: {len(data)}\n✅ Sukses: {suc}\n❌ Gagal: {fail}\n⏱ {duration}s"
         try: await status_msg.edit_text(report)
         except: await update.message.reply_text(report)
 
     except Exception as e:
-        logger.error(f"Upload Crash: {e}")
-        await update.message.reply_text(f"❌ **CRASH SYSTEM:** {str(e)}")
+        logger.error(f"Crash: {e}")
+        await update.message.reply_text(f"❌ Error: {str(e)}")
     
-    # Bersihkan memori
     context.user_data.pop('final_data_records', None)
     context.user_data.pop('df_records', None)
     context.user_data['stop_signal'] = False
-    
     return ConversationHandler.END
 
 async def stop_upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
