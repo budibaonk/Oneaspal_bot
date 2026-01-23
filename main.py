@@ -2023,14 +2023,15 @@ if __name__ == '__main__':
         fallbacks=[CommandHandler('cancel', cancel)]
     ))
 
+    # CARI BAGIAN INI DAN PASTIKAN NAMANYA SAMA:
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Document.ALL, upload_start)], 
         states={
-            U_LEASING_USER: [MessageHandler(filters.TEXT, upload_leasing_user)], 
-            U_LEASING_ADMIN: [MessageHandler(filters.TEXT, upload_leasing_admin)], 
-            U_CONFIRM_UPLOAD: [MessageHandler(filters.TEXT, upload_confirm_admin)]
+            U_LEASING_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_user)], 
+            U_LEASING_ADMIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_admin)], 
+            U_CONFIRM_UPLOAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_confirm_admin)] # <-- Pastikan ini memanggil upload_confirm_admin
         }, 
-        fallbacks=[CommandHandler('cancel', cancel)], 
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)],
         allow_reentry=True
     ))
 
