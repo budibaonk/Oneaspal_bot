@@ -1189,7 +1189,7 @@ async def upload_confirm_admin(update, context):
 
     suc = 0
     fail = 0
-    BATCH = 1000 # Batch size tetap 1000 agar efisien
+    BATCH = 200 # Turunkan drastis biar DB bisa napas
     start_time = time.time()
     
     # --- [HELPER] FUNGSI EKSEKUTOR DI BACKGROUND THREAD ---
