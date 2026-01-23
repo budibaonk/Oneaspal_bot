@@ -1141,185 +1141,131 @@ async def stop_upload_command(update, context):
 
 # 3. HANDLER MULAI UPLOAD
 async def upload_start(update, context):
-    if not get_user(update.effective_user.id): return
+    uid = update.effective_user.id
+    if not get_user(uid): return await update.message.reply_text("⛔ Akses Ditolak.")
+    context.user_data['upload_file_id'] = update.message.document.file_id
+    context.user_data['upload_file_name'] = update.message.document.file_name
     
-    context.user_data['fid'] = update.message.document.file_id
-    fname = update.message.document.file_name
-    
-    # Jika Admin -> Proses Cleaning
-    if update.effective_user.id == ADMIN_ID:
-        # A. KIRIM STATUS AWAL
-        status_msg = await update.message.reply_text("⏳ **MEMULAI PROSES...**\nStep 1: Mendownload File...", parse_mode='Markdown')
-        
-        try:
-            # B. DOWNLOAD FILE
-            f = await update.message.document.get_file()
-            c = await f.download_as_bytearray()
-            await status_msg.edit_text("⏳ **MEMULAI PROSES...**\n✅ Step 1: Download Selesai\nStep 2: Membaca & Menganalisa Data...")
-            
-            # --- FUNGSI BACKGROUND (AGAR BOT TIDAK STUCK) ---
-            def process_background(content, filename):
-                df = read_file_robust(content, filename)   # Baca File
-                df = fix_header_position(df)               # Cari Header
-                df, found = smart_rename_columns(df)       # Rename Kolom
-                
-                # Cek Kolom Wajib
-                if 'nopol' not in df.columns:
-                    raise ValueError(f"Kolom NOPOL tidak ditemukan.\nKolom terbaca: {', '.join(found)}")
-                
-                return df.to_dict(orient='records'), found, df
-
-            # C. EKSEKUSI DI BACKGROUND
-            # (Disini biasanya macet kalau memori penuh / library kurang)
-            data_dict, found, df_check = await asyncio.to_thread(process_background, c, fname)
-            
-            await status_msg.edit_text("⏳ **MEMULAI PROSES...**\n✅ Step 1: Download Selesai\n✅ Step 2: Analisa Selesai\nStep 3: Menyiapkan Preview...")
-
-            # D. SUKSES - SIMPAN KE MEMORI
-            context.user_data['df'] = data_dict
-            context.user_data['cols'] = found
-            
-            # Hapus pesan status, ganti dengan Laporan
-            await status_msg.delete()
-            
-            fin_status = "✅ ADA" if 'finance' in df_check.columns else "⚠️ TIDAK ADA (Akan ditanya)"
-            
-            rpt = (
-                f"✅ <b>FILE BERHASIL DIBACA!</b>\n"
-                f"━━━━━━━━━━━━━━━━━━\n"
-                f"📁 <b>Nama File:</b> {fname}\n"
-                f"📊 <b>Total Baris:</b> {len(data_dict):,}\n"
-                f"📝 <b>Kolom Dikenali:</b> {', '.join(found)}\n"
-                f"🏦 <b>Info Leasing:</b> {fin_status}\n"
-                f"━━━━━━━━━━━━━━━━━━\n"
-                f"👉 <b>MASUKKAN NAMA LEASING:</b>\n"
-                f"<i>(Ketik 'SKIP' jika sudah ada kolom finance di file)</i>"
-            )
-            
-            await update.message.reply_text(rpt, reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True), parse_mode='HTML')
-            return U_LEASING_ADMIN
-            
-        except ValueError as ve:
-            await status_msg.edit_text(f"❌ <b>GAGAL BACA FILE:</b>\n{str(ve)}", parse_mode='HTML')
-            return ConversationHandler.END
-            
-        except Exception as e:
-            logger.error(f"Upload Error: {e}")
-            await status_msg.edit_text(f"❌ <b>SYSTEM ERROR:</b>\n{str(e)[:200]}...", parse_mode='HTML')
-            return ConversationHandler.END
-            
-    # Jika User Biasa
-    else:
-        await update.message.reply_text("📄 File diterima. Ketik Nama Leasing:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
+    # ALUR USER BIASA
+    if uid != ADMIN_ID:
+        await update.message.reply_text("📄 File diterima.\n**Leasing apa?**", parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
         return U_LEASING_USER
     
-async def upload_leasing_user(update, context): 
-    nm = update.message.text
-    if nm == "❌ BATAL": return await cancel(update, context)
-    
-    u = get_user(update.effective_user.id)
-    # Kirim file ke Admin untuk dicek
-    await context.bot.send_document(ADMIN_ID, context.user_data['fid'], caption=f"📥 **UPLOAD USER ({u.get('role').upper()})**\n👤 {u['nama_lengkap']}\n🏦 {nm}")
-    
-    resp = "✅ **SINKRONISASI BERHASIL**" if u.get('role') == 'pic' else "✅ **TERKIRIM KE ADMIN**"
-    await update.message.reply_text(resp, parse_mode='Markdown')
+    # ALUR ADMIN - SMART SCAN
+    msg = await update.message.reply_text("⏳ **Analisa File...**", parse_mode='Markdown')
+    try:
+        f = await update.message.document.get_file()
+        c = await f.download_as_bytearray()
+        
+        # Gunakan fungsi pembaca yang sudah ada
+        df = read_file_robust(c, update.message.document.file_name)
+        df = fix_header_position(df)
+        df, found = smart_rename_columns(df)
+        
+        if 'nopol' not in df.columns: 
+            return await msg.edit_text("❌ Gagal deteksi NOPOL.")
+        
+        # Simpan ke memori sementara
+        context.user_data['df_records'] = df.to_dict(orient='records')
+        
+        fin = 'finance' in df.columns
+        await msg.delete()
+        
+        report = (
+            f"✅ **SCAN SUKSES**\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"📊 **Kolom Dikenali:** {', '.join(found)}\n"
+            f"📁 **Total Baris:** {len(df)}\n"
+            f"🏦 **Kolom Leasing:** {'✅ ADA' if fin else '⚠️ TIDAK ADA'}\n"
+            f"━━━━━━━━━━━━━━━━━━\n\n"
+            f"👉 **MASUKKAN NAMA LEASING:**\n"
+            f"_(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)_"
+        )
+        
+        await update.message.reply_text(report, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True))
+        return U_LEASING_ADMIN
+    except Exception as e: 
+        await msg.edit_text(f"❌ Error Analisa: {e}")
     return ConversationHandler.END
 
 async def upload_leasing_admin(update, context):
-    try:
-        nm = update.message.text
-        if nm == "❌ BATAL": return await cancel(update, context)
-        
-        nm = nm.upper().strip()
-        
-        if 'df' not in context.user_data:
-            await update.message.reply_text("❌ Sesi kedaluwarsa. Silakan upload ulang file.")
-            return ConversationHandler.END
-            
-        msg = await update.message.reply_text("⏳ **Membersihkan & Merapikan Data...**", parse_mode='Markdown')
-        
-        # --- FUNGSI PEMBERSIH DATA (Jalan di Background Thread) ---
-        def process_dataframe(raw_data, leasing_name):
-            df = pd.DataFrame(raw_data).astype(str)
-            
-            # Logic Nama Leasing
-            if leasing_name != 'SKIP': 
-                df['finance'] = standardize_leasing_name(leasing_name)
-                fin_disp = leasing_name
-            else: 
-                if 'finance' in df.columns: 
-                    df['finance'] = df['finance'].apply(standardize_leasing_name)
-                    fin_disp = "AUTO (DARI FILE)"
-                else: 
-                    df['finance'] = 'UNKNOWN'
-                    fin_disp = "AUTO CLEAN (KOSONG)"
+    nm = update.message.text.upper()
+    if nm == "❌ BATAL": return await cancel(update, context)
+    
+    # Ambil data dari memori
+    df = pd.DataFrame(context.user_data['df_records'])
+    
+    # 1. LOGIKA FINANCE
+    if nm != 'SKIP': 
+        df['finance'] = standardize_leasing_name(nm)
+        fin_display = df['finance'].iloc[0]
+    else:
+        if 'finance' in df.columns:
+            df['finance'] = df['finance'].apply(standardize_leasing_name)
+            fin_display = "AUTO (DARI FILE)"
+        else:
+            df['finance'] = 'UNKNOWN'
+            fin_display = "UNKNOWN"
 
-            # Logic Nopol
-            if 'nopol' in df.columns:
-                df['nopol'] = df['nopol'].str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
-                df = df[df['nopol'].str.len() > 2]
-                df = df.drop_duplicates(subset=['nopol'], keep='last')
-                df = df.replace({'nan': '-', 'None': '-', 'NaN': '-', '': '-'})
-                
-                final_df = pd.DataFrame()
-                for col in VALID_DB_COLUMNS:
-                    if col in df.columns: final_df[col] = df[col]
-                    else: final_df[col] = "-"
-                
-                return final_df.to_dict(orient='records'), fin_disp
-            else:
-                return None, None
+    # 2. MESIN CUCI DATA (NOPOL, NOKA, NOSIN)
+    # Penting: Buang spasi liar dan titik yang bikin Supabase Error
+    for col in ['nopol', 'noka', 'nosin']:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
+    
+    # 3. CLEANING AKHIR
+    df = df.drop_duplicates(subset=['nopol'], keep='last')
+    df = df.replace({np.nan: "-", "nan": "-", "None": "-", "NAT": "-"})
+    
+    valid = ['nopol', 'type', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'finance', 'branch']
+    for c in valid: 
+        if c not in df.columns: df[c] = "-"
+    
+    # Simpan data final yang sudah BERSIH
+    data_final = df[valid].to_dict(orient='records')
+    context.user_data['final_data_records'] = data_final
+    
+    s = df.iloc[0]
+    preview_msg = (
+        f"🔎 **PREVIEW DATA SIAP UPLOAD**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🏦 **Mode:** {fin_display}\n"
+        f"📊 **Total:** {len(data_final)} Data\n\n"
+        f"📝 **SAMPEL DATA BARIS 1:**\n"
+        f"🔹 Leasing: {s['finance']}\n"
+        f"🔹 Nopol: `{s['nopol']}`\n"
+        f"🔹 Unit: {s['type']}\n"
+        f"🔹 Noka: {s['noka']}\n"
+        f"🔹 OVD: {s['ovd']}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"⚠️ Klik **🚀 EKSEKUSI** untuk simpan ke database."
+    )
+    await update.message.reply_text(preview_msg, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["🚀 EKSEKUSI", "❌ BATAL"]], one_time_keyboard=True))
+    return U_CONFIRM_UPLOAD
 
-        # Jalankan Cleaning tanpa memblokir bot
-        final_data, fin_disp = await asyncio.to_thread(process_dataframe, context.user_data['df'], nm)
-        context.user_data['final_df'] = final_data
-        
-        try: await msg.delete()
-        except: pass
-        
-        if final_data is None:
-            await update.message.reply_text("❌ <b>ERROR:</b> Kolom NOPOL tidak ditemukan.", parse_mode='HTML')
-            return ConversationHandler.END
-
-        if not final_data:
-            await update.message.reply_text("⚠️ Data Kosong setelah filtering (Cek kolom Nopol)")
-            return ConversationHandler.END
-
-        # --- PREVIEW DINAMIS ---
-        s = final_data[0] 
-        details_list = []
-        priority_cols = ['nopol', 'type', 'finance', 'ovd', 'noka', 'nosin', 'tahun', 'warna', 'branch']
-        
-        for key in priority_cols:
-            val = s.get(key, '-')
-            if val and str(val).strip() not in ['-', 'nan', 'None', '', 'UNKNOWN']:
-                if key == 'nopol': val = f"<code style='color:orange'>{val}</code>" 
-                details_list.append(f"🔹 <b>{key.upper()}:</b> {val}")
-        
-        # Kolom Sisanya
-        for k, v in s.items():
-            if k not in priority_cols and v and str(v).strip() not in ['-', 'nan', 'None', '']:
-                details_list.append(f"🔸 <b>{k.upper()}:</b> {v}")
-
-        prev_info = "\n".join(details_list)
-        # -----------------------
-
-        prev = (
-            f"🔎 <b>PREVIEW DATA SIAP UPLOAD</b>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"🏦 <b>Mode:</b> {fin_disp}\n"
-            f"📊 <b>Total Siap Upload:</b> {len(final_data):,} Data\n\n"
-            f"📝 <b>SAMPEL DATA PERTAMA:</b>\n{prev_info}\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"⚠️ <b>Pastikan data di atas sudah sesuai?</b>"
-        )
-        kb = [["🚀 UPDATE DATA"], ["🗑️ HAPUS MASSAL"], ["❌ BATAL"]]
-        await update.message.reply_text(prev, reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True), parse_mode='HTML')
-        return U_CONFIRM_UPLOAD
-
-    except Exception as e:
-        await update.message.reply_text(f"❌ <b>SYSTEM ERROR:</b>\n{e}", parse_mode='HTML')
+async def upload_confirm_admin(update, context):
+    act = update.message.text
+    if act == "❌ BATAL": return await cancel(update, context)
+    if act != "🚀 EKSEKUSI": return
+    
+    data = context.user_data.get('final_data_records')
+    if not data:
+        await update.message.reply_text("❌ Data hilang. Silakan upload ulang.")
         return ConversationHandler.END
+
+    msg_status = await update.message.reply_text("⏳ **Sedang Menanam Data ke Database...**", reply_markup=ReplyKeyboardRemove())
+    
+    try:
+        # Jalankan UPSERT (Insert/Update) sekaligus
+        # Karena cuma 150 data, Supabase sanggup sekali tembak
+        supabase.table('kendaraan').upsert(data, on_conflict='nopol').execute()
+        
+        await msg_status.edit_text(f"✅ **BERHASIL!**\n{len(data)} data telah masuk ke sistem.")
+    except Exception as e:
+        await msg_status.edit_text(f"❌ **GAGAL SIMPAN:**\n{e}")
+        logger.error(f"Upload Error: {e}")
+        
+    return ConversationHandler.END
 
 async def upload_confirm_admin(update, context):
     act = update.message.text
