@@ -1281,25 +1281,56 @@ async def upload_leasing_admin(update, context):
 
 async def upload_confirm_admin(update, context):
     act = update.message.text
-    if act == "❌ BATAL": return await cancel(update, context)
-    if act != "🚀 EKSEKUSI": return
+    if act == "❌ BATAL": 
+        return await cancel(update, context)
+    if act != "🚀 EKSEKUSI": 
+        return
     
+    # Ambil data dari memori
     data = context.user_data.get('final_data_records')
     if not data:
-        await update.message.reply_text("❌ Data hilang. Silakan upload ulang.")
+        await update.message.reply_text("❌ Sesi kedaluwarsa, silakan upload ulang.")
         return ConversationHandler.END
 
-    msg_status = await update.message.reply_text("⏳ **Sedang Menanam Data ke Database...**", reply_markup=ReplyKeyboardRemove())
+    msg_status = await update.message.reply_text("🚀 **MEMULAI EKSEKUSI...**\nSedang menanamkan data, mohon jangan tekan apapun.", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
     
+    start_time = time.time()
     try:
-        # Jalankan UPSERT (Insert/Update) sekaligus
-        # Karena cuma 150 data, Supabase sanggup sekali tembak
-        supabase.table('kendaraan').upsert(data, on_conflict='nopol').execute()
+        # Kita pecah jadi 2 batch saja (karena cuma 150 data) agar lebih aman
+        # Supabase kadang menolak payload yang terlalu besar dalam satu paket
+        batch1 = data[:80]
+        batch2 = data[80:]
+
+        # Eksekusi Batch 1
+        await asyncio.to_thread(lambda: supabase.table('kendaraan').upsert(batch1, on_conflict='nopol').execute())
         
-        await msg_status.edit_text(f"✅ **BERHASIL!**\n{len(data)} data telah masuk ke sistem.")
+        # Eksekusi Batch 2 (Jika ada)
+        if batch2:
+            await asyncio.to_thread(lambda: supabase.table('kendaraan').upsert(batch2, on_conflict='nopol').execute())
+        
+        duration = round(time.time() - start_time, 2)
+        await msg_status.edit_text(
+            f"✅ **DATA BERHASIL DITANAM!**\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"📊 Total: `{len(data)}` unit\n"
+            f"⏱️ Waktu: `{duration} detik`\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"Silakan cek nopol salah satu unit untuk memastikan.",
+            parse_mode='Markdown'
+        )
+        
     except Exception as e:
-        await msg_status.edit_text(f"❌ **GAGAL SIMPAN:**\n{e}")
-        logger.error(f"Upload Error: {e}")
+        error_msg = str(e)
+        logger.error(f"Critical Upload Error: {error_msg}")
+        # Jika error karena timeout atau koneksi, beritahu admin secara jujur
+        await msg_status.edit_text(
+            f"❌ **EKSEKUSI GAGAL!**\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"⚠️ **Penyebab:**\n`{error_msg[:200]}`\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"Coba upload kembali atau cek koneksi Supabase Anda.",
+            parse_mode='Markdown'
+        )
         
     return ConversationHandler.END
 
