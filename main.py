@@ -1176,41 +1176,98 @@ async def upload_leasing_admin(update, context):
 async def upload_confirm_admin(update, context):
     if update.message.text != "🚀 EKSEKUSI": return await cancel(update, context)
     
-    status_msg = await update.message.reply_text("⏳ **MEMULAI UPLOAD...**", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
+    # Feedback awal agar user tahu bot bekerja
+    status_msg = await update.message.reply_text(
+        "⏳ **MEMULAI UPLOAD...**\n_Menyiapkan jalur data..._", 
+        reply_markup=ReplyKeyboardRemove(), 
+        parse_mode='Markdown'
+    )
+    
     data = context.user_data.get('final_data_records')
-    suc = 0; fail = 0; BATCH = 1000
+    if not data:
+        return await status_msg.edit_text("❌ **ERROR:** Data kosong atau sesi kedaluwarsa. Silakan upload ulang.")
+
+    suc = 0
+    fail = 0
+    BATCH = 1000 # Batch size tetap 1000 agar efisien
     start_time = time.time()
     
+    # --- [HELPER] FUNGSI EKSEKUTOR DI BACKGROUND THREAD ---
+    def process_batch_sync(batch_data):
+        """Fungsi ini berjalan di thread terpisah agar Main Loop tidak macet"""
+        s_local = 0
+        f_local = 0
+        try:
+            # Coba hajar 1 batch sekaligus (CEPAT)
+            supabase.table('kendaraan').upsert(batch_data, on_conflict='nopol').execute()
+            s_local = len(batch_data)
+        except Exception as e:
+            # Jika gagal (misal ada 1 data error), masuk mode lambat (SAFE MODE)
+            # print(f"⚠️ Batch Gagal: {e}. Mengaktifkan mode satu-per-satu...")
+            for x in batch_data:
+                try: 
+                    supabase.table('kendaraan').upsert([x], on_conflict='nopol').execute()
+                    s_local += 1
+                except: 
+                    f_local += 1
+        return s_local, f_local
+    # -----------------------------------------------------
+
     try:
+        total_batches = (len(data) + BATCH - 1) // BATCH
+        
         for i in range(0, len(data), BATCH):
             batch = data[i:i+BATCH]
-            try: 
-                supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
-                suc+=len(batch)
-            except: 
-                for x in batch: 
-                    try: supabase.table('kendaraan').upsert([x], on_conflict='nopol').execute(); suc+=1
-                    except: fail+=1
-            if (i+BATCH)%2000==0: 
-                try: await status_msg.edit_text(f"⏳ **MENGUPLOAD...**\n✅ {i+BATCH}/{len(data)} data terproses...", parse_mode='HTML')
-                except: pass
-                await asyncio.sleep(0.1)
+            
+            # [FIX CRITICAL] Gunakan await asyncio.to_thread
+            # Ini kuncinya! Kita lempar tugas berat ke thread lain, lalu kita 'await' hasilnya.
+            # Bot tidak akan freeze di sini.
+            s_batch, f_batch = await asyncio.to_thread(process_batch_sync, batch)
+            
+            suc += s_batch
+            fail += f_batch
+            
+            # Update Status setiap beberapa batch (jangan tiap batch biar ga kena limit Telegram)
+            current_batch = (i // BATCH) + 1
+            if current_batch % 2 == 0 or current_batch == total_batches:
+                try: 
+                    progress_text = (
+                        f"⏳ **MENGUPLOAD...**\n"
+                        f"🚀 Batch: {current_batch}/{total_batches}\n"
+                        f"✅ Sukses: {suc}\n"
+                        f"❌ Gagal: {fail}\n"
+                        f"⏱ Estimasi: {int(time.time() - start_time)}s berjalan..."
+                    )
+                    await status_msg.edit_text(progress_text, parse_mode='Markdown')
+                except: pass # Abaikan error edit message jika terlalu cepat
+            
+            # Beri napas sedikit untuk event loop
+            await asyncio.sleep(0.05)
 
         duration = round(time.time() - start_time, 2)
+        
+        # Report Akhir
         report = (
             f"✅ **UPLOAD SUKSES 100%!**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"📊 **Total Data:** {suc}\n"
+            f"📊 **Total Data:** {len(data)}\n"
+            f"✅ **Berhasil:** {suc}\n"
             f"❌ **Gagal:** {fail}\n"
             f"⏱ **Waktu:** {duration} detik\n"
             f"🚀 **Status:** Database Updated Successfully!"
         )
-        try: await status_msg.edit_text(report, parse_mode='HTML')
-        except: await update.message.reply_text(report, parse_mode='HTML')
+        
+        try: await status_msg.edit_text(report, parse_mode='Markdown')
+        except: await update.message.reply_text(report, parse_mode='Markdown')
+
     except Exception as e:
+        logger.error(f"Upload Crash: {e}")
         await update.message.reply_text(f"❌ **CRASH SAAT UPLOAD:**\n{str(e)}", parse_mode='Markdown')
     
+    # Bersihkan memori
     context.user_data.pop('final_data_records', None)
+    context.user_data.pop('df_records', None)
+    
     return ConversationHandler.END
 
 
@@ -1771,9 +1828,6 @@ async def callback_handler(update, context):
     elif data.startswith("del_acc_"): supabase.table('kendaraan').delete().eq('nopol', data.split("_")[2]).execute(); await query.edit_message_text("✅ Dihapus."); await context.bot.send_message(data.split("_")[3], "✅ Hapus ACC.")
     elif data.startswith("del_rej_"): await query.edit_message_text("❌ Ditolak."); await context.bot.send_message(data.split("_")[2], "❌ Hapus TOLAK.")
 
-from telegram import Update, ReplyKeyboardRemove
-from telegram.ext import ContextTypes, ConversationHandler
-
 async def stop_upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Menghentikan proses upload bukti transfer dan mereset state percakapan.
@@ -1807,7 +1861,6 @@ if __name__ == '__main__':
         fallbacks=[CommandHandler('cancel', cancel)]
     ))
 
-    # CARI BAGIAN INI DAN PASTIKAN NAMANYA SAMA:
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Document.ALL, upload_start)], 
         states={
