@@ -1607,7 +1607,8 @@ async def show_unit_detail_original(update, context, d, u):
         f"⚠️ <b>OVD:</b> {d['ovd']}\n"
         f"🏢 <b>Branch:</b> {d.get('branch', '-')}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"<i>Data ini hanya informasi awal. Wajib validasi fisik.</i>"
+        f"Informasi ini BUKAN alat yang SAH untuk penarikan unit (Eksekusi).\n"
+        f"Mohon untuk konfirmasi ke Pic Leasing atau Kantor."
     )
     
     # 2. Format Teks untuk SHARE WA & COPY (UPDATE: DATA LENGKAP & TEXT BARU)
