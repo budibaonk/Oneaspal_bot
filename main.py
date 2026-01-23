@@ -265,22 +265,33 @@ def standardize_leasing_name(name):
     clean = re.sub(r'\(.*?\)', '', clean).strip()
     return clean
 
-# [FUNGSI LOGGING]
+# [FUNGSI LOGGING YANG SUDAH DIPERBAIKI]
 def log_successful_hit(user_id, user_name, unit_data):
     try:
+        # 1. Ambil data dari parameter 'unit_data'
         leasing_raw = str(unit_data.get('finance', 'UNKNOWN')).upper().strip()
-        data = {
+        nopol_val = unit_data.get('nopol', '-')
+        unit_val = unit_data.get('type', '-')
+
+        # 2. Siapkan data untuk Supabase
+        # Kita gunakan parameter user_id dan user_name yang sudah dikirim ke fungsi ini
+        payload = {
+            "leasing": leasing_raw,
+            "nopol": nopol_val,
+            "unit": unit_val,
             "user_id": user_id,
             "nama_matel": user_name,
-            "leasing": leasing_raw,
-            "nopol": unit_data.get('nopol'),
-            "unit": unit_data.get('type')
+            # Sementara kita isi strip (-) dulu karena data HP/PT tidak dikirim ke fungsi ini
+            "no_hp": "-", 
+            "nama_pt": "-" 
         }
-        supabase.table('finding_logs').insert(data).execute()
-        print(f"📝 LOG DATABASE: Temuan {unit_data.get('nopol')} oleh {user_name} berhasil dicatat.")
-    except Exception as e:
-        print(f"❌ LOG DATABASE ERROR: {e}")
 
+        # 3. Eksekusi Insert
+        supabase.table('finding_logs').insert(payload).execute()
+        
+    except Exception as e:
+        # Log error tanpa menghentikan bot
+        print(f"⚠️ Gagal menyimpan log ke database: {e}")
 
 # ##############################################################################
 # BAGIAN 5: ENGINE FILE
@@ -512,11 +523,10 @@ async def rekap_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def rekap_spesifik(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     
-    # Parse Command: /rekapBCA -> BCA
-    raw_text = update.message.text.split()[0] # Ambil command saja
+    raw_text = update.message.text.split()[0]
     target_leasing = raw_text.lower().replace("/rekap", "").strip().upper()
     
-    if not target_leasing: return # Harusnya masuk ke handler /rekap biasa
+    if not target_leasing: return 
     
     msg = await update.message.reply_text(f"⏳ **Mencari Data Temuan: {target_leasing}...**", parse_mode='Markdown')
     
@@ -524,10 +534,11 @@ async def rekap_spesifik(update: Update, context: ContextTypes.DEFAULT_TYPE):
         now = datetime.now(TZ_JAKARTA)
         start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
         
-        # Query ILIKE agar fleksibel (Misal: /rekapAdira -> match 'ADIRA DINAMIKA', 'ADIRA FINANCE')
+        # Query mengambil semua data hari ini untuk leasing tersebut
         res = supabase.table('finding_logs').select("*")\
             .gte('created_at', start_of_day.isoformat())\
             .ilike('leasing', f'%{target_leasing}%')\
+            .order('created_at', desc=True)\
             .execute()
         
         data = res.data
@@ -537,28 +548,48 @@ async def rekap_spesifik(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await msg.edit_text(f"📊 **REKAP HARIAN: {target_leasing}**\n\nNihil. Belum ada unit ditemukan hari ini.")
             
         # Header Laporan
-        report = (
+        header = (
             f"📊 **LAPORAN HARIAN KHUSUS: {target_leasing}**\n"
             f"📅 Tanggal: {now.strftime('%d %b %Y')}\n"
             f"🔥 **Total Hit:** {total_hits} Unit\n"
             f"━━━━━━━━━━━━━━━━━━\n"
         )
         
-        # Detail Unit (Tampilkan max 15 agar tidak kepanjangan)
-        limit_show = 15
-        for i, d in enumerate(data[:limit_show]):
+        footer = "\n━━━━━━━━━━━━━━━━━━\n#OneAspalAnalytics"
+        
+        messages = []
+        current_report = header
+        
+        for i, d in enumerate(data):
             nopol = d.get('nopol', '-')
             unit = d.get('unit', '-')
-            matel = d.get('nama_matel', 'Matel')
-            report += f"{i+1}. {nopol} | {unit} (Oleh: {matel})\n"
+            matel = d.get('nama_matel', 'Anonim')
+            # [SESUAIKAN] Pastikan nama kolom 'no_hp' dan 'nama_pt' sesuai dengan tabel Supabase-mu
+            hp = d.get('no_hp', 'No HP -')
+            pt = d.get('nama_pt', 'PT -')
             
-        if total_hits > limit_show:
-            report += f"\n... dan {total_hits - limit_show} unit lainnya."
+            # Format baris baru yang lebih detail
+            line = f"{i+1}. **{nopol}** | {unit}\n"
+            line += f"   └ 👤 {matel} ({hp}) | 🏢 {pt}\n"
             
-        report += "\n━━━━━━━━━━━━━━━━━━\n#OneAspalAnalytics"
+            # Cek jika pesan sudah mendekati limit Telegram (4096 karakter)
+            # Kita beri buffer di 3800 karakter
+            if len(current_report) + len(line) + len(footer) > 3800:
+                messages.append(current_report + footer)
+                current_report = f"📊 **LANJUTAN REKAP: {target_leasing}**\n━━━━━━━━━━━━━━━━━━\n" + line
+            else:
+                current_report += line
         
-        await msg.edit_text(report, parse_mode='Markdown')
+        # Tambahkan sisa laporan terakhir
+        messages.append(current_report + footer)
         
+        # Kirim semua pesan (Pesan pertama mengedit loading, sisanya kirim baru)
+        for index, text in enumerate(messages):
+            if index == 0:
+                await msg.edit_text(text, parse_mode='Markdown')
+            else:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=text, parse_mode='Markdown')
+                
     except Exception as e:
         logger.error(f"Rekap Spesifik Error: {e}")
         await msg.edit_text(f"❌ Error: {e}")
