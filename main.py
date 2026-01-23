@@ -23,6 +23,7 @@ from collections import Counter
 from datetime import datetime, timedelta, time
 import pytz
 import urllib.parse
+import json
 from dotenv import load_dotenv
 
 from telegram import (
@@ -1176,33 +1177,41 @@ async def upload_leasing_admin(update, context):
 async def upload_confirm_admin(update, context):
     if update.message.text != "🚀 EKSEKUSI": return await cancel(update, context)
     
-    # Feedback awal agar user tahu bot bekerja
+    # Feedback awal
     status_msg = await update.message.reply_text(
-        "⏳ **MEMULAI UPLOAD...**\n_Menyiapkan jalur data..._", 
+        "⏳ **MEMULAI UPLOAD...**\n_Menyiapkan data & membersihkan format..._", 
         reply_markup=ReplyKeyboardRemove(), 
         parse_mode='Markdown'
     )
     
     data = context.user_data.get('final_data_records')
     if not data:
-        return await status_msg.edit_text("❌ **ERROR:** Data kosong atau sesi kedaluwarsa. Silakan upload ulang.")
+        return await status_msg.edit_text("❌ **ERROR:** Data kosong. Silakan upload ulang.")
+
+    # --- TAHAP 1: SANITASI DATA (PENTING!) ---
+    # Mengubah semua tipe data aneh (Numpy) menjadi string/native python
+    # Ini obat ampuh untuk mengatasi 'Stuck' karena JSON Error
+    try:
+        data = json.loads(json.dumps(data, default=str))
+    except Exception as e:
+        return await status_msg.edit_text(f"❌ **GAGAL SANITASI DATA:**\n{e}")
 
     suc = 0
     fail = 0
-    BATCH = 200 # Batch dikecilkan ke 200 untuk mencegah Timeout Database
+    BATCH = 50 # Kita pakai Batch Kecil & Aman dulu
     start_time = time.time()
     
-    # --- [HELPER] FUNGSI EKSEKUTOR DI BACKGROUND THREAD ---
+    # --- HELPER: EKSEKUTOR ---
     def process_batch_sync(batch_data):
-        """Fungsi ini berjalan di thread terpisah agar Main Loop tidak macet"""
         s_local = 0
         f_local = 0
         try:
-            # Coba hajar 1 batch sekaligus (CEPAT)
+            # Upsert Batch
             supabase.table('kendaraan').upsert(batch_data, on_conflict='nopol').execute()
             s_local = len(batch_data)
         except Exception as e:
-            # Jika gagal (misal ada 1 data error), masuk mode lambat (SAFE MODE)
+            # Fallback: Jika batch gagal, coba satu-satu
+            # print(f"Batch gagal: {e}, mencoba satu per satu...")
             for x in batch_data:
                 try: 
                     supabase.table('kendaraan').upsert([x], on_conflict='nopol').execute()
@@ -1210,7 +1219,7 @@ async def upload_confirm_admin(update, context):
                 except: 
                     f_local += 1
         return s_local, f_local
-    # -----------------------------------------------------
+    # -------------------------
 
     try:
         total_batches = (len(data) + BATCH - 1) // BATCH
@@ -1218,42 +1227,37 @@ async def upload_confirm_admin(update, context):
         for i in range(0, len(data), BATCH):
             batch = data[i:i+BATCH]
             
-            # [FIX CRITICAL] Gunakan await asyncio.to_thread
-            # Ini kuncinya! Kita lempar tugas berat ke thread lain, lalu kita 'await' hasilnya.
-            # Bot tidak akan freeze di sini.
+            # Eksekusi di thread terpisah (Async)
             s_batch, f_batch = await asyncio.to_thread(process_batch_sync, batch)
             
             suc += s_batch
             fail += f_batch
             
-            # Update Status setiap beberapa batch
+            # Update Status (Tiap 2 batch biar responsif)
             current_batch = (i // BATCH) + 1
-            if current_batch % 5 == 0 or current_batch == total_batches: # Update tiap 5 batch
+            if current_batch % 2 == 0 or current_batch == total_batches:
                 try: 
                     progress_text = (
-                        f"⏳ **MENGUPLOAD...**\n"
+                        f"⏳ **MENGUPLOAD...** (Safe Mode)\n"
                         f"🚀 Batch: {current_batch}/{total_batches}\n"
                         f"✅ Sukses: {suc}\n"
                         f"❌ Gagal: {fail}\n"
-                        f"⏱ Estimasi: {int(time.time() - start_time)}s berjalan..."
+                        f"⏱ Waktu: {int(time.time() - start_time)}s"
                     )
                     await status_msg.edit_text(progress_text, parse_mode='Markdown')
                 except: pass 
             
-            # Beri napas sedikit untuk event loop
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.1) # Beri jeda napas
 
         duration = round(time.time() - start_time, 2)
         
-        # Report Akhir
         report = (
-            f"✅ **UPLOAD SUKSES 100%!**\n"
+            f"✅ **UPLOAD SELESAI!**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"📊 **Total Data:** {len(data)}\n"
+            f"📊 **Total:** {len(data)}\n"
             f"✅ **Berhasil:** {suc}\n"
             f"❌ **Gagal:** {fail}\n"
-            f"⏱ **Waktu:** {duration} detik\n"
-            f"🚀 **Status:** Database Updated Successfully!"
+            f"⏱ **Waktu:** {duration}s"
         )
         
         try: await status_msg.edit_text(report, parse_mode='Markdown')
@@ -1261,7 +1265,7 @@ async def upload_confirm_admin(update, context):
 
     except Exception as e:
         logger.error(f"Upload Crash: {e}")
-        await update.message.reply_text(f"❌ **CRASH SAAT UPLOAD:**\n{str(e)}", parse_mode='Markdown')
+        await update.message.reply_text(f"❌ **CRASH:** {str(e)}", parse_mode='Markdown')
     
     # Bersihkan memori
     context.user_data.pop('final_data_records', None)
