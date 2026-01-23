@@ -1067,30 +1067,55 @@ async def stop_upload_command(update, context):
 async def upload_start(update, context):
     if not get_user(update.effective_user.id): return
     
+    # Ambil File ID
     context.user_data['fid'] = update.message.document.file_id
     
     # Jika Admin -> Masuk mode cleaning data
     if update.effective_user.id == ADMIN_ID:
-        msg = await update.message.reply_text("⏳ **Menganalisa File...**", parse_mode='Markdown')
+        msg = await update.message.reply_text("⏳ **Menganalisa File...**\n_(Mohon tunggu, file sedang dibaca di background)_", parse_mode='Markdown')
+        
         try:
+            # 1. Download File (Ini sudah async, jadi aman)
             f = await update.message.document.get_file()
             c = await f.download_as_bytearray()
+            file_name = update.message.document.file_name
+
+            # --- [FIX START] MEMINDAHKAN PROSES BERAT KE BACKGROUND THREAD ---
+            # Fungsi pembantu untuk dijalankan di thread terpisah
+            def process_file_background(content, fname):
+                # Baca File
+                df_raw = read_file_robust(content, fname)
+                # Perbaiki Header
+                df_fixed = fix_header_position(df_raw)
+                # Rename Kolom
+                df_final, cols_found = smart_rename_columns(df_fixed)
+                # Convert ke Dict (Berat untuk file besar)
+                return df_final.to_dict(orient='records'), cols_found, df_final
+
+            # Eksekusi di Background (Bot TIDAK AKAN STUCK di sini lagi)
+            data_dict, found, df_check = await asyncio.to_thread(process_file_background, c, file_name)
+            # --- [FIX END] ---
+
+            # Simpan ke memori user
+            context.user_data['df'] = data_dict
             
-            # Baca File (Support Excel/CSV/ZIP)
-            df = read_file_robust(c, update.message.document.file_name)
-            df = fix_header_position(df)
-            df, found = smart_rename_columns(df)
-            
-            context.user_data['df'] = df.to_dict(orient='records')
             await msg.delete()
             
-            fin_status = "✅ ADA" if 'finance' in df.columns else "⚠️ TIDAK ADA"
+            # Cek kolom Finance & Nopol
+            fin_status = "✅ ADA" if 'finance' in df_check.columns else "⚠️ TIDAK ADA"
+            nopol_status = "✅ ADA" if 'nopol' in df_check.columns else "❌ TIDAK ADA"
+            
+            if 'nopol' not in df_check.columns:
+                 await update.message.reply_text(f"❌ <b>GAGAL:</b> Kolom NOPOL tidak ditemukan.\nKolom terdeteksi: {', '.join(found)}", parse_mode='HTML')
+                 return ConversationHandler.END
+
             scan_report = (
-                f"✅ <b>SCAN SUKSES</b>\n"
+                f"✅ <b>SCAN SUKSES (Async Mode)</b>\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"📊 <b>Kolom Dikenali:</b> {', '.join(found)}\n"
-                f"📁 <b>Total Baris:</b> {len(df)}\n"
+                f"📁 <b>Total Baris:</b> {len(data_dict):,}\n"
                 f"🏦 <b>Kolom Leasing:</b> {fin_status}\n"
+                f"🔢 <b>Kolom Nopol:</b> {nopol_status}\n"
                 f"━━━━━━━━━━━━━━━━━━\n\n"
                 f"👉 <b>MASUKKAN NAMA LEASING UNTUK DATA INI:</b>\n"
                 f"<i>(Ketik 'SKIP' jika ingin menggunakan kolom leasing dari file)</i>"
@@ -1099,8 +1124,10 @@ async def upload_start(update, context):
             return U_LEASING_ADMIN
             
         except Exception as e: 
-            await msg.edit_text(f"❌ Error File: {e}")
+            logger.error(f"File Read Error: {e}")
+            await msg.edit_text(f"❌ <b>Error Membaca File:</b>\n{str(e)[:200]}...", parse_mode='HTML')
             return ConversationHandler.END
+            
     # Jika User Biasa -> Kirim ke Admin
     else:
         await update.message.reply_text("📄 File diterima. Ketik Nama Leasing:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
