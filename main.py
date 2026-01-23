@@ -147,7 +147,8 @@ VALID_DB_COLUMNS = ['nopol', 'type', 'finance', 'tahun', 'warna', 'noka', 'nosin
 # ##############################################################################
 
 R_ROLE_CHOICE, R_NAMA, R_HP, R_EMAIL, R_KOTA, R_AGENCY, R_CONFIRM = range(7)
-A_NOPOL, A_TYPE, A_LEASING, A_NOKIRIMAN, A_OVD, A_KET, A_CONFIRM = range(7, 14)
+# Definisi State untuk Percakapan Tambah Manual (Baru)
+ADD_NOPOL, ADD_UNIT, ADD_LEASING, ADD_PHONE, ADD_NOTE, ADD_CONFIRM = range(6)
 L_NOPOL, L_REASON, L_CONFIRM = range(14, 17) 
 D_NOPOL, D_CONFIRM = range(17, 19)
 U_LEASING_USER, U_LEASING_ADMIN, U_CONFIRM_UPLOAD = range(19, 22)
@@ -1634,36 +1635,160 @@ async def show_multi_choice(update, context, data_list, keyword):
 # BAGIAN 13: HANDLER KONVERSASI
 # ==============================================================================
 
-async def add_data_start(update, context):
-    if not get_user(update.effective_user.id): return
-    await update.message.reply_text("➕ **TAMBAH UNIT BARU**\n\n1️⃣ Masukkan **Nomor Polisi (Nopol)**:", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True), parse_mode='Markdown'); return A_NOPOL
-async def add_nopol(update, context): 
-    if update.message.text == "❌ BATAL": return await cancel(update, context)
-    context.user_data['a_nopol'] = update.message.text.upper(); await update.message.reply_text("2️⃣ Masukkan **Tipe/Jenis Kendaraan**:", parse_mode='Markdown'); return A_TYPE
-async def add_type(update, context): 
-    if update.message.text == "❌ BATAL": return await cancel(update, context)
-    context.user_data['a_type'] = update.message.text.upper(); await update.message.reply_text("3️⃣ Masukkan **Nama Leasing/Finance**:", parse_mode='Markdown'); return A_LEASING
-async def add_leasing(update, context): 
-    if update.message.text == "❌ BATAL": return await cancel(update, context)
-    context.user_data['a_leasing'] = update.message.text.upper(); await update.message.reply_text("4️⃣ Masukkan **Nomor Kiriman**:\n_(Ketik '-' jika tidak ada)_", parse_mode='Markdown'); return A_NOKIRIMAN
-async def add_nokiriman(update, context): 
-    if update.message.text == "❌ BATAL": return await cancel(update, context)
-    context.user_data['a_nokiriman'] = update.message.text; await update.message.reply_text("5️⃣ Masukkan **OVD (Overdue)**:\n_(Contoh: 300 Hari)_", parse_mode='Markdown'); return A_OVD
-async def add_ovd(update, context): 
-    if update.message.text == "❌ BATAL": return await cancel(update, context)
-    context.user_data['a_ovd'] = update.message.text; await update.message.reply_text("6️⃣ Masukkan **Keterangan Tambahan**:\n_(Ketik '-' jika tidak ada)_", parse_mode='Markdown'); return A_KET
-async def add_ket(update, context): 
-    if update.message.text == "❌ BATAL": return await cancel(update, context)
-    context.user_data['a_ket'] = update.message.text; summary = (f"📝 **KONFIRMASI DATA**\n▪️ Nopol: `{context.user_data['a_nopol']}`\n▪️ Unit: {context.user_data['a_type']}\n▪️ Leasing: {context.user_data['a_leasing']}\n▪️ No. Kiriman: {context.user_data['a_nokiriman']}\n▪️ OVD: {context.user_data['a_ovd']}\n▪️ Ket: {context.user_data['a_ket']}")
-    await update.message.reply_text(f"{summary}\n\n✅ Kirim ke Admin?", reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ BATAL"]]), parse_mode='Markdown'); return A_CONFIRM
-async def add_confirm(update, context):
-    if update.message.text != "✅ KIRIM": return await cancel(update, context)
-    u = get_user(update.effective_user.id); n = context.user_data['a_nopol']
-    context.bot_data[f"prop_{n}"] = {"nopol": n, "type": context.user_data['a_type'], "finance": context.user_data['a_leasing'], "ovd": context.user_data['a_ovd'], "branch": context.user_data['a_nokiriman'], "warna": context.user_data['a_ket']}
-    await update.message.reply_text("✅ **Permintaan Terkirim!**\nAdmin akan memverifikasi data Anda.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
-    msg_admin = (f"📥 **PENGAJUAN DATA BARU**\n━━━━━━━━━━━━━━━━━━\n👤 **Mitra:** {clean_text(u.get('nama_lengkap'))}\n🏢 **Agency:** {clean_text(u.get('agency'))}\n━━━━━━━━━━━━━━━━━━\n🔢 **Nopol:** `{n}`\n🚙 **Unit:** {context.user_data['a_type']}\n🏦 **Leasing:** {context.user_data['a_leasing']}\n📄 **No. Kiriman:** {context.user_data['a_nokiriman']}\n⚠️ **OVD:** {context.user_data['a_ovd']}\n📝 **Ket:** {context.user_data['a_ket']}\n━━━━━━━━━━━━━━━━━━")
-    kb = [[InlineKeyboardButton("✅ Terima", callback_data=f"v_acc_{n}_{u['user_id']}"), InlineKeyboardButton("❌ Tolak", callback_data=f"v_rej_{n}_{u['user_id']}")]]
-    await context.bot.send_message(ADMIN_ID, msg_admin, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown'); return ConversationHandler.END
+# ==============================================================================
+# FITUR TAMBAH MANUAL (VERSI INTERAKTIF & RAMAH USER)
+# ==============================================================================
+
+# 1. Mulai (Start) - Menggantikan add_data_start
+async def add_manual_start(update, context):
+    # Opsional: Jika hanya Admin/PIC yang boleh nambah, aktifkan baris bawah ini
+    # if update.effective_user.id != ADMIN_ID: return 
+    
+    await update.message.reply_text(
+        "📝 **TAMBAH DATA MANUAL**\n"
+        "Mode ini untuk memasukkan data unit satu per satu.\n\n"
+        "1️⃣ **Silakan Ketik NOPOL:**\n"
+        "_(Contoh: B 1234 ABC)_",
+        parse_mode='Markdown',
+        reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)
+    )
+    return ADD_NOPOL
+
+# 2. Input Nopol - Menggantikan add_nopol
+async def add_nopol(update, context):
+    text = update.message.text
+    if text == "❌ BATAL": return await cancel(update, context)
+    
+    # Otomatis huruf besar & buang spasi biar rapi
+    nopol_clean = re.sub(r'[^a-zA-Z0-9]', '', text).upper()
+    
+    if len(nopol_clean) < 3:
+        await update.message.reply_text("⚠️ Nopol terlalu pendek. Silakan ketik ulang:")
+        return ADD_NOPOL
+        
+    context.user_data['new_nopol'] = nopol_clean
+    
+    await update.message.reply_text(
+        f"✅ Nopol: **{nopol_clean}**\n\n"
+        "2️⃣ **Ketik Tipe / Merk Mobil:**\n"
+        "_(Contoh: AVANZA HITAM / HONDA BEAT)_",
+        parse_mode='Markdown'
+    )
+    return ADD_UNIT
+
+# 3. Input Unit - Menggantikan add_type
+async def add_unit(update, context):
+    text = update.message.text
+    if text == "❌ BATAL": return await cancel(update, context)
+    
+    context.user_data['new_unit'] = text.upper()
+    
+    await update.message.reply_text(
+        f"✅ Unit: **{text.upper()}**\n\n"
+        "3️⃣ **Ketik Nama Leasing / Finance:**\n"
+        "_(Contoh: BCA FINANCE / ADIRA)_",
+        parse_mode='Markdown'
+    )
+    return ADD_LEASING
+
+# 4. Input Leasing - Menggantikan add_leasing
+async def add_leasing(update, context):
+    text = update.message.text
+    if text == "❌ BATAL": return await cancel(update, context)
+    
+    context.user_data['new_finance'] = text.upper()
+    
+    # DISINI KITA KASIH TOMBOL LEWATI (Biar user gak bingung ketik -)
+    await update.message.reply_text(
+        f"✅ Leasing: **{text.upper()}**\n\n"
+        "4️⃣ **Ketik No HP Kiriman / Pelapor:**\n"
+        "_(Siapa yang memberi info unit ini?)_",
+        parse_mode='Markdown',
+        reply_markup=ReplyKeyboardMarkup([["⏩ LEWATI", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)
+    )
+    return ADD_PHONE
+
+# 5. Input No HP - Menggantikan add_nokiriman
+async def add_phone(update, context):
+    text = update.message.text
+    if text == "❌ BATAL": return await cancel(update, context)
+    
+    # Logika tombol Lewati
+    phone_info = "-" if text == "⏩ LEWATI" else text
+    context.user_data['new_phone'] = phone_info
+    
+    await update.message.reply_text(
+        "5️⃣ **Keterangan Tambahan (Opsional):**\n"
+        "_(Contoh: Unit parkir di pasar / OVD 2 Bulan)_",
+        parse_mode='Markdown',
+        reply_markup=ReplyKeyboardMarkup([["⏩ LEWATI", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)
+    )
+    return ADD_NOTE
+
+# 6. Input Note & Konfirmasi - Menggantikan add_ovd / add_ket
+async def add_note(update, context):
+    text = update.message.text
+    if text == "❌ BATAL": return await cancel(update, context)
+    
+    note = "-" if text == "⏩ LEWATI" else text
+    context.user_data['new_note'] = note
+    
+    d = context.user_data
+    
+    # Tampilkan Preview sebelum simpan
+    msg = (
+        "📋 **KONFIRMASI DATA BARU**\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"🔢 **Nopol:** {d['new_nopol']}\n"
+        f"🚙 **Unit:** {d['new_unit']}\n"
+        f"🏦 **Leasing:** {d['new_finance']}\n"
+        f"📱 **Info HP:** {d['new_phone']}\n"
+        f"📝 **Ket:** {d['new_note']}\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "Apakah data sudah benar?"
+    )
+    
+    await update.message.reply_text(
+        msg, 
+        parse_mode='Markdown',
+        reply_markup=ReplyKeyboardMarkup([["✅ SIMPAN", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)
+    )
+    return ADD_CONFIRM
+
+# 7. Simpan ke Database - Menggantikan add_confirm
+async def add_save(update, context):
+    if update.message.text != "✅ SIMPAN": return await cancel(update, context)
+    
+    d = context.user_data
+    
+    # Gabungkan Info HP & Note ke kolom 'ovd' agar tersimpan rapi
+    final_ovd = f"{d['new_note']} (Info: {d['new_phone']})"
+    
+    data_insert = {
+        "nopol": d['new_nopol'],
+        "type": d['new_unit'],
+        "finance": d['new_finance'],
+        "ovd": final_ovd, 
+        "branch": "-", 
+        "tahun": "-", 
+        "warna": "-", 
+        "noka": "-", 
+        "nosin": "-"
+    }
+    
+    try:
+        # Langsung simpan ke Database (Sat-set tanpa approval admin biar cepat)
+        supabase.table('kendaraan').upsert(data_insert, on_conflict='nopol').execute()
+        
+        await update.message.reply_text(
+            f"✅ **BERHASIL DISIMPAN!**\nData Nopol `{d['new_nopol']}` sudah masuk database.", 
+            parse_mode='Markdown', 
+            reply_markup=ReplyKeyboardRemove()
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Gagal menyimpan: {e}")
+        
+    return ConversationHandler.END
 
 async def lapor_delete_start(update, context):
     if not get_user(update.effective_user.id): return
@@ -1797,7 +1922,24 @@ if __name__ == '__main__':
     ))
 
     app.add_handler(ConversationHandler(entry_points=[CommandHandler('register', register_start)], states={R_ROLE_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_role_choice)], R_NAMA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_nama)], R_HP: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_hp)], R_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_email)], R_KOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], R_CONFIRM:[MessageHandler(filters.TEXT & ~filters.COMMAND, register_confirm)]}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]))
-    app.add_handler(ConversationHandler(entry_points=[CommandHandler('tambah', add_data_start)], states={A_NOPOL: [MessageHandler(filters.TEXT, add_nopol)], A_TYPE: [MessageHandler(filters.TEXT, add_type)], A_LEASING: [MessageHandler(filters.TEXT, add_leasing)], A_NOKIRIMAN: [MessageHandler(filters.TEXT, add_nokiriman)], A_OVD: [MessageHandler(filters.TEXT, add_ovd)], A_KET: [MessageHandler(filters.TEXT, add_ket)], A_CONFIRM: [MessageHandler(filters.TEXT, add_confirm)]}, fallbacks=[CommandHandler('cancel', cancel)]))
+    
+    # HANDLER TAMBAH MANUAL (INTERAKTIF BARU)
+    conv_add_manual = ConversationHandler(
+        entry_points=[CommandHandler('tambah', add_manual_start)],
+        states={
+            ADD_NOPOL: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_nopol)],
+            ADD_UNIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_unit)],
+            ADD_LEASING: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_leasing)],
+            ADD_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_phone)],
+            ADD_NOTE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_note)],
+            ADD_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_save)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex("^❌ BATAL$"), cancel)]
+    )
+    
+    # Masukkan ke dalam App
+    app.add_handler(conv_add_manual)
+
     app.add_handler(ConversationHandler(entry_points=[CommandHandler('lapor', lapor_delete_start)], states={L_NOPOL: [MessageHandler(filters.TEXT, lapor_delete_check)], L_REASON: [MessageHandler(filters.TEXT, lapor_reason)], L_CONFIRM: [MessageHandler(filters.TEXT, lapor_delete_confirm)]}, fallbacks=[CommandHandler('cancel', cancel)]))
     app.add_handler(ConversationHandler(entry_points=[CommandHandler('hapus', delete_unit_start)], states={D_NOPOL: [MessageHandler(filters.TEXT, delete_unit_check)], D_CONFIRM: [MessageHandler(filters.TEXT, delete_unit_confirm)]}, fallbacks=[CommandHandler('cancel', cancel)]))
 
