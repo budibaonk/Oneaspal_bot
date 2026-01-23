@@ -1436,38 +1436,112 @@ async def register_nama(update, context):
     context.user_data['r_nama'] = update.message.text; await update.message.reply_text("2️⃣ No HP (WA):"); return R_HP
 async def register_hp(update, context): 
     if update.message.text == "❌ BATAL": return await cancel(update, context)
-    context.user_data['r_hp'] = update.message.text; await update.message.reply_text("3️⃣ Email:"); return R_EMAIL
+    
+    # Simpan HP
+    hp = update.message.text
+    context.user_data['r_hp'] = hp
+    
+    # Lanjut tanya Email (Wajib bagi semua)
+    await update.message.reply_text(
+        "3️⃣ **Alamat Email:**\n"
+        "_(Kami butuh email untuk backup data akun Anda)_\n\n"
+        "👉 _Silakan ketik Email Anda:_", 
+        parse_mode='Markdown'
+    )
+    return R_EMAIL
+
 async def register_email(update, context): 
     if update.message.text == "❌ BATAL": return await cancel(update, context)
-    context.user_data['r_email'] = update.message.text; await update.message.reply_text("4️⃣ Kota Domisili:"); return R_KOTA
-async def register_kota(update, context): 
-    if update.message.text == "❌ BATAL": return await cancel(update, context)
-    context.user_data['r_kota'] = update.message.text
     
-    # --- LOGIC PENENTUAN PERTANYAAN SELANJUTNYA ---
-    if context.user_data['reg_role'] == 'pic':
-        txt = "5️⃣ **Nama Leasing / Finance:**\n_(Contoh: BCA Finance, Adira, ACC)_"
-    else:
-        # [UPDATE] PERTEGAS INSTRUKSI NAMA PT AGAR TIDAK TYPO/SINGKAT
+    # Simpan Email
+    context.user_data['r_email'] = update.message.text
+    
+    # --- CEK ROLE UNTUK PERTANYAAN SELANJUTNYA ---
+    role = context.user_data.get('reg_role', 'matel')
+    
+    if role == 'pic':
+        # KHUSUS PIC LEASING: Tanyakan Cabang
         txt = (
-            "5️⃣ **Nama Agency / PT (WAJIB LENGKAP)**\n\n"
-            "⚠️ <b>INFO PENTING:</b>\n"
-            "Sistem menggunakan <i>Auto-Detection</i>. Mohon tulis nama PT <b>SESUAI LEGALITAS</b> dan <b>JANGAN DISINGKAT</b>.\n\n"
-            "❌ <i>Salah:</i> EP, Elang, PT EP\n"
-            "✅ <i>Benar:</i> <b>PT ELANG PERKASA</b>\n\n"
-            "👉 <i>Silakan ketik Nama Agency Anda:</i>"
+            "4️⃣ **Lokasi Cabang Kantor:**\n"
+            "_(Contoh: Kelapa Gading, BSD, Bandung Pusat)_\n\n"
+            "👉 _Ketik nama CABANG tempat Anda bertugas:_"
+        )
+    else:
+        # KHUSUS MATEL: Tanyakan Domisili
+        txt = (
+            "4️⃣ **Domisili / Wilayah Operasi:**\n"
+            "_(Contoh: Jakarta Timur, Bekasi, Surabaya)_\n\n"
+            "👉 _Ketik KOTA/DOMISILI Anda:_"
         )
         
-    await update.message.reply_text(txt, parse_mode='HTML')
+    await update.message.reply_text(txt, parse_mode='Markdown')
+    return R_KOTA
+
+async def register_kota(update, context): 
+    if update.message.text == "❌ BATAL": return await cancel(update, context)
+    
+    # Simpan Lokasi (Bisa jadi Cabang atau Domisili)
+    context.user_data['r_kota'] = update.message.text
+    
+    # --- CEK ROLE LAGI ---
+    role = context.user_data.get('reg_role', 'matel')
+    
+    if role == 'pic':
+        # KHUSUS PIC LEASING: Tanyakan Nama Finance
+        txt = (
+            "5️⃣ **Nama Leasing / Finance:**\n"
+            "⚠️ _Wajib Nama Resmi (JANGAN DISINGKAT)_\n"
+            "_(Contoh: BCA FINANCE, ADIRA DINAMIKA, ACC)_\n\n"
+            "👉 _Ketik Nama FINANCE Anda:_"
+        )
+    else:
+        # KHUSUS MATEL: Tanyakan Nama Agency
+        txt = (
+            "5️⃣ **Nama Agency / PT:**\n"
+            "⚠️ _Wajib Nama Lengkap Sesuai Legalitas_\n"
+            "_(Contoh: PT ELANG PERKASA, PT MAJU JAYA)_\n\n"
+            "👉 _Ketik Nama AGENCY Anda:_"
+        )
+        
+    await update.message.reply_text(txt, parse_mode='Markdown')
     return R_AGENCY
 
-async def register_agency(update, context): 
-    msg = update.message.text
-    if msg == "❌ BATAL": return await cancel(update, context)
-    if len(msg) < 3 or msg.strip() == "-": await update.message.reply_text("⚠️ **Nama PT/Agency Wajib Diisi!**\nMinimal 3 huruf. Silakan ketik ulang:"); return R_AGENCY
-    context.user_data['r_agency'] = msg.upper()
-    summary = (f"📝 <b>KONFIRMASI DATA</b>\n━━━━━━━━━━━━━━━━━━\n👤 <b>Nama:</b> {clean_text(context.user_data.get('r_nama'))}\n📱 <b>HP:</b> {clean_text(context.user_data.get('r_hp'))}\n📧 <b>Email:</b> {clean_text(context.user_data.get('r_email'))}\n📍 <b>Kota:</b> {clean_text(context.user_data.get('r_kota'))}\n🏢 <b>Agency:</b> {clean_text(context.user_data.get('r_agency'))}\n━━━━━━━━━━━━━━━━━━")
-    await update.message.reply_text(f"{summary}\n\n✅ <b>Data sudah benar?</b>", reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ ULANGI"]], resize_keyboard=True), parse_mode='HTML')
+async def register_agency(update, context):
+    if update.message.text == "❌ BATAL": return await cancel(update, context)
+    
+    # Simpan Nama Perusahaan
+    context.user_data['r_agency'] = update.message.text
+    
+    # Ambil semua data
+    d = context.user_data
+    role = d.get('reg_role', 'matel')
+    
+    # Labeling agar user tidak bingung saat baca konfirmasi
+    if role == 'pic':
+        lbl_lokasi = "🏢 Cabang"
+        lbl_pt = "🏦 Finance"
+    else:
+        lbl_lokasi = "📍 Domisili"
+        lbl_pt = "🛡️ Agency"
+    
+    # Tampilkan Konfirmasi
+    summary = (
+        f"📝 **KONFIRMASI PENDAFTARAN**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **Nama:** {d['r_nama']}\n"
+        f"📱 **HP:** {d['r_hp']}\n"
+        f"📧 **Email:** {d['r_email']}\n"
+        f"{lbl_lokasi}: {d['r_kota']}\n"
+        f"{lbl_pt}: {d['r_agency']}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"Apakah data di atas sudah benar?"
+    )
+    
+    await update.message.reply_text(
+        summary, 
+        reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True), 
+        parse_mode='Markdown'
+    )
     return R_CONFIRM
 
 async def register_confirm(update, context):
