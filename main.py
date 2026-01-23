@@ -946,7 +946,7 @@ async def notify_leasing_group(context, matel_user, unit_data):
 
 async def notify_agency_group(context, matel_user, unit_data):
     """
-    Mengirim notifikasi ke Grup Agency dengan Logika Fuzzy (Anti-Typo).
+    Mengirim notifikasi ke Grup Agency dengan Format LENGKAP (Sama persis dengan Leasing).
     """
     user_agency = str(matel_user.get('agency', '')).strip().upper()
     if len(user_agency) < 3: return
@@ -960,26 +960,22 @@ async def notify_agency_group(context, matel_user, unit_data):
         for g in groups:
             g_name = str(g['agency_name']).upper()
             
-            # 1. Cek Exact Match / Substring (Cara Lama - Cepat)
+            # Logic Matching (Exact + Fuzzy Anti-Typo)
             is_match = g_name in user_agency or user_agency in g_name
-            
-            # 2. Cek Fuzzy Match (Cara Baru - Anti Typo)
-            # Hitung kemiripan teks (0.0 sampai 1.0)
             if not is_match:
                 similarity = difflib.SequenceMatcher(None, g_name, user_agency).ratio()
-                # Jika kemiripan di atas 80% (Misal: "ELANG PERKASA" vs "ELANG PREKASA")
-                if similarity > 0.8:
-                    is_match = True
+                if similarity > 0.8: is_match = True
             
             if is_match:
                 target_group_ids.append(g['group_id'])
         
         if not target_group_ids: return
 
-        # Siapkan Pesan
+        # Siapkan Nomor WA Bersih untuk tombol
         clean_num = re.sub(r'[^0-9]', '', str(matel_user.get('no_hp')))
         if clean_num.startswith('0'): clean_num = '62' + clean_num[1:]
         
+        # --- [UPDATE] FORMAT PESAN DISAMAKAN DENGAN LEASING GROUP ---
         msg_group = (
             f"👮‍♂️ <b>LAPORAN ANGGOTA ({user_agency})</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
@@ -987,8 +983,12 @@ async def notify_agency_group(context, matel_user, unit_data):
             f"📍 <b>Lokasi:</b> {clean_text(matel_user.get('alamat'))}\n\n"
             f"🚙 <b>Unit:</b> {clean_text(unit_data.get('type'))}\n"
             f"🔢 <b>Nopol:</b> {clean_text(unit_data.get('nopol'))}\n"
-            f"🏦 <b>Leasing:</b> {clean_text(unit_data.get('finance'))}\n"
+            f"📅 <b>Tahun:</b> {clean_text(unit_data.get('tahun'))}\n"
+            f"🎨 <b>Warna:</b> {clean_text(unit_data.get('warna'))}\n"
+            f"----------------------------------\n"
             f"⚠️ <b>OVD:</b> {clean_text(unit_data.get('ovd'))}\n"
+            f"🏦 <b>Finance:</b> {clean_text(unit_data.get('finance'))}\n"
+            f"🏢 <b>Branch:</b> {clean_text(unit_data.get('branch'))}\n"
             f"━━━━━━━━━━━━━━━━━━"
         )
 
