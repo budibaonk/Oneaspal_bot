@@ -944,15 +944,12 @@ async def notify_leasing_group(context, matel_user, unit_data):
         logger.error(f"Error Notify Leasing: {e}")
 
 
+# 1. NOTIF UNTUK AGENCY (PARTNER B2B) - LEBIH LENGKAP
 async def notify_agency_group(context, matel_user, unit_data):
-    """
-    Mengirim notifikasi ke Grup Agency dengan Format LENGKAP (Sama persis dengan Leasing).
-    """
     user_agency = str(matel_user.get('agency', '')).strip().upper()
     if len(user_agency) < 3: return
 
     try:
-        # Ambil daftar grup agency dari database
         res = supabase.table('agency_groups').select("*").execute()
         groups = res.data
         
@@ -960,7 +957,7 @@ async def notify_agency_group(context, matel_user, unit_data):
         for g in groups:
             g_name = str(g['agency_name']).upper()
             
-            # Logic Matching (Exact + Fuzzy Anti-Typo)
+            # Logic Fuzzy Match
             is_match = g_name in user_agency or user_agency in g_name
             if not is_match:
                 similarity = difflib.SequenceMatcher(None, g_name, user_agency).ratio()
@@ -971,11 +968,10 @@ async def notify_agency_group(context, matel_user, unit_data):
         
         if not target_group_ids: return
 
-        # Siapkan Nomor WA Bersih untuk tombol
         clean_num = re.sub(r'[^0-9]', '', str(matel_user.get('no_hp')))
         if clean_num.startswith('0'): clean_num = '62' + clean_num[1:]
         
-        # --- [UPDATE] FORMAT PESAN DISAMAKAN DENGAN LEASING GROUP ---
+        # [REVISI] FORMAT LENGKAP DENGAN NOKA & NOSIN
         msg_group = (
             f"👮‍♂️ <b>LAPORAN ANGGOTA ({user_agency})</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
@@ -986,6 +982,9 @@ async def notify_agency_group(context, matel_user, unit_data):
             f"📅 <b>Tahun:</b> {clean_text(unit_data.get('tahun'))}\n"
             f"🎨 <b>Warna:</b> {clean_text(unit_data.get('warna'))}\n"
             f"----------------------------------\n"
+            f"🔧 <b>Noka:</b> {clean_text(unit_data.get('noka'))}\n"
+            f"⚙️ <b>Nosin:</b> {clean_text(unit_data.get('nosin'))}\n"
+            f"----------------------------------\n"
             f"⚠️ <b>OVD:</b> {clean_text(unit_data.get('ovd'))}\n"
             f"🏦 <b>Finance:</b> {clean_text(unit_data.get('finance'))}\n"
             f"🏢 <b>Branch:</b> {clean_text(unit_data.get('branch'))}\n"
@@ -995,25 +994,70 @@ async def notify_agency_group(context, matel_user, unit_data):
         kb = [[InlineKeyboardButton("📞 Hubungi Anggota", url=f"https://wa.me/{clean_num}")]]
 
         for gid in target_group_ids:
-            try: 
-                await context.bot.send_message(gid, msg_group, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
-            except Exception as e: 
-                logger.error(f"Gagal kirim grup agency {gid}: {e}")
+            try: await context.bot.send_message(gid, msg_group, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+            except Exception as e: logger.error(f"Gagal kirim grup agency {gid}: {e}")
             
-    except Exception as e: 
-        logger.error(f"Error Notify Agency: {e}")
+    except Exception as e: logger.error(f"Error Notify Agency: {e}")
 
-# [V6.0] NOTIF GROUP ADMIN PUSAT (DEBUGGED)
-async def notify_hit_to_group(context, u, d):
+
+# 2. NOTIF UNTUK LEASING (PIC) - TETAP LENGKAP
+async def notify_leasing_group(context, matel_user, unit_data):
+    leasing_unit = str(unit_data.get('finance', '')).strip().upper()
+    if len(leasing_unit) < 3: return
+
     try:
-        # Cek apakah LOG_GROUP_ID sudah diisi di .env
-        if LOG_GROUP_ID == 0: return
+        res = supabase.table('leasing_groups').select("*").execute()
+        groups = res.data
+        
+        target_group_ids = []
+        for g in groups:
+            g_name = str(g['leasing_name']).upper()
+            if g_name in leasing_unit or leasing_unit in g_name:
+                target_group_ids.append(g['group_id'])
+        
+        if not target_group_ids: return
 
-        # Siapkan Nomor WA Bersih untuk tombol
-        hp_raw = str(u.get('no_hp', ''))
-        clean_num = re.sub(r'[^0-9]', '', hp_raw)
+        clean_num = re.sub(r'[^0-9]', '', str(matel_user.get('no_hp')))
         if clean_num.startswith('0'): clean_num = '62' + clean_num[1:]
         
+        # [REVISI] PASTIKAN FORMAT SAMA LENGKAPNYA
+        msg_group = (
+            f"🚨 <b>UNIT DITEMUKAN! (HIT)</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Penemu:</b> {clean_text(matel_user.get('nama_lengkap'))} ({clean_text(matel_user.get('agency'))})\n"
+            f"📍 <b>Kota:</b> {clean_text(matel_user.get('alamat'))}\n\n"
+            f"🚙 <b>Unit:</b> {clean_text(unit_data.get('type'))}\n"
+            f"🔢 <b>Nopol:</b> {clean_text(unit_data.get('nopol'))}\n"
+            f"📅 <b>Tahun:</b> {clean_text(unit_data.get('tahun'))}\n"
+            f"🎨 <b>Warna:</b> {clean_text(unit_data.get('warna'))}\n"
+            f"----------------------------------\n"
+            f"🔧 <b>Noka:</b> {clean_text(unit_data.get('noka'))}\n"
+            f"⚙️ <b>Nosin:</b> {clean_text(unit_data.get('nosin'))}\n"
+            f"----------------------------------\n"
+            f"⚠️ <b>OVD:</b> {clean_text(unit_data.get('ovd'))}\n"
+            f"🏦 <b>Finance:</b> {clean_text(unit_data.get('finance'))}\n"
+            f"🏢 <b>Branch:</b> {clean_text(unit_data.get('branch'))}\n"
+            f"━━━━━━━━━━━━━━━━━━"
+        )
+
+        kb = [[InlineKeyboardButton("📞 Hubungi Penemu (WA)", url=f"https://wa.me/{clean_num}")]]
+
+        for gid in target_group_ids:
+            try: await context.bot.send_message(gid, msg_group, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+            except Exception as e: logger.error(f"Gagal kirim grup leasing {gid}: {e}")
+            
+    except Exception as e: logger.error(f"Error Notify Leasing: {e}")
+
+
+# 3. NOTIF UNTUK ADMIN PUSAT (LOG) - TETAP LENGKAP
+async def notify_hit_to_group(context, u, d):
+    try:
+        if LOG_GROUP_ID == 0: return
+
+        clean_num = re.sub(r'[^0-9]', '', str(u.get('no_hp')))
+        if clean_num.startswith('0'): clean_num = '62' + clean_num[1:]
+        
+        # [REVISI] PASTIKAN FORMAT SAMA LENGKAPNYA
         msg = (
             f"🚨 <b>UNIT DITEMUKAN! (HIT)</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
@@ -1024,19 +1068,20 @@ async def notify_hit_to_group(context, u, d):
             f"📅 <b>Tahun:</b> {clean_text(d.get('tahun'))}\n"
             f"🎨 <b>Warna:</b> {clean_text(d.get('warna'))}\n"
             f"----------------------------------\n"
+            f"🔧 <b>Noka:</b> {clean_text(d.get('noka'))}\n"
+            f"⚙️ <b>Nosin:</b> {clean_text(d.get('nosin'))}\n"
+            f"----------------------------------\n"
             f"⚠️ <b>OVD:</b> {clean_text(d.get('ovd'))}\n"
             f"🏦 <b>Finance:</b> {clean_text(d.get('finance'))}\n"
             f"🏢 <b>Branch:</b> {clean_text(d.get('branch'))}\n"
             f"━━━━━━━━━━━━━━━━━━"
         )
         
-        # Tombol Link WA
         kb = [[InlineKeyboardButton("📞 Hubungi Penemu (WA)", url=f"https://wa.me/{clean_num}")]]
         
         await context.bot.send_message(LOG_GROUP_ID, msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
         
-    except Exception as e: 
-        print(f"❌ Gagal Kirim Notif Admin Pusat: {e}")
+    except Exception as e: print(f"❌ Gagal Kirim Notif Admin Pusat: {e}")
 
 # [V5.5] NEW COMMAND TO REGISTER LEASING GROUP
 async def set_leasing_group(update, context):
