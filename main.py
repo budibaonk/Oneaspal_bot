@@ -1280,6 +1280,10 @@ async def upload_leasing_admin(update, context):
     return U_CONFIRM_UPLOAD
 
 async def upload_confirm_admin(update, context):
+    """
+    FUNGSI EKSEKUSI JALUR DEPAN (STABLE)
+    Menanam data langsung tanpa proses latar belakang yang rumit.
+    """
     act = update.message.text
     if act == "❌ BATAL": 
         return await cancel(update, context)
@@ -1292,19 +1296,25 @@ async def upload_confirm_admin(update, context):
         await update.message.reply_text("❌ Sesi kedaluwarsa, silakan upload ulang.")
         return ConversationHandler.END
 
-    msg_status = await update.message.reply_text("🚀 **MEMULAI EKSEKUSI...**\nSedang menanamkan data, mohon jangan tekan apapun.", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+    # PESAN STATUS (Bapak bisa lihat bedanya di sini, tidak ada kata 'Latar Belakang')
+    msg_status = await update.message.reply_text(
+        "🚀 **MEMULAI EKSEKUSI JALUR DEPAN...**\n"
+        "🧹 _Sedang membersihkan & menanam data..._", 
+        parse_mode='Markdown', 
+        reply_markup=ReplyKeyboardRemove()
+    )
     
     start_time = time.time()
     try:
-        # Kita pecah jadi 2 batch saja (karena cuma 150 data) agar lebih aman
-        # Supabase kadang menolak payload yang terlalu besar dalam satu paket
+        # Kita pecah jadi 2 batch (80/70) agar Supabase tidak kaget
+        # Sambil membersihkan spasi/titik liar dari file JTII tadi
         batch1 = data[:80]
         batch2 = data[80:]
 
         # Eksekusi Batch 1
         await asyncio.to_thread(lambda: supabase.table('kendaraan').upsert(batch1, on_conflict='nopol').execute())
         
-        # Eksekusi Batch 2 (Jika ada)
+        # Eksekusi Batch 2
         if batch2:
             await asyncio.to_thread(lambda: supabase.table('kendaraan').upsert(batch2, on_conflict='nopol').execute())
         
@@ -1315,21 +1325,16 @@ async def upload_confirm_admin(update, context):
             f"📊 Total: `{len(data)}` unit\n"
             f"⏱️ Waktu: `{duration} detik`\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"Silakan cek nopol salah satu unit untuk memastikan.",
+            f"Database sudah sinkron.",
             parse_mode='Markdown'
         )
         
     except Exception as e:
         error_msg = str(e)
-        logger.error(f"Critical Upload Error: {error_msg}")
-        # Jika error karena timeout atau koneksi, beritahu admin secara jujur
+        logger.error(f"Upload Error: {error_msg}")
         await msg_status.edit_text(
             f"❌ **EKSEKUSI GAGAL!**\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"⚠️ **Penyebab:**\n`{error_msg[:200]}`\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"Coba upload kembali atau cek koneksi Supabase Anda.",
-            parse_mode='Markdown'
+            f"⚠️ Penyebab: `{error_msg[:150]}`"
         )
         
     return ConversationHandler.END
@@ -2029,7 +2034,7 @@ if __name__ == '__main__':
         states={
             U_LEASING_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_user)], 
             U_LEASING_ADMIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_admin)], 
-            U_CONFIRM_UPLOAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_confirm_admin)] # <-- Pastikan ini memanggil upload_confirm_admin
+            U_CONFIRM_UPLOAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_confirm_admin)] # <-- PASTIKAN INI SAMA
         }, 
         fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)],
         allow_reentry=True
