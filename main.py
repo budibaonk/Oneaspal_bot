@@ -989,26 +989,27 @@ async def background_upload_process(update, context, act, data, chat_id):
     
     status_msg = await context.bot.send_message(
         chat_id=chat_id, 
-        text=f"🚀 <b>MEMULAI {act}...</b>\nMohon tunggu. Jangan kirim file lain dulu.", 
+        text=f"🚀 <b>MEMULAI {act}...</b>\nMohon tunggu...", 
         parse_mode='HTML', 
         reply_markup=stop_kb
     )
     
-    BATCH_SIZE = 25 # Upload per 25 data agar database tidak kaget
+    BATCH_SIZE = 25 
     total = len(data)
     success = 0
     fail = 0
     errors = []
     
-    # Reset sinyal stop
     context.user_data['stop_signal'] = False
     start_time = time.time()
     
+    # [DIAGNOSA] Flag agar error cuma dikirim sekali
+    error_sent = False 
+    
     try:
         for i in range(0, total, BATCH_SIZE):
-            # Cek apakah Admin menekan tombol STOP
             if context.user_data.get('stop_signal'):
-                await status_msg.edit_text("⛔ <b>PROSES DIHENTIKAN OLEH USER.</b>", reply_markup=None)
+                await status_msg.edit_text("⛔ <b>BERHENTI OLEH USER.</b>", reply_markup=None)
                 return
 
             chunk = data[i:i+BATCH_SIZE]
@@ -1016,16 +1017,11 @@ async def background_upload_process(update, context, act, data, chat_id):
             
             try:
                 if act == "🚀 UPDATE DATA":
-                    # UPSERT: Update jika ada, Insert jika baru (Anti Duplicate Error)
+                    # Coba Insert/Update
                     await asyncio.to_thread(lambda: supabase.table('kendaraan').upsert(chunk, on_conflict='nopol').execute())
-                
                 elif act == "🗑️ HAPUS MASSAL":
-                    try:
-                        # Coba cara cepat (RPC)
-                        await asyncio.to_thread(lambda: supabase.rpc('delete_by_nopol', {'nopol_list': nops}).execute())
-                    except:
-                        # Cara manual jika RPC gagal
-                        await asyncio.to_thread(lambda: supabase.table('kendaraan').delete().in_('nopol', nops).execute())
+                    try: await asyncio.to_thread(lambda: supabase.rpc('delete_by_nopol', {'nopol_list': nops}).execute())
+                    except: await asyncio.to_thread(lambda: supabase.table('kendaraan').delete().in_('nopol', nops).execute())
 
                 success += len(chunk)
             
@@ -1033,37 +1029,29 @@ async def background_upload_process(update, context, act, data, chat_id):
                 fail += len(chunk)
                 errors.append(str(e))
                 print(f"Batch Error: {e}")
+                
+                # [DIAGNOSA] KIRIM ERROR KE CHAT (Hanya error pertama biar gak spam)
+                if not error_sent:
+                    err_msg = str(e)[:200] # Ambil 200 huruf pertama aja
+                    await context.bot.send_message(chat_id, f"⚠️ <b>DIAGNOSA ERROR:</b>\n<code>{err_msg}</code>\n\n<i>(Proses tetap lanjut, cek pesan ini untuk perbaikan)</i>", parse_mode='HTML')
+                    error_sent = True
 
-            # Update Laporan ke Chat setiap 200 data
-            if i % 200 == 0 and i > 0:
+            # Update Laporan
+            if i % 100 == 0 and i > 0:
                 pct = int((i/total)*100)
                 try:
                     await status_msg.edit_text(
-                        f"⏳ <b>PROGRESS: {pct}%</b>\n"
-                        f"✅ Sukses: {success}\n"
-                        f"❌ Gagal: {fail}\n"
-                        f"⚠️ Tekan tombol di bawah untuk STOP", 
+                        f"⏳ <b>PROGRESS: {pct}%</b>\n✅ Sukses: {success}\n❌ Gagal: {fail}", 
                         parse_mode='HTML', 
                         reply_markup=stop_kb
                     )
                 except: pass
             
-            # Istirahat 0.5 detik agar bot tidak dianggap spamming oleh Telegram
             await asyncio.sleep(0.5) 
 
-        # Laporan Akhir
         dur = round(time.time() - start_time, 1)
         err_report = f"\n⚠️ <b>Sebab Error:</b> {errors[0]}" if errors else ""
-        
-        final_rpt = (
-            f"✅ <b>SELESAI ({act})</b>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"📊 Total: {total:,}\n"
-            f"✅ Berhasil: {success:,}\n"
-            f"❌ Gagal: {fail:,}\n"
-            f"⏱ Waktu: {dur}s"
-            f"{err_report}"
-        )
+        final_rpt = (f"✅ <b>SELESAI ({act})</b>\nTotal: {total:,}\nSukses: {success:,}\nGagal: {fail:,}{err_report}")
         await status_msg.edit_text(final_rpt, parse_mode='HTML', reply_markup=None)
 
     except Exception as e:
