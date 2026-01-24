@@ -666,54 +666,52 @@ async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e: await update.message.reply_text(f"❌ Error Panel: {e}")
 
 async def rekap_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    # Pastikan ADMIN_IDS sudah didefinisikan
-    if str(user.id) not in ADMIN_IDS: return 
+    # Validasi Admin
+    if str(update.effective_user.id) not in str(ADMIN_ID): return 
 
-    msg_loading = await update.message.reply_text("⏳ *Sedang menarik data member...*", parse_mode='Markdown')
+    msg = await update.message.reply_text("⏳ *Sedang menarik data member...*", parse_mode='Markdown')
 
     try:
-        # Tanggal Hari Ini (YYYY-MM-DD)
-        today = datetime.now().strftime('%Y-%m-%d')
+        # 1. Ambil Waktu Sekarang (Jakarta)
+        now = datetime.now(TZ_JAKARTA)
+        today_str = now.strftime('%Y-%m-%d')
+        display_date = now.strftime('%d %B %Y')
         
-        # 1. Hitung Member Baru HARI INI
-        # [FIX] Ganti 'id' menjadi 'user_id' agar tidak error
-        res_today = supabase.table('users').select('user_id', count='exact').gte('created_at', f"{today} 00:00:00").execute()
+        # 2. Hitung Register Hari Ini (Active + Pending + Rejected)
+        # Query: created_at >= hari ini jam 00:00
+        res_today = supabase.table('users').select('user_id', count='exact').gte('created_at', f"{today_str} 00:00:00").execute()
         count_today = res_today.count if res_today.count else 0
 
-        # 2. Cari Member PENDING
+        # 3. Ambil Data Pending (Antrean)
         res_pending = supabase.table('users').select('*').eq('status', 'pending').execute()
         pending_users = res_pending.data
         count_pending = len(pending_users)
 
-        # 3. Susun Laporan
-        laporan = (
+        # 4. Susun Laporan
+        rpt = (
             f"📊 **REKAP MEMBER HARIAN**\n"
-            f"📅 Tanggal: {datetime.now().strftime('%d-%m-%Y')}\n\n"
-            f"➕ **Register Hari Ini:** {count_today} orang\n"
-            f"⏳ **Pending Approval:** {count_pending} orang\n"
-            f"-----------------------------------\n"
+            f"📅 Tanggal: {display_date}\n\n"
+            f"➕ **Daftar Hari Ini:** {count_today} Orang\n"
+            f"⏳ **Pending Approval:** {count_pending} Orang\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
         )
 
+        # 5. Tampilkan List Pending (Jika Ada)
         if count_pending > 0:
-            laporan += "**DAFTAR USER PENDING:**\n"
+            rpt += "**ANTREAN REVIEW:**\n(Klik command utk validasi)\n\n"
             for u in pending_users:
-                uid = u.get('user_id')
-                nama = u.get('full_name', 'Tanpa Nama')
-                # Ambil jam daftar
-                jam_daftar = u.get('created_at', '').split('T')[1][:5] if 'T' in u.get('created_at', '') else '-'
-                
-                laporan += f"👉 `{uid}` | {nama} | ⏰ {jam_daftar}\n"
-            
-            laporan += "\n💡 *Gunakan `/approve [ID]` untuk aktivasi.*"
+                uid = u['user_id']
+                nama = u.get('nama_lengkap') or u.get('full_name') or 'Tanpa Nama'
+                # Format Link Cepat: /cek_ID
+                rpt += f"👉 /cek_{uid} | {nama}\n"
         else:
-            laporan += "✅ *Tidak ada antrean pending saat ini.*"
+            rpt += "✅ *Tidak ada antrean pending.*"
 
-        await msg_loading.edit_text(laporan, parse_mode='Markdown')
+        await msg.edit_text(rpt, parse_mode='Markdown')
 
     except Exception as e:
-        logger.error(f"Error rekap: {e}")
-        await msg_loading.edit_text(f"❌ Error sistem: {e}")
+        logger.error(f"Rekap Error: {e}")
+        await msg.edit_text(f"❌ Error mengambil data: {e}")
 
 # ==============================================================================
 # BAGIAN 8: FITUR AUDIT & ADMIN UTILS
@@ -809,6 +807,50 @@ async def support_send(update, context):
     await context.bot.send_message(ADMIN_ID, msg_admin, parse_mode='HTML')
     await update.message.reply_text("✅ **Pesan Terkirim!**\nMohon tunggu balasan dari Admin.", reply_markup=ReplyKeyboardRemove()); return ConversationHandler.END
 
+# --- FITUR BARU: CEK USER (JUMP TO CONFIRM) ---
+async def cek_user_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.effective_user.id) not in str(ADMIN_ID): return
+    
+    # 1. Ambil ID dari text /cek_12345
+    try: target_uid = int(update.message.text.split('_')[1])
+    except: return
+    
+    # 2. Ambil data dari Database
+    res = supabase.table('users').select('*').eq('user_id', target_uid).execute()
+    if not res.data: return await update.message.reply_text("❌ Data hilang/sudah diproses.")
+    
+    d = res.data[0] # Data user
+    
+    # 3. Format Pesan (SAMA PERSIS DENGAN REGISTER_CONFIRM)
+    role_db = d.get('role', 'matel')
+    wa_link = format_wa_link(d.get('no_hp'))
+    
+    msg_admin = (
+        f"🔔 <b>REVIEW REGISTRASI ({role_db.upper()})</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>Nama:</b> {clean_text(d.get('nama_lengkap'))}\n"
+        f"🆔 <b>User ID:</b> <code>{d['user_id']}</code>\n"
+        f"🏢 <b>Agency:</b> {clean_text(d.get('agency'))}\n"
+        f"📍 <b>Domisili:</b> {clean_text(d.get('alamat'))}\n"
+        f"📱 <b>HP/WA:</b> {wa_link}\n"
+        f"📧 <b>Email:</b> {clean_text(d.get('email'))}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"<i>Silakan validasi data mitra ini.</i>"
+    )
+    
+    # 4. Tombol Aksi (Approve & Reject)
+    kb = [
+        [InlineKeyboardButton("✅ TERIMA (AKTIFKAN)", callback_data=f"appu_{d['user_id']}")], 
+        [InlineKeyboardButton("❌ TOLAK (HAPUS)", callback_data=f"reju_{d['user_id']}")]
+    ]
+    
+    await update.message.reply_text(
+        msg_admin, 
+        reply_markup=InlineKeyboardMarkup(kb), 
+        parse_mode='HTML', 
+        link_preview_options=LinkPreviewOptions(is_disabled=True)
+    )
+    
 
 # ##############################################################################
 # BAGIAN 9: USER FEATURES & NOTIFIKASI
@@ -1532,7 +1574,14 @@ async def callback_handler(update, context):
             try: await context.bot.send_message(target_uid, msg_mitra, parse_mode='Markdown')
             except: pass
             
-    elif data.startswith("reju_"): update_user_status(data.split("_")[1], 'rejected'); await query.edit_message_text("❌ User TOLAK."); await context.bot.send_message(data.split("_")[1], "⛔ Pendaftaran Ditolak.")
+    elif data.startswith("reju_"):
+        target_uid = int(data.split("_")[1])
+        # Hapus dari database (Sesuai label tombol)
+        supabase.table('users').delete().eq('user_id', target_uid).execute()
+        
+        await query.edit_message_text("❌ User DITOLAK & DIHAPUS.")
+        try: await context.bot.send_message(target_uid, "⛔ Pendaftaran Ditolak. Silakan daftar ulang dengan data yang benar.")
+        except: pass
     
     elif data.startswith("cp_"):
         nopol_target = data.replace("cp_", "")
@@ -1583,6 +1632,7 @@ if __name__ == '__main__':
     ))
 
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
+    app.add_handler(MessageHandler(filters.Regex(r'^/cek_\d+$'), cek_user_pending))
     app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(admin_action_start, pattern='^adm_(ban|unban|del)_')], states={ADMIN_ACT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_action_complete)]}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]))
     app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(reject_start, pattern='^reju_')], states={REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, reject_complete)]}, fallbacks=[CommandHandler('cancel', cancel)]))
     app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(val_reject_start, pattern='^v_rej_')], states={VAL_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, val_reject_complete)]}, fallbacks=[CommandHandler('cancel', cancel)]))
