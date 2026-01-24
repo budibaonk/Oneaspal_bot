@@ -667,53 +667,53 @@ async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def rekap_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    # Cek Admin (Pastikan Anda sudah set ADMIN_IDS di atas)
+    # Pastikan ADMIN_IDS sudah didefinisikan
     if str(user.id) not in ADMIN_IDS: return 
 
     msg_loading = await update.message.reply_text("⏳ *Sedang menarik data member...*", parse_mode='Markdown')
 
     try:
-        # 1. Hitung Member Baru HARI INI
-        # Format tanggal hari ini: YYYY-MM-DD
+        # Tanggal Hari Ini (YYYY-MM-DD)
         today = datetime.now().strftime('%Y-%m-%d')
-        # Query: created_at >= hari ini jam 00:00
-        res_today = supabase.table('users').select('id', count='exact').gte('created_at', f"{today} 00:00:00").execute()
+        
+        # 1. Hitung Member Baru HARI INI
+        # [FIX] Ganti 'id' menjadi 'user_id' agar tidak error
+        res_today = supabase.table('users').select('user_id', count='exact').gte('created_at', f"{today} 00:00:00").execute()
         count_today = res_today.count if res_today.count else 0
 
-        # 2. Cari Member PENDING (Yg mungkin kelewatan)
+        # 2. Cari Member PENDING
         res_pending = supabase.table('users').select('*').eq('status', 'pending').execute()
         pending_users = res_pending.data
         count_pending = len(pending_users)
 
         # 3. Susun Laporan
         laporan = (
-            f"📊 **REKAP MEMBER BARU**\n"
-            f"📅 Tgl: {datetime.now().strftime('%d-%m-%Y')}\n\n"
-            f"➕ **Daftar Hari Ini:** {count_today} orang\n"
-            f"⏳ **Status Pending:** {count_pending} orang\n"
+            f"📊 **REKAP MEMBER HARIAN**\n"
+            f"📅 Tanggal: {datetime.now().strftime('%d-%m-%Y')}\n\n"
+            f"➕ **Register Hari Ini:** {count_today} orang\n"
+            f"⏳ **Pending Approval:** {count_pending} orang\n"
             f"-----------------------------------\n"
         )
 
         if count_pending > 0:
             laporan += "**DAFTAR USER PENDING:**\n"
             for u in pending_users:
-                username = f"@{u.get('username', '-')}"
-                nama = u.get('full_name', 'Tanpa Nama')
                 uid = u.get('user_id')
-                # Tampilkan waktu daftar biar tau udah nunggu brp lama
-                waktu_daftar = u.get('created_at', '').split('T')[0] 
+                nama = u.get('full_name', 'Tanpa Nama')
+                # Ambil jam daftar
+                jam_daftar = u.get('created_at', '').split('T')[1][:5] if 'T' in u.get('created_at', '') else '-'
                 
-                laporan += f"👉 `{uid}` | {nama} | {waktu_daftar}\n"
+                laporan += f"👉 `{uid}` | {nama} | ⏰ {jam_daftar}\n"
             
-            laporan += "\n💡 *Segera `/approve [ID]` agar mereka tidak kabur!*"
+            laporan += "\n💡 *Gunakan `/approve [ID]` untuk aktivasi.*"
         else:
-            laporan += "✅ *Aman terkendali. Tidak ada pendingan.*"
+            laporan += "✅ *Tidak ada antrean pending saat ini.*"
 
         await msg_loading.edit_text(laporan, parse_mode='Markdown')
 
     except Exception as e:
         logger.error(f"Error rekap: {e}")
-        await msg_loading.edit_text(f"❌ Error: {e}")
+        await msg_loading.edit_text(f"❌ Error sistem: {e}")
 
 # ==============================================================================
 # BAGIAN 8: FITUR AUDIT & ADMIN UTILS
