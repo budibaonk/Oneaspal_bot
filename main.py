@@ -666,52 +666,57 @@ async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e: await update.message.reply_text(f"❌ Error Panel: {e}")
 
 async def rekap_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Validasi Admin
-    if str(update.effective_user.id) not in str(ADMIN_ID): return 
+    # Validasi Admin (Pastikan variable ini sesuai dengan config Anda: ADMIN_ID atau ADMIN_IDS)
+    user_id = str(update.effective_user.id)
+    # Cek akses (Support list ADMIN_IDS atau single ADMIN_ID)
+    if 'ADMIN_IDS' in globals() and user_id not in ADMIN_IDS: return
+    elif 'ADMIN_ID' in globals() and user_id != str(ADMIN_ID): return
 
-    msg = await update.message.reply_text("⏳ *Sedang menarik data member...*", parse_mode='Markdown')
+    msg = await update.message.reply_text("⏳ <b>Sedang menarik data member...</b>", parse_mode='HTML')
 
     try:
-        # 1. Ambil Waktu Sekarang (Jakarta)
+        # 1. Ambil Waktu Sekarang
         now = datetime.now(TZ_JAKARTA)
         today_str = now.strftime('%Y-%m-%d')
         display_date = now.strftime('%d %B %Y')
         
-        # 2. Hitung Register Hari Ini (Active + Pending + Rejected)
-        # Query: created_at >= hari ini jam 00:00
+        # 2. Hitung Register Hari Ini (Semua status)
         res_today = supabase.table('users').select('user_id', count='exact').gte('created_at', f"{today_str} 00:00:00").execute()
         count_today = res_today.count if res_today.count else 0
 
-        # 3. Ambil Data Pending (Antrean)
+        # 3. Ambil Data Pending
         res_pending = supabase.table('users').select('*').eq('status', 'pending').execute()
         pending_users = res_pending.data
         count_pending = len(pending_users)
 
-        # 4. Susun Laporan
+        # 4. Susun Laporan (PAKAI HTML TAGS: <b>, <i>)
         rpt = (
-            f"📊 **REKAP MEMBER HARIAN**\n"
+            f"📊 <b>REKAP MEMBER HARIAN</b>\n"
             f"📅 Tanggal: {display_date}\n\n"
-            f"➕ **Daftar Hari Ini:** {count_today} Orang\n"
-            f"⏳ **Pending Approval:** {count_pending} Orang\n"
+            f"➕ <b>Daftar Hari Ini:</b> {count_today} Orang\n"
+            f"⏳ <b>Pending Approval:</b> {count_pending} Orang\n"
             f"━━━━━━━━━━━━━━━━━━\n"
         )
 
-        # 5. Tampilkan List Pending (Jika Ada)
         if count_pending > 0:
-            rpt += "**ANTREAN REVIEW:**\n(Klik command utk validasi)\n\n"
+            rpt += "<b>ANTREAN REVIEW:</b>\n(Klik command utk validasi)\n\n"
             for u in pending_users:
                 uid = u['user_id']
-                nama = u.get('nama_lengkap') or u.get('full_name') or 'Tanpa Nama'
-                # Format Link Cepat: /cek_ID
+                # clean_text agar nama yg ada simbol aneh tidak bikin error
+                raw_nama = u.get('nama_lengkap') or u.get('full_name') or 'Tanpa Nama'
+                nama = clean_text(raw_nama) 
+                
+                # Command /cek_ID aman di mode HTML
                 rpt += f"👉 /cek_{uid} | {nama}\n"
         else:
-            rpt += "✅ *Tidak ada antrean pending.*"
+            rpt += "✅ <i>Tidak ada antrean pending.</i>"
 
-        await msg.edit_text(rpt, parse_mode='Markdown')
+        await msg.edit_text(rpt, parse_mode='HTML')
 
     except Exception as e:
         logger.error(f"Rekap Error: {e}")
-        await msg.edit_text(f"❌ Error mengambil data: {e}")
+        # Fallback kalau error, kirim text polos aja biar ketahuan errornya apa
+        await msg.edit_text(f"❌ Error: {str(e)}")
 
 # ==============================================================================
 # BAGIAN 8: FITUR AUDIT & ADMIN UTILS
