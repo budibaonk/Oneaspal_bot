@@ -55,6 +55,11 @@ try:
 except ImportError:
     from supabase import ClientOptions
 
+# --- KONFIGURASI ADMIN ---
+# Masukkan ID Telegram Anda di sini agar fitur /rekap dan Notifikasi jalan
+# Contoh: ADMIN_IDS = ['123456789', '987654321']
+ADMIN_IDS = ['7530512170']
+
 # ##############################################################################
 # BAGIAN 1: KONFIGURASI SISTEM
 # ##############################################################################
@@ -443,7 +448,9 @@ async def admin_action_complete(update, context):
 # ##############################################################################
 
 async def admin_help(update, context):
-    if update.effective_user.id != ADMIN_ID: return
+    # Menggunakan ADMIN_IDS (List) agar konsisten dengan perbaikan error sebelumnya
+    if str(update.effective_user.id) not in ADMIN_IDS: return
+
     msg = (
         "🔐 **ADMIN COMMANDS v6.29**\n\n"
         "📢 **INFO / PENGUMUMAN**\n"
@@ -462,6 +469,7 @@ async def admin_help(update, context):
         "• `/setagency [NAMA_PT]` (Utk Agency B2B)\n"
         "• `/testgroup` (Cek Koneksi Admin Pusat)\n\n"
         "👥 **USERS**\n"
+        "• `/rekap_member` (Rekap Member Baru) 🆕\n"
         "• `/users` (List User Aktif)\n"
         "• `/m_ID` (Manage User per ID)\n"
         "• `/topup [ID] [HARI]`\n"
@@ -657,6 +665,55 @@ async def manage_user_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML', link_preview_options=LinkPreviewOptions(is_disabled=True))
     except Exception as e: await update.message.reply_text(f"❌ Error Panel: {e}")
 
+async def rekap_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    # Cek Admin (Pastikan Anda sudah set ADMIN_IDS di atas)
+    if str(user.id) not in ADMIN_IDS: return 
+
+    msg_loading = await update.message.reply_text("⏳ *Sedang menarik data member...*", parse_mode='Markdown')
+
+    try:
+        # 1. Hitung Member Baru HARI INI
+        # Format tanggal hari ini: YYYY-MM-DD
+        today = datetime.now().strftime('%Y-%m-%d')
+        # Query: created_at >= hari ini jam 00:00
+        res_today = supabase.table('users').select('id', count='exact').gte('created_at', f"{today} 00:00:00").execute()
+        count_today = res_today.count if res_today.count else 0
+
+        # 2. Cari Member PENDING (Yg mungkin kelewatan)
+        res_pending = supabase.table('users').select('*').eq('status', 'pending').execute()
+        pending_users = res_pending.data
+        count_pending = len(pending_users)
+
+        # 3. Susun Laporan
+        laporan = (
+            f"📊 **REKAP MEMBER BARU**\n"
+            f"📅 Tgl: {datetime.now().strftime('%d-%m-%Y')}\n\n"
+            f"➕ **Daftar Hari Ini:** {count_today} orang\n"
+            f"⏳ **Status Pending:** {count_pending} orang\n"
+            f"-----------------------------------\n"
+        )
+
+        if count_pending > 0:
+            laporan += "**DAFTAR USER PENDING:**\n"
+            for u in pending_users:
+                username = f"@{u.get('username', '-')}"
+                nama = u.get('full_name', 'Tanpa Nama')
+                uid = u.get('user_id')
+                # Tampilkan waktu daftar biar tau udah nunggu brp lama
+                waktu_daftar = u.get('created_at', '').split('T')[0] 
+                
+                laporan += f"👉 `{uid}` | {nama} | {waktu_daftar}\n"
+            
+            laporan += "\n💡 *Segera `/approve [ID]` agar mereka tidak kabur!*"
+        else:
+            laporan += "✅ *Aman terkendali. Tidak ada pendingan.*"
+
+        await msg_loading.edit_text(laporan, parse_mode='Markdown')
+
+    except Exception as e:
+        logger.error(f"Error rekap: {e}")
+        await msg_loading.edit_text(f"❌ Error: {e}")
 
 # ==============================================================================
 # BAGIAN 8: FITUR AUDIT & ADMIN UTILS
@@ -1160,17 +1217,76 @@ async def register_confirm(update, context):
 # BAGIAN 12: START & CORE SEARCH ENGINE
 # ==============================================================================
 
-async def start(update, context):
-    u = get_user(update.effective_user.id)
-    global GLOBAL_INFO; info = f"📢 <b>INFO:</b> {clean_text(GLOBAL_INFO)}\n━━━━━━━━━━━━━━━━━━\n\n" if GLOBAL_INFO else ""
-    if u and u.get('role') == 'pic':
-        msg = (f"{info}🤖 <b>SYSTEM ONEASPAL (ENTERPRISE)</b>\n\nSelamat Datang, <b>{clean_text(u.get('nama_lengkap'))}</b>\n<i>Status: Verified Internal Staff</i>\n\n<b>Workspace Anda Siap.</b>\nSinkronisasi data unit Anda ke dalam <i>Private Cloud</i> kami.\n\n🔒 <b>Keamanan Data Terjamin.</b>")
-        kb = [["🔄 SINKRONISASI DATA", "📂 DATABASE SAYA"], ["📞 BANTUAN TEKNIS"]]; await update.message.reply_text(msg, parse_mode='HTML', reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)); return
-    if u:
-        msg = (f"{info}🤖 <b>Selamat Datang di Oneaspalbot</b>\n\n<b>Salam Satu Aspal!</b> 👋\nHalo, Rekan Mitra Lapangan.\n\n<b>Oneaspalbot</b> adalah asisten digital profesional.\n\nCari data melalui:\n✅ Nomor Polisi (Nopol)\n✅ Nomor Rangka (Noka)\n✅ Nomor Mesin (Nosin)")
-        await update.message.reply_text(msg, parse_mode='HTML', reply_markup=ReplyKeyboardRemove()); return
-    msg_guest = (f"🤖 <b>ONEASPAL: Digital Asset Recovery System</b>\n<i>Sistem Manajemen Database Aset Fidusia Terpadu</i>\n\nSelamat Datang di Ekosistem OneAspal.\nPlatform ini dirancang khusus untuk menunjang efektivitas profesi:\n\n1️⃣ <b>INTERNAL LEASING & COLLECTION</b>\nTransformasi digital pengelolaan data aset.\n\n2️⃣ <b>PROFESI JASA PENAGIHAN (MATEL)</b>\nDukungan data <i>real-time</i> dengan akurasi tinggi.\n\n🔐 <b>Akses Terbatas (Private System)</b>\nSilakan lakukan registrasi:\n👉 /register\n\n<i>Salam Satu Aspal.</i>")
-    await update.message.reply_text(msg_guest, parse_mode='HTML')
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    chat_id = update.effective_chat.id
+    
+    # Cek apakah user sudah terdaftar di database
+    try:
+        data = supabase.table("users").select("*").eq("user_id", user.id).execute()
+        
+        # JIKA USER BELUM TERDAFTAR (NEW MEMBER)
+        if not data.data:
+            # Auto Register logic (Simpan basic info)
+            user_data = {
+                "user_id": user.id,
+                "username": user.username,
+                "full_name": user.full_name,
+                "status": "pending", # Default pending approval
+                "role": "matel",
+                "quota": 0
+            }
+            supabase.table("users").insert(user_data).execute()
+            
+            # Pesan Sambutan USER BARU (Menunggu Approval)
+            await update.message.reply_text(
+                f"🦅 **SELAMAT DATANG DI ONE ASPAL BOT**\n\n"
+                f"Halo, {user.full_name}!\n"
+                f"Status akun Anda saat ini: ⏳ **PENDING APPROVAL**.\n\n"
+                f"Silakan hubungi Admin untuk aktivasi akun.\n"
+                f"ID Anda: `{user.id}`",
+                parse_mode='Markdown'
+            )
+            
+            # Notif ke Admin ada member baru
+            for admin_id in ADMIN_IDS:
+                try:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=f"🔔 **USER BARU DAFTAR**\nNama: {user.full_name}\nID: `{user.id}`\nUsername: @{user.username}\n\n👉 Ketik `/approve {user.id}` untuk acc."
+                    )
+                except: pass
+            return
+
+        # JIKA USER SUDAH ADA (MEMBER LAMA/APPROVED)
+        user_db = data.data[0]
+        
+        if user_db['status'] != 'active':
+            await update.message.reply_text("⛔ Akun Anda dinonaktifkan/belum aktif. Hubungi Admin.")
+            return
+
+        # --- KALIMAT SAMBUTAN MITRA LAPANGAN (SESUAI REQUEST) ---
+        welcome_text = (
+            f"🦅 **ONE ASPAL BOT: ASSET RECOVERY SYSTEM**\n"
+            f"Selamat bekerja, {user.full_name}! 🫡\n\n"
+            f"Anda kini terhubung dengan database **Terlengkap & Terupdate**.\n"
+            f"Bot ini didesain khusus agar **Super Cepat** ⚡ dan **Hemat Kuota** 📉 "
+            f"untuk memaksimalkan profit Anda di lapangan.\n\n"
+            f"🔎 **CARA PENCARIAN:**\n"
+            f"Ketik NOPOL, NOKA, atau NOSIN langsung.\n"
+            f"Contoh: `B1234ABC` (Tanpa Spasi)\n\n"
+            f"💡 **MENU:**\n"
+            f"/cekkuota - Cek sisa paket\n"
+            f"/lapor - Lapor unit ditemukan\n"
+            f"/admin - Bantuan Admin\n\n"
+            f"Salam Satu Aspal! 🏴‍☠️"
+        )
+        
+        await update.message.reply_text(welcome_text, parse_mode='Markdown')
+
+    except Exception as e:
+        logger.error(f"Error start: {e}")
+        await update.message.reply_text("❌ Terjadi kesalahan sistem.")
 
 async def panduan(update, context):
     u = get_user(update.effective_user.id)
@@ -1368,16 +1484,52 @@ async def callback_handler(update, context):
     
     elif data.startswith("appu_"): 
         target_uid = int(data.split("_")[1])
+        # Update status jadi active
         update_user_status(target_uid, 'active')
+        
+        # Ambil data user terbaru
         target_user = get_user(target_uid)
+        
+        # Feedback ke Admin
         await query.edit_message_text(f"✅ User {target_uid} telah Diaktifkan.")
+        
+        # --- LOGIKA SAMBUTAN (SESUAI REQUEST) ---
+        
+        # 1. JIKA USER ADALAH PIC (Kode dari Anda - TIDAK DIUBAH)
         if target_user and target_user.get('role') == 'pic':
             nama_pic = clean_text(target_user.get('nama_lengkap', 'Partner'))
-            msg_pic = (f"Selamat Pagi, Pak {nama_pic}.\n\nIzin memperkenalkan fitur <b>Private Enterprise</b> di OneAspal Bot.\n\nKami menyediakan <b>Private Cloud</b> agar Bapak bisa menyimpan data kendaraan dengan aman menggunakan <b>Blind Check System</b>.\n\n🔐 <b>Keamanan Data:</b>\nDi sistem ini, Bapak <b>TIDAK</b> dikategorikan menyebarkan data kepada orang lain (Aman secara SOP). Bapak hanya mengarsipkan data digital untuk menunjang <b>Performance Pekerjaan</b> Bapak sendiri.\n\nData Bapak <b>TIDAK BISA</b> dilihat atau didownload user lain. Sistem hanya akan memberi notifikasi kepada Bapak jika unit tersebut ditemukan di lapangan.\n\nSilakan dicoba fitur <b>Upload Data</b>-nya, Pak (Menu Sinkronisasi).\n\n<i>Jika ada pertanyaan, silakan balas pesan ini melalui tombol <b>📞 BANTUAN TEKNIS</b> di menu utama.</i>")
+            msg_pic = (
+                f"Selamat Pagi, Pak {nama_pic}.\n\n"
+                f"Izin memperkenalkan fitur <b>Private Enterprise</b> di OneAspal Bot.\n\n"
+                f"Kami menyediakan <b>Private Cloud</b> agar Bapak bisa menyimpan data kendaraan dengan aman menggunakan <b>Blind Check System</b>.\n\n"
+                f"🔐 <b>Keamanan Data:</b>\n"
+                f"Di sistem ini, Bapak <b>TIDAK</b> dikategorikan menyebarkan data kepada orang lain (Aman secara SOP). Bapak hanya mengarsipkan data digital untuk menunjang <b>Performance Pekerjaan</b> Bapak sendiri.\n\n"
+                f"Data Bapak <b>TIDAK BISA</b> dilihat atau didownload user lain. Sistem hanya akan memberi notifikasi kepada Bapak jika unit tersebut ditemukan di lapangan.\n\n"
+                f"Silakan dicoba fitur <b>Upload Data</b>-nya, Pak (Menu Sinkronisasi).\n\n"
+                f"<i>Jika ada pertanyaan, silakan balas pesan ini melalui tombol <b>📞 BANTUAN TEKNIS</b> di menu utama.</i>"
+            )
             try: await context.bot.send_message(target_uid, msg_pic, parse_mode='HTML')
             except: pass
+
+        # 2. JIKA USER ADALAH MITRA/MATEL (Update Baru: Hemat Kuota & Cepat)
         else:
-            try: await context.bot.send_message(target_uid, "🎉 **AKUN AKTIF!**\nSelamat Datang di OneAspal. Silakan gunakan bot dengan bijak.", parse_mode='Markdown')
+            nama_user = target_user.get('full_name', 'Mitra')
+            msg_mitra = (
+                f"🦅 **SELAMAT BERGABUNG DI ONE ASPAL BOT** 🦅\n"
+                f"Halo, {nama_user}! Akun Anda telah **DISETUJUI** ✅.\n\n"
+                f"Anda kini memegang akses ke database **Terlengkap & Terupdate**.\n"
+                f"Fitur kami dirancang **Super Cepat** ⚡ dan **Hemat Kuota** 📉 "
+                f"untuk menunjang kinerja Anda di lapangan.\n\n"
+                f"🔎 **CARA PENCARIAN:**\n"
+                f"Cukup ketik NOPOL, NOKA, atau NOSIN langsung di sini.\n"
+                f"Contoh: `B1234ABC` (Tanpa spasi lebih baik)\n\n"
+                f"💡 **MENU UTAMA:**\n"
+                f"/cekkuota - Cek paket langganan\n"
+                f"/lapor - Lapor unit diamankan\n"
+                f"/admin - Bantuan Teknis\n\n"
+                f"Selamat bekerja! Salam Satu Aspal. 🏴‍☠️"
+            )
+            try: await context.bot.send_message(target_uid, msg_mitra, parse_mode='Markdown')
             except: pass
             
     elif data.startswith("reju_"): update_user_status(data.split("_")[1], 'rejected'); await query.edit_message_text("❌ User TOLAK."); await context.bot.send_message(data.split("_")[1], "⛔ Pendaftaran Ditolak.")
@@ -1449,7 +1601,8 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('topup', admin_topup))
     app.add_handler(CommandHandler('stats', get_stats))
     app.add_handler(CommandHandler('leasing', get_leasing_list)) 
-    app.add_handler(CommandHandler('rekap', rekap_harian)) 
+    app.add_handler(CommandHandler('rekap', rekap_harian))
+    app.add_handler(CommandHandler("rekap_member", rekap_member))
     app.add_handler(CommandHandler('users', list_users))
     app.add_handler(CommandHandler('angkat_korlap', angkat_korlap)) 
     app.add_handler(CommandHandler('testgroup', test_group))
