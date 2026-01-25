@@ -22,12 +22,10 @@ st.markdown("""
 
     .stApp { background-color: #0e1117; font-family: 'Inter', sans-serif; font-size: 14px; }
     
-    /* HEADERS - Ukuran diperkecil tapi tetap font Tech */
     h1 { font-family: 'Orbitron', sans-serif !important; color: #ffffff; font-size: 1.8rem !important; letter-spacing: 1px; }
     h2 { font-family: 'Orbitron', sans-serif !important; color: #ffffff; font-size: 1.4rem !important; }
     h3 { font-family: 'Orbitron', sans-serif !important; color: #ffffff; font-size: 1.1rem !important; }
     
-    /* METRIC CARDS - Lebih Ramping */
     div[data-testid="metric-container"] {
         background: rgba(255, 255, 255, 0.03);
         border: 1px solid rgba(255, 255, 255, 0.08);
@@ -37,27 +35,21 @@ st.markdown("""
         transition: border-color 0.3s;
     }
     div[data-testid="metric-container"]:hover { border-color: #00f2ff; }
-    
-    /* LABEL METRIC (Kecil & Rapi) */
     div[data-testid="metric-container"] label { font-size: 0.8rem !important; color: #888 !important; }
-    
-    /* VALUE METRIC (Tidak Raksasa) */
     div[data-testid="metric-container"] div[data-testid="stMetricValue"] {
         color: #00f2ff !important; 
         font-family: 'Orbitron', sans-serif; 
-        font-size: 1.5rem !important; /* Diperkecil dari 2rem */
+        font-size: 1.5rem !important;
     }
 
-    /* BUTTONS - Tinggi Normal */
     .stButton>button {
         background: linear-gradient(90deg, #0061ff 0%, #60efff 100%);
-        color: #000; border: none; border-radius: 6px; height: 40px; /* Lebih pendek */
+        color: #000; border: none; border-radius: 6px; height: 40px;
         font-weight: 700; font-family: 'Orbitron', sans-serif; font-size: 0.9rem;
         letter-spacing: 0.5px; width: 100%;
     }
     .stButton>button:hover { box-shadow: 0 0 15px rgba(0, 242, 255, 0.4); color: #000; }
 
-    /* LEADERBOARD TABLE - Compact */
     .leaderboard-row {
         background: rgba(0, 242, 255, 0.03);
         padding: 10px 15px; margin-bottom: 5px; border-radius: 6px;
@@ -68,7 +60,6 @@ st.markdown("""
     .leaderboard-val { font-family: 'Orbitron'; color: #00f2ff; font-weight: bold; font-size: 1rem; }
     .leaderboard-rank { font-size: 1.1rem; margin-right: 15px; font-weight:bold; color: #fff; width: 25px;}
 
-    /* TECH BOX INFO */
     .tech-box { 
         background: rgba(0, 242, 255, 0.05); 
         border-left: 3px solid #00f2ff; 
@@ -77,7 +68,6 @@ st.markdown("""
         font-size: 0.9rem;
     }
     
-    /* TABS Compact */
     .stTabs [data-baseweb="tab"] { height: 40px; padding: 0 20px; font-size: 0.9rem; }
     
     header {visibility: hidden;} footer {visibility: hidden;}
@@ -205,7 +195,7 @@ if not st.session_state['authenticated']:
             c_img = st.columns([1,1,1])[1]
             with c_img: render_logo(width=200) 
             st.markdown("<h2 style='text-align: center; color: #00f2ff; margin-bottom: 5px;'>SYSTEM LOGIN</h2>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align: center; color: #888; font-size: 0.9rem;'>ONE ASPAL COMMANDO v7.4</p>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: #888; font-size: 0.9rem;'>ONE ASPAL COMMANDO v7.5</p>", unsafe_allow_html=True)
             st.text_input("PASSPHRASE", type="password", key="password_input", on_change=check_password, label_visibility="collapsed")
             if not ADMIN_PASSWORD: st.warning("⚠️ ENV NOT CONFIGURED")
     st.stop()
@@ -231,10 +221,26 @@ total_assets = get_total_asset_count()
 hit_counts_series = get_hit_counts() 
 active_hunters = get_active_hunters_30m()
 
-# Total Active Account (Status = Active)
-total_active_accounts = len(df_users_raw[df_users_raw['status']=='active']) if not df_users_raw.empty else 0
-mitra_total = len(df_users_raw[df_users_raw['role']!='pic']) if not df_users_raw.empty else 0
-pic_total = len(df_users_raw[df_users_raw['role']=='pic']) if not df_users_raw.empty else 0
+# --- HITUNG METRIK UTAMA ---
+mitra_total = 0
+pic_total = 0
+total_active_accounts = 0
+
+if not df_users_raw.empty:
+    mitra_total = len(df_users_raw[df_users_raw['role']!='pic'])
+    pic_total = len(df_users_raw[df_users_raw['role']=='pic'])
+    
+    # [LOGIC BARU] Active = Status Active AND Quota > 0
+    # Kita pastikan kolom quota dibaca sebagai angka, isi NaN dengan 0
+    if 'quota' in df_users_raw.columns:
+        df_users_raw['quota'] = pd.to_numeric(df_users_raw['quota'], errors='coerce').fillna(0)
+    else:
+        df_users_raw['quota'] = 0 # Jaga-jaga jika kolom tidak ada
+        
+    total_active_accounts = len(df_users_raw[
+        (df_users_raw['status'] == 'active') & 
+        (df_users_raw['quota'] > 0)
+    ])
 
 # --- METRICS (5 KOLOM RAPI) ---
 m1, m2, m3, m4, m5 = st.columns(5)
@@ -242,7 +248,7 @@ m1.metric("ASSETS", f"{total_assets:,}", "DATABASE")
 m2.metric("LIVE USERS", f"{active_hunters}", "30 MINS ACTIVE") 
 m3.metric("TOTAL MITRA", f"{mitra_total}", "REGISTERED")
 m4.metric("TOTAL PIC", f"{pic_total}", "LEASING HQ")
-m5.metric("ACTIVE ACCOUNTS", f"{total_active_accounts}", "STATUS: ACTIVE") # Permintaan User
+m5.metric("READY FOR DUTY", f"{total_active_accounts}", "ACTIVE & QUOTA > 0") # Updated Label
 st.write("")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏆 LEADERBOARD", "🛡️ PERSONIL", "📤 UPLOAD", "🗑️ HAPUS"])
@@ -255,7 +261,7 @@ with tab1:
     else:
         df_rank = df_users_raw.copy()
         df_rank['real_hits'] = df_rank['user_id'].map(hit_counts_series).fillna(0).astype(int)
-        df_rank = df_rank[df_rank['role'] != 'pic'].sort_values(by='real_hits', ascending=False).head(10) # CUMA TOP 10
+        df_rank = df_rank[df_rank['role'] != 'pic'].sort_values(by='real_hits', ascending=False).head(10)
         
         rank = 1
         for idx, row in df_rank.iterrows():
