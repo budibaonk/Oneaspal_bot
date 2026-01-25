@@ -57,6 +57,13 @@ st.markdown("""
     .leaderboard-rank { font-size: 1.5rem; margin-right: 15px; font-weight:bold; color: #fff; width: 30px;}
 
     .tech-box { background: rgba(0, 242, 255, 0.1); border-left: 5px solid #00f2ff; padding: 15px; border-radius: 5px; margin-bottom: 20px; color: #e0e0e0; }
+    
+    /* GRID INFO PERSONIL */
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+    .info-item { background: rgba(255,255,255,0.05); padding: 10px; border-radius: 5px; }
+    .info-label { color: #888; font-size: 0.8rem; display: block; }
+    .info-value { color: #fff; font-weight: bold; font-family: 'Orbitron'; font-size: 1.1rem; }
+    
     header {visibility: hidden;} footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
@@ -88,31 +95,31 @@ def get_total_asset_count():
 def get_all_users():
     try:
         res = supabase.table('users').select('*').execute()
-        return pd.DataFrame(res.data)
+        df = pd.DataFrame(res.data)
+        if not df.empty:
+            # Pastikan user_id string agar tidak error di selectbox (karena angka Telegram besar)
+            df['user_id'] = df['user_id'].astype(str) 
+        return df
     except: return pd.DataFrame()
 
 def get_hit_counts():
     try:
-        # Ambil data finding_logs untuk Leaderboard & Total Hits
+        # Hitung hits dari finding_logs karena di tabel users tidak ada
         res = supabase.table('finding_logs').select('user_id').execute()
         df_logs = pd.DataFrame(res.data)
         if df_logs.empty: return pd.Series()
+        # Pastikan tipe data sama (string)
+        df_logs['user_id'] = df_logs['user_id'].astype(str)
         return df_logs['user_id'].value_counts()
     except: return pd.Series()
 
 def get_active_hunters_30m():
     try:
-        # Ambil Waktu 30 Menit yang lalu (UTC)
         now = datetime.now(timezone.utc)
         time_threshold = now - timedelta(minutes=30)
-        
-        # Query: Ambil log yang created_at >= 30 menit lalu
         res = supabase.table('finding_logs').select('user_id').gte('created_at', time_threshold.isoformat()).execute()
-        
         df = pd.DataFrame(res.data)
         if df.empty: return 0
-        
-        # Hitung Unique User ID (Jika 1 orang dapat 5 motor, tetap dihitung 1 orang aktif)
         return df['user_id'].nunique()
     except: return 0
 
@@ -135,7 +142,7 @@ def delete_user_permanent(user_id):
     try: supabase.table('users').delete().eq('user_id', user_id).execute(); return True
     except: return False
 
-# --- KAMUS KOLOM ---
+# --- KAMUS KOLOM (LENGKAP & TERKUNCI) ---
 COLUMN_ALIASES = {
     'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'plate_number', 'platenumber', 'plate_no'],
     'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'brand', 'tipeunit'],
@@ -148,8 +155,7 @@ COLUMN_ALIASES = {
     'branch': ['branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 'wilayah']
 }
 
-def normalize_text(text):
-    return ''.join(e for e in str(text) if e.isalnum()).lower()
+def normalize_text(text): return ''.join(e for e in str(text) if e.isalnum()).lower()
 
 def smart_rename_columns(df):
     new = {}
@@ -210,13 +216,12 @@ st.markdown("---")
 df_users_raw = get_all_users()
 total_assets = get_total_asset_count()
 hit_counts_series = get_hit_counts() 
-active_hunters = get_active_hunters_30m() # New Function: 30 Mins Hits
+active_hunters = get_active_hunters_30m()
 
 mitra_total = len(df_users_raw[df_users_raw['role']!='pic']) if not df_users_raw.empty else 0
 
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("TOTAL ASSETS", f"{total_assets:,}", "DATABASE")
-# METRIK BARU: HUNTING NOW
 m2.metric("LIVE HUNTERS", f"{active_hunters}", "HITS (LAST 30M)") 
 m3.metric("TOTAL MITRA", f"{mitra_total}", "REGISTERED")
 m4.metric("TOTAL PIC", f"{len(df_users_raw[df_users_raw['role']=='pic']) if not df_users_raw.empty else 0}", "LEASING HQ")
@@ -231,6 +236,7 @@ with tab1:
         st.info("NO DATA AVAILABLE YET.")
     else:
         df_rank = df_users_raw.copy()
+        # Mapping Hits dari finding_logs ke user
         df_rank['real_hits'] = df_rank['user_id'].map(hit_counts_series).fillna(0).astype(int)
         df_rank = df_rank[df_rank['role'] != 'pic'].sort_values(by='real_hits', ascending=False).head(20)
         
@@ -252,7 +258,7 @@ with tab1:
             """, unsafe_allow_html=True)
             rank += 1
 
-# --- TAB 2: PERSONIL ---
+# --- TAB 2: PERSONIL (UPDATED WITH SCHEMA) ---
 with tab2:
     if df_users_raw.empty: st.warning("NO USER DATA.")
     else:
@@ -270,13 +276,32 @@ with tab2:
             uid = user_opts[sel]; user = target[target['user_id'] == uid].iloc[0]
             real_hits = hit_counts_series.get(uid, 0)
             
-            st.markdown(f"""<div class="tech-box">
+            # TAMPILAN DETAIL LENGKAP (Schema Optimized)
+            st.markdown(f"""
+            <div class="tech-box">
                 <h3 style="margin:0; color:white;">{user['nama_lengkap']}</h3>
-                <p style="color:#00f2ff;">{user['agency']}</p>
-                <div style="display:flex; gap:20px; flex-wrap:wrap;">
-                    <span>STATUS: <b>{user['status'].upper()}</b></span>
-                    <span>EXP: <b>{str(user.get('expiry_date','-'))[:10]}</b></span>
-                    <span>TOTAL FOUND: <b style="color:#00f2ff; font-size:1.2rem;">{real_hits} UNITS</b></span>
+                <p style="color:#00f2ff; margin-bottom:15px;">{user['agency']}</p>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">STATUS</span>
+                        <span class="info-value" style="color:{'#0f0' if user['status']=='active' else '#f00'}">{user['status'].upper()}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">EXPIRY DATE</span>
+                        <span class="info-value">{str(user.get('expiry_date','-'))[:10]}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">QUOTA (SISA)</span>
+                        <span class="info-value">{user.get('quota', 0):,}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">USAGE (TODAY)</span>
+                        <span class="info-value">{user.get('daily_usage', 0)}x</span>
+                    </div>
+                    <div class="info-item" style="grid-column: span 2; border: 1px solid #00f2ff;">
+                        <span class="info-label">TOTAL TEMUAN (LIFETIME)</span>
+                        <span class="info-value" style="color:#00f2ff; font-size:1.5rem;">{real_hits} UNITS</span>
+                    </div>
                 </div>
             </div>""", unsafe_allow_html=True)
             
