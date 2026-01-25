@@ -129,7 +129,8 @@ def standardize_leasing_name(name):
     return clean
 
 # --- 6. AUTH & LOGO UTILS ---
-ADMIN_PASSWORD = "OneAspal2026"
+# [PENTING] PASSWORD BARU CEO
+ADMIN_PASSWORD = "@Budi2542136221"
 
 def logout():
     st.session_state['authenticated'] = False
@@ -137,10 +138,12 @@ def logout():
     st.session_state['delete_success'] = False
 
 def check_password():
-    if st.session_state['password_input'] == ADMIN_PASSWORD:
+    # Menggunakan strip() untuk jaga-jaga ada spasi tak sengaja
+    input_pass = st.session_state['password_input'].strip()
+    if input_pass == ADMIN_PASSWORD:
         st.session_state['authenticated'] = True
         del st.session_state['password_input']
-    else: st.error("⛔ Akses Ditolak!")
+    else: st.error("⛔ Akses Ditolak! Password Salah.")
 
 def render_logo(width=150):
     if os.path.exists("logo.png"):
@@ -150,7 +153,6 @@ def render_logo(width=150):
 
 # --- LOGIN PAGE (CENTERED) ---
 if not st.session_state['authenticated']:
-    # Menggunakan rasio 3:2:3 agar logo benar-benar di tengah
     col1, col2, col3 = st.columns([3, 2, 3])
     with col2:
         render_logo(width=200)
@@ -167,7 +169,7 @@ with st.sidebar:
         logout()
         st.rerun()
     st.markdown("---")
-    st.info("Versi: Commando v3.1\nFitur: Bulk Delete 🗑️")
+    st.info("Versi: Commando v3.2\nStatus: Secured 🔒")
 
 # --- 8. DASHBOARD HEADER ---
 col_head1, col_head2 = st.columns([1, 4])
@@ -197,7 +199,6 @@ tab_upload, tab_delete, tab_info = st.tabs(["📤 UPLOAD DATA (Insert/Update)", 
 # --------------------------------------------------------------------------------
 with tab_upload:
     if st.session_state['upload_success']:
-        # SUCCESS SCREEN UPLOAD
         stats = st.session_state['last_stats']
         st.markdown(f"""<div class="success-box"><h2>✅ DATA MENGUDARA!</h2><p>Sukses menyimpan data ke markas.</p></div>""", unsafe_allow_html=True)
         c1, c2, c3, c4 = st.columns(4)
@@ -213,21 +214,22 @@ with tab_upload:
         uploaded_file = st.file_uploader("Drop file Excel/CSV/TXT:", type=['xlsx', 'xls', 'csv', 'txt'], key=f"up_{st.session_state['uploader_key']}")
         
         if uploaded_file:
-            # (Logic Baca File Upload - Sama seperti sebelumnya)
             try:
                 filename = uploaded_file.name.lower()
+                # Support Excel, CSV, TXT
                 if filename.endswith('.txt'):
                     try: df = pd.read_csv(uploaded_file, sep='\t', dtype=str, on_bad_lines='skip', encoding='utf-8')
                     except: df = pd.read_csv(uploaded_file, sep='\t', dtype=str, on_bad_lines='skip', encoding='latin1')
                 elif filename.endswith('.csv'):
                     try: df = pd.read_csv(uploaded_file, sep=';', dtype=str, on_bad_lines='skip')
                     except: df = pd.read_csv(uploaded_file, sep=',', dtype=str, on_bad_lines='skip')
-                else: df = pd.read_excel(uploaded_file, dtype=str)
+                else: 
+                    # Excel Reader
+                    df = pd.read_excel(uploaded_file, dtype=str)
 
                 df, found = smart_rename_columns(df)
                 if 'nopol' not in df.columns: st.error("❌ Kolom NOPOL tidak ditemukan!"); st.stop()
                 
-                # Cleaning & Processing
                 df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
                 df = df.drop_duplicates(subset=['nopol'], keep='last')
                 if 'finance' not in df.columns: df['finance'] = "UNKNOWN"
@@ -262,11 +264,10 @@ with tab_upload:
             except Exception as e: st.error(f"Error: {e}")
 
 # --------------------------------------------------------------------------------
-# TAB 2: HAPUS DATA (FITUR BARU)
+# TAB 2: HAPUS DATA
 # --------------------------------------------------------------------------------
 with tab_delete:
     if st.session_state['delete_success']:
-        # SUCCESS SCREEN DELETE
         stats = st.session_state['last_stats']
         st.markdown(f"""<div class="delete-box"><h2>🗑️ PEMBERSIHAN SELESAI!</h2><p>Data target telah dihapus permanen dari database.</p></div>""", unsafe_allow_html=True)
         c1, c2 = st.columns(2)
@@ -276,37 +277,36 @@ with tab_delete:
             st.session_state['delete_success'] = False
             st.rerun()
     else:
-        st.warning("⚠️ PERHATIAN: Upload file berisi NOPOL yang ingin DIHAPUS. Tindakan ini tidak bisa dibatalkan.")
+        st.warning("⚠️ PERHATIAN: Upload file Excel berisi list NOPOL yang ingin DIHAPUS.")
+        # [CONFIRMED] SUPPORT EXCEL
         del_file = st.file_uploader("Drop file Excel/CSV/TXT (List Hapus):", type=['xlsx', 'xls', 'csv', 'txt'], key=f"del_{st.session_state['uploader_key']}")
 
         if del_file:
             try:
-                # Logic baca file yang sama (Smart Read)
                 filename = del_file.name.lower()
+                # Logic Baca File
                 if filename.endswith('.txt'):
                     try: df_del = pd.read_csv(del_file, sep='\t', dtype=str, on_bad_lines='skip', encoding='utf-8')
                     except: df_del = pd.read_csv(del_file, sep='\t', dtype=str, on_bad_lines='skip', encoding='latin1')
                 elif filename.endswith('.csv'):
                     try: df_del = pd.read_csv(del_file, sep=';', dtype=str, on_bad_lines='skip')
                     except: df_del = pd.read_csv(del_file, sep=',', dtype=str, on_bad_lines='skip')
-                else: df_del = pd.read_excel(del_file, dtype=str)
+                else: 
+                    # Excel Reader Logic
+                    df_del = pd.read_excel(del_file, dtype=str)
 
                 df_del, found = smart_rename_columns(df_del)
                 if 'nopol' not in df_del.columns: st.error("❌ Kolom NOPOL tidak ditemukan!"); st.stop()
 
-                # Ambil list Nopol bersih
                 target_nopols = df_del['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper().tolist()
-                target_nopols = list(set(target_nopols)) # Hapus duplikat di file
+                target_nopols = list(set(target_nopols)) 
                 
                 st.error(f"🚨 **DITEMUKAN {len(target_nopols):,} NOPOL UNTUK DIHAPUS!**")
-                with st.expander("👀 Lihat Daftar Target"): st.write(target_nopols[:50]) # Show top 50
+                with st.expander("👀 Lihat Daftar Target"): st.write(target_nopols[:50])
 
                 if st.button("🔥 EKSEKUSI HAPUS PERMANEN", type="primary"):
                     progress_bar = st.progress(0); status_text = st.empty()
                     start_time = time.time()
-                    
-                    # Supabase Delete pake .in_() punya limit URL length, jadi harus batching
-                    # Safe limit sekitar 200-500 item per request delete
                     BATCH_DEL = 200 
                     total = len(target_nopols)
                     
@@ -327,7 +327,7 @@ with tab_delete:
             except Exception as e: st.error(f"Error File: {e}")
 
 # --------------------------------------------------------------------------------
-# TAB 3: INFO INTELIJEN (Breakdown Data)
+# TAB 3: INFO INTELIJEN
 # --------------------------------------------------------------------------------
 with tab_info:
     with st.expander("📂 Breakdown Data Leasing"):
