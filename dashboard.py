@@ -3,7 +3,7 @@ import pandas as pd
 import time
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. CSS MASTER (CYBERPUNK STYLE - LOGO BIGGER) ---
+# --- 2. CSS MASTER (CYBERPUNK STYLE) ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Orbitron:wght@500;700;900&display=swap');
@@ -53,14 +53,13 @@ st.markdown("""
     /* LEADERBOARD TABLE */
     .leaderboard-row {
         background: rgba(0, 242, 255, 0.05);
-        padding: 10px; margin-bottom: 5px; border-radius: 5px;
-        border-left: 3px solid #00f2ff; display: flex; justify-content: space-between; align-items: center;
+        padding: 15px; margin-bottom: 8px; border-radius: 8px;
+        border-left: 4px solid #00f2ff; display: flex; justify-content: space-between; align-items: center;
+        transition: transform 0.2s;
     }
-    .leaderboard-val { font-family: 'Orbitron'; color: #00f2ff; font-weight: bold; font-size: 1.1rem; }
-
-    /* LOGO ADJUSTMENT */
-    img { margin-bottom: 10px; transition: transform 0.3s; }
-    img:hover { transform: scale(1.05); }
+    .leaderboard-row:hover { transform: scale(1.01); background: rgba(0, 242, 255, 0.1); }
+    .leaderboard-val { font-family: 'Orbitron'; color: #00f2ff; font-weight: bold; font-size: 1.2rem; }
+    .leaderboard-rank { font-size: 1.5rem; margin-right: 15px; font-weight:bold; color: #fff; width: 30px;}
 
     .tech-box { background: rgba(0, 242, 255, 0.1); border-left: 5px solid #00f2ff; padding: 15px; border-radius: 5px; margin-bottom: 20px; color: #e0e0e0; }
     header {visibility: hidden;} footer {visibility: hidden;}
@@ -93,10 +92,19 @@ def get_total_asset_count():
 
 def get_all_users():
     try:
-        # Ambil extra kolom 'hits' dan 'last_active' jika ada (untuk leaderboard)
         res = supabase.table('users').select('*').execute()
         return pd.DataFrame(res.data)
     except: return pd.DataFrame()
+
+def get_hit_counts():
+    try:
+        # Ambil hanya user_id dari finding_logs untuk menghitung total hits
+        # Kita gunakan select user_id saja agar ringan
+        res = supabase.table('finding_logs').select('user_id').execute()
+        df_logs = pd.DataFrame(res.data)
+        if df_logs.empty: return pd.Series()
+        return df_logs['user_id'].value_counts()
+    except: return pd.Series()
 
 def update_user_status(user_id, status):
     try: supabase.table('users').update({'status': status}).eq('user_id', user_id).execute(); return True
@@ -117,7 +125,7 @@ def delete_user_permanent(user_id):
     try: supabase.table('users').delete().eq('user_id', user_id).execute(); return True
     except: return False
 
-# --- KAMUS KOLOM ---
+# --- KAMUS KOLOM (LENGKAP & TERKUNCI) ---
 COLUMN_ALIASES = {
     'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'plate_number', 'platenumber', 'plate_no'],
     'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'brand', 'tipeunit'],
@@ -151,9 +159,7 @@ def standardize_leasing_name(name):
     clean = str(name).upper().strip().replace('"', '').replace("'", "")
     return "UNKNOWN" if clean in ['NAN', 'NULL', ''] else clean
 
-# --- RENDER LOGO (SIZE UPGRADED) ---
 def render_logo(width=150):
-    # Width default dinaikkan, tapi bisa di-override
     if os.path.exists("logo.png"): st.image("logo.png", width=width)
     else: st.markdown("<h1>🦅</h1>", unsafe_allow_html=True)
 
@@ -169,7 +175,6 @@ if not st.session_state['authenticated']:
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         with st.container():
             c_img = st.columns([1,1,1])[1]
-            # LOGO LOGIN: BESAR
             with c_img: render_logo(width=250) 
             st.markdown("<h1 style='text-align: center; color: #00f2ff;'>SYSTEM LOGIN</h1>", unsafe_allow_html=True)
             st.text_input("PASSPHRASE", type="password", key="password_input", on_change=check_password)
@@ -178,70 +183,70 @@ if not st.session_state['authenticated']:
 
 # --- 5. DASHBOARD UTAMA ---
 with st.sidebar:
-    # LOGO SIDEBAR: BESAR (Full Width-ish)
     render_logo(width=280) 
     st.markdown("### OPERATIONS")
     if st.button("🔄 REFRESH SYSTEM"): st.cache_data.clear(); st.rerun()
     if st.button("🚪 TERMINATE SESSION"): st.session_state['authenticated'] = False; st.rerun()
     st.markdown("---"); st.caption("ONE ASPAL SYSTEM\nStatus: ONLINE 🟢")
 
-# --- HEADER AREA ---
 c1, c2 = st.columns([1, 6])
-with c1: 
-    # LOGO HEADER: BESAR
-    render_logo(width=150) 
+with c1: render_logo(width=150) 
 with c2: 
     st.markdown("## ONE ASPAL COMMANDO")
     st.markdown("<div style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE OPERATIONS DASHBOARD</div>", unsafe_allow_html=True)
 st.markdown("---")
 
-# --- METRICS & LIVE STATS ---
+# --- DATA FETCHING ---
 df_users_raw = get_all_users()
 total_assets = get_total_asset_count()
+hit_counts_series = get_hit_counts() # Ambil Data Hits Real
 
-# Hitung Online User (Simulasi based on 'status' active, idealnya pakai kolom 'last_active')
-# Kita ambil user yang statusnya 'active' sebagai proxy "Ready to Deploy"
+# Hitung user online (Status Active)
 online_count = len(df_users_raw[df_users_raw['status']=='active']) if not df_users_raw.empty else 0
 mitra_total = len(df_users_raw[df_users_raw['role']!='pic']) if not df_users_raw.empty else 0
 
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("TOTAL ASSETS", f"{total_assets:,}", "DATABASE")
-m2.metric("AGENTS READY", f"{online_count}", "ONLINE (ACTIVE)") # User Aktif
+m2.metric("AGENTS READY", f"{online_count}", "ACTIVE STATUS")
 m3.metric("TOTAL MITRA", f"{mitra_total}", "REGISTERED")
 m4.metric("TOTAL PIC", f"{len(df_users_raw[df_users_raw['role']=='pic']) if not df_users_raw.empty else 0}", "LEASING HQ")
 st.write("")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏆 LEADERBOARD", "🛡️ PERSONIL", "📤 DATA INGEST", "🗑️ DATA PURGE"])
 
-# --- TAB 1: LEADERBOARD (NEW FEATURE) ---
+# --- TAB 1: LEADERBOARD (REAL DATA) ---
 with tab1:
-    st.markdown("### 🏆 TOP RANGERS (HIT COUNT)")
-    if df_users_raw.empty:
-        st.info("NO DATA AVAILABLE.")
+    st.markdown("### 🏆 TOP RANGERS (LIVE HITS)")
+    if df_users_raw.empty or hit_counts_series.empty:
+        st.info("NO DATA AVAILABLE YET.")
     else:
-        # Cek apakah kolom 'hits' ada. Jika tidak, buat dummy 0.
-        leader_df = df_users_raw.copy()
-        if 'hits' not in leader_df.columns:
-            leader_df['hits'] = 0 # Default jika belum ada sistem logging
-            st.caption("⚠️ Note: Kolom 'hits' belum terdeteksi di Database. Menampilkan default 0.")
+        # Mapping Hits ke DataFrame User
+        # hit_counts_series indexnya adalah user_id, valuenya adalah jumlah hit
+        df_rank = df_users_raw.copy()
+        df_rank['real_hits'] = df_rank['user_id'].map(hit_counts_series).fillna(0).astype(int)
         
-        # Filter hanya Mitra & Sortir
-        leader_df = leader_df[leader_df['role'] != 'pic'].sort_values(by='hits', ascending=False).head(10)
+        # Filter Mitra Only & Sort
+        df_rank = df_rank[df_rank['role'] != 'pic'].sort_values(by='real_hits', ascending=False).head(20) # Top 20
         
-        # Tampilan List Keren
-        for idx, row in leader_df.iterrows():
+        # Render Table
+        rank = 1
+        for idx, row in df_rank.iterrows():
+            medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"#{rank}"
+            color = "#ffd700" if rank == 1 else "#c0c0c0" if rank == 2 else "#cd7f32" if rank == 3 else "#fff"
+            
             st.markdown(f"""
             <div class="leaderboard-row">
                 <div style="display:flex; align-items:center;">
-                    <span style="font-size:1.5rem; margin-right:15px;">🏅</span>
+                    <div class="leaderboard-rank" style="color:{color};">{medal}</div>
                     <div>
-                        <div style="font-weight:bold; color:white;">{row['nama_lengkap']}</div>
-                        <div style="font-size:0.8rem; color:#aaa;">{row['agency']}</div>
+                        <div style="font-weight:bold; color:white; font-size:1.1rem;">{row['nama_lengkap']}</div>
+                        <div style="font-size:0.8rem; color:#aaa;">AGENCY: {row['agency']}</div>
                     </div>
                 </div>
-                <div class="leaderboard-val">{row['hits']} HITS</div>
+                <div class="leaderboard-val">{row['real_hits']} UNITS</div>
             </div>
             """, unsafe_allow_html=True)
+            rank += 1
 
 # --- TAB 2: PERSONIL ---
 with tab2:
@@ -259,16 +264,17 @@ with tab2:
         
         if sel:
             uid = user_opts[sel]; user = target[target['user_id'] == uid].iloc[0]
-            # Tampilkan Hits juga di detail personil
-            user_hits = user['hits'] if 'hits' in user else 0
+            
+            # Ambil Hits Real Individu
+            real_hits = hit_counts_series.get(uid, 0)
             
             st.markdown(f"""<div class="tech-box">
                 <h3 style="margin:0; color:white;">{user['nama_lengkap']}</h3>
                 <p style="color:#00f2ff;">{user['agency']}</p>
-                <div style="display:flex; gap:20px;">
+                <div style="display:flex; gap:20px; flex-wrap:wrap;">
                     <span>STATUS: <b>{user['status'].upper()}</b></span>
                     <span>EXP: <b>{str(user.get('expiry_date','-'))[:10]}</b></span>
-                    <span>TOTAL HITS: <b style="color:#00f2ff;">{user_hits}</b></span>
+                    <span>TOTAL FOUND: <b style="color:#00f2ff; font-size:1.2rem;">{real_hits} UNITS</b></span>
                 </div>
             </div>""", unsafe_allow_html=True)
             
