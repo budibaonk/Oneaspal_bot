@@ -121,7 +121,7 @@ def standardize_leasing_name(name):
     return clean
 
 # --- 6. LOGOUT & LOGIN ---
-ADMIN_PASSWORD = "OneAspal2026"
+ADMIN_PASSWORD = "@Budi2542136221"
 
 def logout():
     st.session_state['authenticated'] = False
