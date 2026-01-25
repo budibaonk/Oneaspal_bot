@@ -1324,74 +1324,96 @@ async def register_confirm(update, context):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    chat_id = update.effective_chat.id
     
-    # Cek apakah user sudah terdaftar di database
     try:
+        # 1. Cek User di Database
         data = supabase.table("users").select("*").eq("user_id", user.id).execute()
         
-        # JIKA USER BELUM TERDAFTAR (NEW MEMBER)
+        # === SKENARIO 1: USER BARU (BELUM TERDAFTAR) ===
         if not data.data:
-            # Auto Register logic (Simpan basic info)
-            user_data = {
-                "user_id": user.id,
-                "username": user.username,
-                "full_name": user.full_name,
-                "status": "pending", # Default pending approval
-                "role": "matel",
-                "quota": 0
-            }
-            supabase.table("users").insert(user_data).execute()
-            
-            # Pesan Sambutan USER BARU (Menunggu Approval)
+            msg_guest = (
+                f"🤖 <b>SELAMAT DATANG DI ONE ASPAL BOT</b>\n"
+                f"<i>Sistem Manajemen Aset & Recovery Terpadu</i>\n\n"
+                f"Halo, <b>{clean_text(user.full_name)}</b>! 👋\n"
+                f"Anda belum terdaftar sebagai mitra kami.\n\n"
+                f"🚀 <b>LANGKAH SELANJUTNYA:</b>\n"
+                f"Silakan daftarkan diri Anda untuk akses penuh.\n"
+                f"👉 <b>Ketik /register</b>\n\n"
+                f"<i>Kami melayani Mitra Lapangan (Matel) & PIC Leasing Resmi.</i>"
+            )
+            await update.message.reply_text(msg_guest, parse_mode='HTML')
+            return
+
+        # === SKENARIO 2: USER SUDAH ADA DI DATABASE ===
+        user_db = data.data[0]
+        status = user_db.get('status', 'pending')
+        
+        # Cek Status Akun
+        if status == 'pending':
             await update.message.reply_text(
-                f"🦅 **SELAMAT DATANG DI ONE ASPAL BOT**\n\n"
-                f"Halo, {user.full_name}!\n"
-                f"Status akun Anda saat ini: ⏳ **PENDING APPROVAL**.\n\n"
-                f"Silakan hubungi Admin untuk aktivasi akun.\n"
-                f"ID Anda: `{user.id}`",
-                parse_mode='Markdown'
+                f"⏳ <b>AKUN SEDANG DIVERIFIKASI</b>\n"
+                f"Halo {clean_text(user_db.get('nama_lengkap'))}, data pendaftaran Anda sudah masuk dan sedang direview Admin.\n"
+                f"Mohon tunggu notifikasi selanjutnya.",
+                parse_mode='HTML'
+            )
+            return
+        elif status == 'rejected':
+            await update.message.reply_text("⛔ <b>PENDAFTARAN DITOLAK</b>\nSilakan hubungi Admin untuk info lebih lanjut.", parse_mode='HTML')
+            return
+        elif status != 'active':
+            await update.message.reply_text("⛔ <b>AKUN NONAKTIF</b>\nHubungi Admin untuk mengaktifkan kembali.", parse_mode='HTML')
+            return
+
+        # === SKENARIO 3: USER AKTIF (Tampilkan Menu Sesuai Role) ===
+        role_user = user_db.get('role', 'matel')
+        
+        # Ambil Info Global (Jika ada)
+        global GLOBAL_INFO
+        info_txt = f"📢 <b>INFO:</b> {clean_text(GLOBAL_INFO)}\n━━━━━━━━━━━━━━━━━━\n\n" if GLOBAL_INFO else ""
+
+        # A. TAMPILAN PIC LEASING (TEKS ORIGINAL SESUAI REQUEST)
+        if role_user == 'pic':
+            nama_pic = clean_text(user_db.get('nama_lengkap'))
+            
+            # [PENTING] Kalimat ini dikembalikan ke versi Original SOP
+            welcome_text = (
+                f"{info_txt}"
+                f"Selamat Pagi, Pak {nama_pic}.\n\n"
+                f"Izin memperkenalkan fitur <b>Private Enterprise</b> di OneAspal Bot.\n\n"
+                f"Kami menyediakan <b>Private Cloud</b> agar Bapak bisa menyimpan data kendaraan dengan aman menggunakan <b>Blind Check System</b>.\n\n"
+                f"🔐 <b>Keamanan Data:</b>\n"
+                f"Di sistem ini, Bapak <b>TIDAK</b> dikategorikan menyebarkan data kepada orang lain (Aman secara SOP). Bapak hanya mengarsipkan data digital untuk menunjang <b>Performance Pekerjaan</b> Bapak sendiri.\n\n"
+                f"Data Bapak <b>TIDAK BISA</b> dilihat atau didownload user lain. Sistem hanya akan memberi notifikasi kepada Bapak jika unit tersebut ditemukan di lapangan.\n\n"
+                f"Silakan dicoba fitur <b>Upload Data</b>-nya, Pak (Menu Sinkronisasi).\n\n"
+                f"<i>Jika ada pertanyaan, silakan balas pesan ini melalui tombol <b>📞 BANTUAN TEKNIS</b> di menu utama.</i>"
             )
             
-            # Notif ke Admin ada member baru
-            for admin_id in ADMIN_IDS:
-                try:
-                    await context.bot.send_message(
-                        chat_id=admin_id,
-                        text=f"🔔 **USER BARU DAFTAR**\nNama: {user.full_name}\nID: `{user.id}`\nUsername: @{user.username}\n\n👉 Ketik `/approve {user.id}` untuk acc."
-                    )
-                except: pass
-            return
+            kb = [["🔄 SINKRONISASI DATA", "📂 DATABASE SAYA"], ["📞 BANTUAN TEKNIS"]]
+            await update.message.reply_text(welcome_text, parse_mode='HTML', reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
 
-        # JIKA USER SUDAH ADA (MEMBER LAMA/APPROVED)
-        user_db = data.data[0]
-        
-        if user_db['status'] != 'active':
-            await update.message.reply_text("⛔ Akun Anda dinonaktifkan/belum aktif. Hubungi Admin.")
-            return
-
-        # --- KALIMAT SAMBUTAN MITRA LAPANGAN (SESUAI REQUEST) ---
-        welcome_text = (
-            f"🦅 **ONE ASPAL BOT: ASSET RECOVERY SYSTEM**\n"
-            f"Selamat bekerja, {user.full_name}! 🫡\n\n"
-            f"Anda kini terhubung dengan database **Terlengkap & Terupdate**.\n"
-            f"Bot ini didesain khusus agar **Super Cepat** ⚡ dan **Hemat Kuota** 📉 "
-            f"untuk memaksimalkan profit Anda di lapangan.\n\n"
-            f"🔎 **CARA PENCARIAN:**\n"
-            f"Ketik NOPOL, NOKA, atau NOSIN langsung.\n"
-            f"Contoh: `B1234ABC` (Tanpa Spasi)\n\n"
-            f"💡 **MENU:**\n"
-            f"/cekkuota - Cek sisa paket\n"
-            f"/lapor - Lapor unit ditemukan\n"
-            f"/admin - Bantuan Admin\n\n"
-            f"Salam Satu Aspal! 🏴‍☠️"
-        )
-        
-        await update.message.reply_text(welcome_text, parse_mode='Markdown')
+        # B. TAMPILAN MITRA LAPANGAN (MATEL/KORLAP)
+        else:
+            welcome_text = (
+                f"{info_txt}"
+                f"🦅 <b>ONE ASPAL BOT: ASSET RECOVERY</b>\n"
+                f"Halo, <b>{clean_text(user_db.get('nama_lengkap'))}</b>! 🫡\n\n"
+                f"⚡ <b>READY TO SERVE:</b>\n"
+                f"Database <b>Terlengkap & Terupdate</b> siap digunakan.\n"
+                f"Bot didesain <b>Super Cepat & Hemat Kuota</b>.\n\n"
+                f"🔎 <b>CARA PENCARIAN:</b>\n"
+                f"Ketik NOPOL / NOKA / NOSIN langsung di sini.\n"
+                f"Contoh: <code>B1234ABC</code>\n\n"
+                f"💡 <b>SHORTCUT:</b>\n"
+                f"/cekkuota - Sisa paket\n"
+                f"/lapor - Lapor unit aman\n"
+                f"/admin - Bantuan Admin\n\n"
+                f"<i>Salam Satu Aspal! 🏴‍☠️</i>"
+            )
+            await update.message.reply_text(welcome_text, parse_mode='HTML', reply_markup=ReplyKeyboardRemove())
 
     except Exception as e:
         logger.error(f"Error start: {e}")
-        await update.message.reply_text("❌ Terjadi kesalahan sistem.")
+        await update.message.reply_text(f"⚠️ <b>SISTEM SEDANG SIBUK</b>\nSilakan coba lagi.\n<i>Error: {e}</i>", parse_mode='HTML')
 
 async def panduan(update, context):
     u = get_user(update.effective_user.id)
