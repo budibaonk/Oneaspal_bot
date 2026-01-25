@@ -376,22 +376,22 @@ if not st.session_state['authenticated']:
 # BAGIAN 5: DASHBOARD UTAMA
 # ##############################################################################
 with st.sidebar:
-    # Menampilkan Logo di Sidebar
+    # 1. Menampilkan Logo
     if os.path.exists("logo.png"):
         st.image("logo.png", width=220)
     
     st.markdown("### OPERATIONS")
     
-    # Tombol Refresh System
+    # 2. Tombol Refresh
     if st.button("🔄 REFRESH SYSTEM"):
         st.cache_data.clear()
         st.rerun()
     
-    # Tombol Logout (Menghapus Sesi Login)
+    # 3. TOMBOL LOGOUT (Pastikan bagian ini ada)
     if st.button("🚪 LOGOUT SESSION"):
         st.session_state['authenticated'] = False
         st.rerun()
-        
+    
     st.markdown("---")
     st.caption("ONE ASPAL SYSTEM\nStatus: ONLINE 🟢")
 
