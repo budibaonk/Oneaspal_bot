@@ -47,7 +47,6 @@ if 'last_stats' not in st.session_state: st.session_state['last_stats'] = {}
 if 'uploader_key' not in st.session_state: st.session_state['uploader_key'] = 0
 
 # --- 4. FUNGSI DATABASE (CRUD) ---
-
 def get_total_asset_count():
     try: return supabase.table('kendaraan').select('*', count='exact', head=True).execute().count
     except: return 0
@@ -69,7 +68,6 @@ def add_user_quota(user_id, days):
         
         current_exp_str = res.data[0].get('expiry_date')
         now = datetime.utcnow()
-        
         if current_exp_str:
             current_exp = datetime.fromisoformat(current_exp_str.replace('Z', ''))
             base_date = current_exp if current_exp > now else now
@@ -88,19 +86,25 @@ def delete_user_permanent(user_id):
 @st.cache_data(ttl=300)
 def get_leasing_distribution():
     try:
-        # Fetch data lebih banyak agar akurat (Limit 100k)
+        # Ambil data lebih banyak agar akurat
         res = supabase.table('kendaraan').select('finance').order('created_at', desc=True).limit(100000).execute()
         df = pd.DataFrame(res.data)
         if df.empty: return pd.DataFrame()
         
-        # Hitung dan URUTKAN di Pandas (Penting!)
+        # --- CLEANING DATA LEASING ---
+        # Hapus data sampah (TRUE, FALSE, NAN, UNKNOWN) agar grafik bersih
+        junk_list = ['TRUE', 'FALSE', 'NAN', 'NONE', 'UNKNOWN', '-', '']
+        df['finance'] = df['finance'].astype(str).str.upper().str.strip()
+        df = df[~df['finance'].isin(junk_list)] # Buang sampah
+        
+        # Hitung dan URUTKAN
         counts = df['finance'].value_counts().reset_index()
         counts.columns = ['Leasing', 'Jumlah Unit']
         counts = counts.sort_values(by='Jumlah Unit', ascending=False) # Sort Descending
         return counts
     except: return pd.DataFrame()
 
-# --- 5. LOGIKA CLEANING ---
+# --- 5. LOGIKA CLEANING UTILS ---
 COLUMN_ALIASES = {
     'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'plate_number', 'platenumber', 'plate_no'],
     'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'brand', 'tipeunit'],
@@ -160,7 +164,7 @@ if not st.session_state['authenticated']:
         with col_img_2: render_logo(width=180)
         st.markdown("<h3 style='text-align: center; margin-bottom: 20px;'>One Aspal Commando</h3>", unsafe_allow_html=True)
         st.text_input("Password Akses", type="password", key="password_input", on_change=check_password, placeholder="Masukkan Password Admin")
-        st.caption("🔒 Secured System v4.1")
+        st.caption("🔒 Secured System v4.2")
         if not ADMIN_PASSWORD: st.warning("Admin: Harap setting ADMIN_PASSWORD di .env")
     st.stop()
 
@@ -198,27 +202,28 @@ st.markdown("---")
 tab1, tab2, tab3, tab4 = st.tabs(["📊 ANALISA LEASING", "🛡️ MANAJEMEN PERSONIL", "📤 UPLOAD DATA", "🗑️ HAPUS DATA"])
 
 # -----------------------------------------------------------------------------
-# TAB 1: ANALISA LEASING (FIXED SORTING)
+# TAB 1: ANALISA LEASING (FIXED - CLEAN & SORTED)
 # -----------------------------------------------------------------------------
 with tab1:
     st.subheader("📊 Breakdown Data Leasing (Terbanyak - Terkecil)")
+    st.caption("Data 'TRUE', 'UNKNOWN', atau Kosong telah disembunyikan agar grafik akurat.")
     df_leasing = get_leasing_distribution()
     
     if not df_leasing.empty:
-        # Chart Horizontal Bar yang sudah diurutkan
+        # Chart: Gunakan Sort=None karena Dataframe sudah kita sort manual di function get_leasing_distribution
         chart = alt.Chart(df_leasing).mark_bar().encode(
             x=alt.X('Jumlah Unit', title='Jumlah Data'),
-            y=alt.Y('Leasing', sort='-x', title='Nama Leasing'), # Sort Descending berdasarkan X
+            y=alt.Y('Leasing', sort=None, title='Nama Leasing'), # sort=None = Ikuti urutan Dataframe
             color=alt.Color('Jumlah Unit', legend=None, scale=alt.Scale(scheme='blues')),
             tooltip=['Leasing', 'Jumlah Unit']
-        ).properties(height=max(400, len(df_leasing)*20)).interactive() # Tinggi dinamis
+        ).properties(height=max(400, len(df_leasing)*30)).interactive()
         
         st.altair_chart(chart, use_container_width=True)
         with st.expander("Lihat Data Tabel"): st.dataframe(df_leasing, use_container_width=True)
     else: st.info("Belum ada data unit yang cukup untuk dianalisa.")
 
 # -----------------------------------------------------------------------------
-# TAB 2: MANAJEMEN PERSONIL (FEEDBACK & MANUAL INPUT)
+# TAB 2: MANAJEMEN PERSONIL (INPUT MANUAL ADDED)
 # -----------------------------------------------------------------------------
 with tab2:
     st.subheader("🛡️ Kontrol Personil & Mitra")
@@ -251,17 +256,20 @@ with tab2:
             
             st.divider()
             
-            # --- PANEL AKSI DENGAN FEEDBACK POPUP ---
+            # --- PANEL AKSI (UPDATED) ---
             col_add, col_status, col_del = st.columns([2, 2, 2])
             
-            # 1. TAMBAH HARI (MANUAL INPUT)
+            # 1. TAMBAH HARI (MANUAL INPUT SUDAH ADA!)
             with col_add:
                 st.markdown("##### ⏳ Tambah Masa Aktif")
-                days_input = st.number_input("Jumlah Hari:", min_value=1, value=30, step=1)
+                # Input Angka Manual
+                days_input = st.number_input("Masukkan Jumlah Hari:", min_value=1, value=30, step=1, key="days_input_box")
+                
+                # Tombol Eksekusi
                 if st.button("➕ Tambah Quota", type="primary"):
                     if add_user_quota(selected_uid, days_input):
                         st.success(f"✅ BERHASIL! {user_detail['nama_lengkap']} ditambah {days_input} hari.")
-                        time.sleep(2) # Tahan 2 detik biar user baca
+                        time.sleep(2)
                         st.rerun()
                     else: st.error("❌ Gagal update.")
 
@@ -272,14 +280,12 @@ with tab2:
                     if st.button("⛔ BAN USER (Blokir)"):
                         update_user_status(selected_uid, 'banned')
                         st.warning(f"⛔ Akun {user_detail['nama_lengkap']} telah DIBLOKIR.")
-                        time.sleep(2)
-                        st.rerun()
+                        time.sleep(2); st.rerun()
                 else:
                     if st.button("✅ UNBAN (Aktifkan)"):
                         update_user_status(selected_uid, 'active')
                         st.success(f"✅ Akun {user_detail['nama_lengkap']} telah DIAKTIFKAN.")
-                        time.sleep(2)
-                        st.rerun()
+                        time.sleep(2); st.rerun()
 
             # 3. HAPUS PERMANEN
             with col_del:
@@ -287,11 +293,10 @@ with tab2:
                 if st.button("🗑️ HAPUS PERMANEN"):
                     delete_user_permanent(selected_uid)
                     st.error(f"🗑️ User {user_detail['nama_lengkap']} TELAH DIHAPUS SELAMANYA.")
-                    time.sleep(2)
-                    st.rerun()
+                    time.sleep(2); st.rerun()
 
 # -----------------------------------------------------------------------------
-# TAB 3 & 4: UPLOAD & HAPUS DATA (SAMA SEPERTI SEBELUMNYA)
+# TAB 3 & 4: UPLOAD & HAPUS DATA
 # -----------------------------------------------------------------------------
 with tab3:
     st.subheader("📤 Upload Data Baru")
