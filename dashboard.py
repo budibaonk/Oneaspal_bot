@@ -45,11 +45,6 @@ st.markdown("""
     }
     .stButton>button:hover { box-shadow: 0 0 20px rgba(0, 242, 255, 0.6); color: #000; }
 
-    /* INPUT FIELD */
-    div[data-testid="stNumberInput"] input {
-        background-color: #1c2029; color: #00f2ff; font-family: 'Orbitron'; font-size: 1.2rem; text-align: center; border: 1px solid #303642;
-    }
-
     /* LEADERBOARD TABLE */
     .leaderboard-row {
         background: rgba(0, 242, 255, 0.05);
@@ -98,13 +93,28 @@ def get_all_users():
 
 def get_hit_counts():
     try:
-        # Ambil hanya user_id dari finding_logs untuk menghitung total hits
-        # Kita gunakan select user_id saja agar ringan
+        # Ambil data finding_logs untuk Leaderboard & Total Hits
         res = supabase.table('finding_logs').select('user_id').execute()
         df_logs = pd.DataFrame(res.data)
         if df_logs.empty: return pd.Series()
         return df_logs['user_id'].value_counts()
     except: return pd.Series()
+
+def get_active_hunters_30m():
+    try:
+        # Ambil Waktu 30 Menit yang lalu (UTC)
+        now = datetime.now(timezone.utc)
+        time_threshold = now - timedelta(minutes=30)
+        
+        # Query: Ambil log yang created_at >= 30 menit lalu
+        res = supabase.table('finding_logs').select('user_id').gte('created_at', time_threshold.isoformat()).execute()
+        
+        df = pd.DataFrame(res.data)
+        if df.empty: return 0
+        
+        # Hitung Unique User ID (Jika 1 orang dapat 5 motor, tetap dihitung 1 orang aktif)
+        return df['user_id'].nunique()
+    except: return 0
 
 def update_user_status(user_id, status):
     try: supabase.table('users').update({'status': status}).eq('user_id', user_id).execute(); return True
@@ -125,7 +135,7 @@ def delete_user_permanent(user_id):
     try: supabase.table('users').delete().eq('user_id', user_id).execute(); return True
     except: return False
 
-# --- KAMUS KOLOM (LENGKAP & TERKUNCI) ---
+# --- KAMUS KOLOM ---
 COLUMN_ALIASES = {
     'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'plate_number', 'platenumber', 'plate_no'],
     'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'brand', 'tipeunit'],
@@ -199,41 +209,35 @@ st.markdown("---")
 # --- DATA FETCHING ---
 df_users_raw = get_all_users()
 total_assets = get_total_asset_count()
-hit_counts_series = get_hit_counts() # Ambil Data Hits Real
+hit_counts_series = get_hit_counts() 
+active_hunters = get_active_hunters_30m() # New Function: 30 Mins Hits
 
-# Hitung user online (Status Active)
-online_count = len(df_users_raw[df_users_raw['status']=='active']) if not df_users_raw.empty else 0
 mitra_total = len(df_users_raw[df_users_raw['role']!='pic']) if not df_users_raw.empty else 0
 
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("TOTAL ASSETS", f"{total_assets:,}", "DATABASE")
-m2.metric("AGENTS READY", f"{online_count}", "ACTIVE STATUS")
+# METRIK BARU: HUNTING NOW
+m2.metric("LIVE HUNTERS", f"{active_hunters}", "HITS (LAST 30M)") 
 m3.metric("TOTAL MITRA", f"{mitra_total}", "REGISTERED")
 m4.metric("TOTAL PIC", f"{len(df_users_raw[df_users_raw['role']=='pic']) if not df_users_raw.empty else 0}", "LEASING HQ")
 st.write("")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏆 LEADERBOARD", "🛡️ PERSONIL", "📤 DATA INGEST", "🗑️ DATA PURGE"])
 
-# --- TAB 1: LEADERBOARD (REAL DATA) ---
+# --- TAB 1: LEADERBOARD ---
 with tab1:
     st.markdown("### 🏆 TOP RANGERS (LIVE HITS)")
     if df_users_raw.empty or hit_counts_series.empty:
         st.info("NO DATA AVAILABLE YET.")
     else:
-        # Mapping Hits ke DataFrame User
-        # hit_counts_series indexnya adalah user_id, valuenya adalah jumlah hit
         df_rank = df_users_raw.copy()
         df_rank['real_hits'] = df_rank['user_id'].map(hit_counts_series).fillna(0).astype(int)
+        df_rank = df_rank[df_rank['role'] != 'pic'].sort_values(by='real_hits', ascending=False).head(20)
         
-        # Filter Mitra Only & Sort
-        df_rank = df_rank[df_rank['role'] != 'pic'].sort_values(by='real_hits', ascending=False).head(20) # Top 20
-        
-        # Render Table
         rank = 1
         for idx, row in df_rank.iterrows():
             medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"#{rank}"
             color = "#ffd700" if rank == 1 else "#c0c0c0" if rank == 2 else "#cd7f32" if rank == 3 else "#fff"
-            
             st.markdown(f"""
             <div class="leaderboard-row">
                 <div style="display:flex; align-items:center;">
@@ -264,8 +268,6 @@ with tab2:
         
         if sel:
             uid = user_opts[sel]; user = target[target['user_id'] == uid].iloc[0]
-            
-            # Ambil Hits Real Individu
             real_hits = hit_counts_series.get(uid, 0)
             
             st.markdown(f"""<div class="tech-box">
@@ -283,7 +285,6 @@ with tab2:
             with c_btn: 
                 if st.button(f"➕ EXTEND ({days} DAYS)"): 
                     if add_user_quota(uid, days): st.success("EXTENDED."); time.sleep(1); st.rerun()
-            
             st.divider()
             b1, b2 = st.columns(2)
             with b1:
