@@ -31,13 +31,20 @@ st.markdown("""
         margin-bottom: 20px;
         border: 1px solid #badbcc;
     }
-    .stat-card {
-        background-color: #ffffff;
+    .delete-box {
         padding: 20px;
+        background-color: #f8d7da;
+        color: #721c24;
         border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         text-align: center;
-        border: 1px solid #e0e0e0;
+        margin-bottom: 20px;
+        border: 1px solid #f5c6cb;
+    }
+    /* Trik Centering Logo Login */
+    div[data-testid="column"] {
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -57,6 +64,7 @@ supabase = init_connection()
 # --- 3. SESSION STATE ---
 if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
 if 'upload_success' not in st.session_state: st.session_state['upload_success'] = False
+if 'delete_success' not in st.session_state: st.session_state['delete_success'] = False
 if 'last_stats' not in st.session_state: st.session_state['last_stats'] = {}
 if 'uploader_key' not in st.session_state: st.session_state['uploader_key'] = 0
 
@@ -84,7 +92,7 @@ def get_leasing_distribution():
         return counts
     except: return pd.DataFrame()
 
-# --- 5. LOGIKA CLEANING ---
+# --- 5. LOGIKA CLEANING (Rename & Standardize) ---
 COLUMN_ALIASES = {
     'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'plate_number', 'platenumber', 'plate_no'],
     'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'brand', 'tipeunit'],
@@ -120,12 +128,13 @@ def standardize_leasing_name(name):
     if clean in ['NAN', 'NULL', 'NONE', '']: return "UNKNOWN"
     return clean
 
-# --- 6. LOGOUT & LOGIN ---
-ADMIN_PASSWORD = "@Budi2542136221"
+# --- 6. AUTH & LOGO UTILS ---
+ADMIN_PASSWORD = "OneAspal2026"
 
 def logout():
     st.session_state['authenticated'] = False
     st.session_state['upload_success'] = False
+    st.session_state['delete_success'] = False
 
 def check_password():
     if st.session_state['password_input'] == ADMIN_PASSWORD:
@@ -133,22 +142,18 @@ def check_password():
         del st.session_state['password_input']
     else: st.error("⛔ Akses Ditolak!")
 
-# --- HELPER: TAMPILKAN LOGO (ANTI CRASH) ---
 def render_logo(width=150):
     if os.path.exists("logo.png"):
-        try:
-            st.image("logo.png", width=width)
-        except Exception:
-            # Fallback jika gambar rusak
-            st.markdown("# 🦅")
-            st.caption("*(Logo Error/Corrupt)*")
-    else:
-        st.markdown("# 🦅")
+        try: st.image("logo.png", width=width)
+        except: st.markdown("# 🦅")
+    else: st.markdown("# 🦅")
 
+# --- LOGIN PAGE (CENTERED) ---
 if not st.session_state['authenticated']:
-    col1, col2, col3 = st.columns([1,2,1])
+    # Menggunakan rasio 3:2:3 agar logo benar-benar di tengah
+    col1, col2, col3 = st.columns([3, 2, 3])
     with col2:
-        render_logo(width=150)
+        render_logo(width=200)
         st.markdown("<h3 style='text-align: center;'>Login Commando</h3>", unsafe_allow_html=True)
         st.text_input("Password", type="password", key="password_input", on_change=check_password)
     st.stop()
@@ -156,98 +161,59 @@ if not st.session_state['authenticated']:
 # --- 7. SIDEBAR ---
 with st.sidebar:
     render_logo(width=200)
-    
     st.markdown("---")
     st.markdown("### 👤 Admin Panel")
     if st.button("🚪 LOGOUT", type="secondary"):
         logout()
         st.rerun()
     st.markdown("---")
-    st.info("Versi: Commando v3.0\nStatus: Online 🟢")
+    st.info("Versi: Commando v3.1\nFitur: Bulk Delete 🗑️")
 
-# --- 8. DASHBOARD UTAMA ---
+# --- 8. DASHBOARD HEADER ---
 col_head1, col_head2 = st.columns([1, 4])
-with col_head1:
-    render_logo(width=100)
+with col_head1: render_logo(width=100)
 with col_head2:
     st.title("One Aspal Bot Commando")
-    st.markdown("Selamat datang, Komandan! Berikut laporan intelijen hari ini.")
+    st.markdown("Laporan Intelijen & Manajemen Data Terpusat.")
 
 st.markdown("---")
 
-# === STATISTIK ===
+# === DATA INTELIJEN ===
+m1, m2, m3 = st.columns(3)
 total_assets = get_total_asset_count()
 df_users = get_user_stats()
+count_mitra = len(df_users[df_users['role'] != 'pic']) if not df_users.empty else 0
+count_pic = len(df_users[df_users['role'] == 'pic']) if not df_users.empty else 0
 
-if not df_users.empty:
-    mitra_lapangan = df_users[df_users['role'] != 'pic']
-    mitra_leasing = df_users[df_users['role'] == 'pic']
-    count_mitra = len(mitra_lapangan)
-    count_pic = len(mitra_leasing)
-else:
-    count_mitra = 0; count_pic = 0; mitra_lapangan = pd.DataFrame(); mitra_leasing = pd.DataFrame()
+m1.metric("📂 TOTAL DATA ASET", f"{total_assets:,}", delta="Real-time")
+m2.metric("🛡️ MITRA LAPANGAN", f"{count_mitra}", delta="Agents")
+m3.metric("🏦 MITRA LEASING", f"{count_pic}", delta="Users")
 
-m1, m2, m3 = st.columns(3)
-m1.metric("📂 TOTAL DATA ASET", f"{total_assets:,}", delta="Real-time DB")
-m2.metric("🛡️ MITRA LAPANGAN", f"{count_mitra} Personil", delta="Active Agents")
-m3.metric("🏦 MITRA LEASING (PIC)", f"{count_pic} User", delta="Internal")
+# === FITUR UTAMA (TABS) ===
+tab_upload, tab_delete, tab_info = st.tabs(["📤 UPLOAD DATA (Insert/Update)", "🗑️ HAPUS DATA (Delete)", "📊 INFO INTELIJEN"])
 
-st.markdown("### 📊 Laporan Detail")
-
-with st.expander("📂 Breakdown Data Leasing"):
-    st.write("Generating statistics...")
-    df_leasing = get_leasing_distribution()
-    if not df_leasing.empty:
-        c_chart, c_table = st.columns([2, 1])
-        with c_chart: st.bar_chart(df_leasing.set_index('Leasing'))
-        with c_table: st.dataframe(df_leasing, use_container_width=True, height=300)
-    else: st.warning("Data belum tersedia.")
-
-c_mitra, c_pic = st.columns(2)
-with c_mitra:
-    with st.expander(f"🛡️ Daftar Mitra Lapangan ({count_mitra})"):
-        if not mitra_lapangan.empty:
-            st.dataframe(mitra_lapangan[['nama_lengkap', 'agency', 'no_hp', 'alamat']], use_container_width=True, hide_index=True)
-        else: st.text("Kosong.")
-
-with c_pic:
-    with st.expander(f"🏦 Daftar PIC Leasing ({count_pic})"):
-        if not mitra_leasing.empty:
-            st.dataframe(mitra_leasing[['nama_lengkap', 'agency', 'no_hp']], use_container_width=True, hide_index=True)
-        else: st.text("Kosong.")
-
-st.markdown("---")
-
-# === UPLOADER ===
-if st.session_state['upload_success']:
-    stats = st.session_state['last_stats']
-    placeholder = st.empty()
-    with placeholder.container():
-        st.markdown("<div style='text-align: center; font-size: 100px;'>🚀</div>", unsafe_allow_html=True)
-        st.markdown("<h2 style='text-align: center;'>DATA MENGUDARA!</h2>", unsafe_allow_html=True)
-        time.sleep(1.5) 
-    placeholder.empty()
-
-    st.markdown(f"""<div class="success-box"><h2>✅ MISI BERHASIL!</h2><p>Data sukses diamankan di markas pusat.</p></div>""", unsafe_allow_html=True)
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Input", f"{stats.get('total', 0):,}")
-    c2.metric("Sukses", f"{stats.get('suc', 0):,}")
-    c3.metric("Gagal", f"{stats.get('fail', 0):,}")
-    c4.metric("Waktu", f"{stats.get('time', 0)}s")
-
-    if st.button("⬅️ Upload File Lain", type="primary"):
-        st.session_state['upload_success'] = False
-        st.session_state['last_stats'] = {}
-        st.session_state['uploader_key'] += 1
-        st.rerun()
-
-else:
-    st.markdown("### 📤 Upload Data Intelijen Baru")
-    uploaded_file = st.file_uploader("Drop file Excel/CSV/TXT di sini:", type=['xlsx', 'xls', 'csv', 'txt'], key=f"uploader_{st.session_state['uploader_key']}")
-
-    if uploaded_file is not None:
-        with st.status("🔍 Menganalisa Dokumen...", expanded=True) as status:
+# --------------------------------------------------------------------------------
+# TAB 1: UPLOAD DATA
+# --------------------------------------------------------------------------------
+with tab_upload:
+    if st.session_state['upload_success']:
+        # SUCCESS SCREEN UPLOAD
+        stats = st.session_state['last_stats']
+        st.markdown(f"""<div class="success-box"><h2>✅ DATA MENGUDARA!</h2><p>Sukses menyimpan data ke markas.</p></div>""", unsafe_allow_html=True)
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Input", f"{stats.get('total', 0):,}")
+        c2.metric("Sukses", f"{stats.get('suc', 0):,}")
+        c3.metric("Gagal", f"{stats.get('fail', 0):,}")
+        c4.metric("Waktu", f"{stats.get('time', 0)}s")
+        if st.button("⬅️ Upload Lagi", key="btn_back_up"):
+            st.session_state['upload_success'] = False
+            st.rerun()
+    else:
+        st.write("Gunakan menu ini untuk memasukkan data baru atau update data lama.")
+        uploaded_file = st.file_uploader("Drop file Excel/CSV/TXT:", type=['xlsx', 'xls', 'csv', 'txt'], key=f"up_{st.session_state['uploader_key']}")
+        
+        if uploaded_file:
+            # (Logic Baca File Upload - Sama seperti sebelumnya)
             try:
                 filename = uploaded_file.name.lower()
                 if filename.endswith('.txt'):
@@ -259,45 +225,126 @@ else:
                 else: df = pd.read_excel(uploaded_file, dtype=str)
 
                 df, found = smart_rename_columns(df)
-                if 'nopol' not in df.columns:
-                    status.update(label="❌ Error: Target Nopol Tidak Ditemukan!", state="error"); st.stop()
-
+                if 'nopol' not in df.columns: st.error("❌ Kolom NOPOL tidak ditemukan!"); st.stop()
+                
+                # Cleaning & Processing
                 df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
                 df = df.drop_duplicates(subset=['nopol'], keep='last')
-                
                 if 'finance' not in df.columns: df['finance'] = "UNKNOWN"
                 else: df['finance'] = df['finance'].apply(standardize_leasing_name)
-
+                
                 valid_cols = ['nopol', 'type', 'finance', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'branch']
                 for c in valid_cols:
                     if c not in df.columns: df[c] = "-"
                     else: 
-                        df[c] = df[c].fillna("-")
-                        df[c] = df[c].replace(['nan', 'NaN', 'NULL', 'null', 'None', ''], '-')
-                
-                status.update(label="✅ Analisa Selesai. Data Siap!", state="complete")
-                
-                with st.expander("👀 Preview Data Intelijen"):
-                    st.dataframe(df[valid_cols].head(10), use_container_width=True)
-                
+                         df[c] = df[c].fillna("-")
+                         df[c] = df[c].replace(['nan', 'NaN', 'NULL', 'null', 'None', ''], '-')
+
+                st.info(f"✅ Siap memproses **{len(df):,}** data.")
+                with st.expander("👀 Preview Data"): st.dataframe(df[valid_cols].head())
+
                 if st.button("🚀 EKSEKUSI KE DATABASE", type="primary"):
                     progress_bar = st.progress(0); status_text = st.empty()
                     records = json.loads(json.dumps(df[valid_cols].to_dict(orient='records'), default=str))
-                    total = len(records); suc = 0; fail = 0; start_time = time.time(); BATCH_SIZE = 1000
+                    total = len(records); suc = 0; fail = 0; start_time = time.time(); BATCH = 1000
                     
-                    for i in range(0, total, BATCH_SIZE):
-                        batch = records[i:i+BATCH_SIZE]
+                    for i in range(0, total, BATCH):
+                        batch = records[i:i+BATCH]
                         try:
                             supabase.table('kendaraan').upsert(batch, on_conflict='nopol', count=None).execute()
                             suc += len(batch)
                         except: fail += len(batch)
-                        progress_bar.progress(min((i + BATCH_SIZE) / total, 1.0))
-                        status_text.text(f"⏳ Uploading... {suc}/{total}")
+                        progress_bar.progress(min((i + BATCH) / total, 1.0))
                     
                     st.session_state['last_stats'] = {'total': total, 'suc': suc, 'fail': fail, 'time': round(time.time() - start_time, 2)}
                     st.session_state['upload_success'] = True
                     st.rerun()
+            except Exception as e: st.error(f"Error: {e}")
 
-            except Exception as e:
-                status.update(label="❌ Dokumen Rusak/Tidak Valid", state="error")
-                st.error(f"Error: {e}")
+# --------------------------------------------------------------------------------
+# TAB 2: HAPUS DATA (FITUR BARU)
+# --------------------------------------------------------------------------------
+with tab_delete:
+    if st.session_state['delete_success']:
+        # SUCCESS SCREEN DELETE
+        stats = st.session_state['last_stats']
+        st.markdown(f"""<div class="delete-box"><h2>🗑️ PEMBERSIHAN SELESAI!</h2><p>Data target telah dihapus permanen dari database.</p></div>""", unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        c1.metric("Target Hapus", f"{stats.get('total', 0):,}")
+        c2.metric("Waktu Eksekusi", f"{stats.get('time', 0)}s")
+        if st.button("⬅️ Kembali", key="btn_back_del"):
+            st.session_state['delete_success'] = False
+            st.rerun()
+    else:
+        st.warning("⚠️ PERHATIAN: Upload file berisi NOPOL yang ingin DIHAPUS. Tindakan ini tidak bisa dibatalkan.")
+        del_file = st.file_uploader("Drop file Excel/CSV/TXT (List Hapus):", type=['xlsx', 'xls', 'csv', 'txt'], key=f"del_{st.session_state['uploader_key']}")
+
+        if del_file:
+            try:
+                # Logic baca file yang sama (Smart Read)
+                filename = del_file.name.lower()
+                if filename.endswith('.txt'):
+                    try: df_del = pd.read_csv(del_file, sep='\t', dtype=str, on_bad_lines='skip', encoding='utf-8')
+                    except: df_del = pd.read_csv(del_file, sep='\t', dtype=str, on_bad_lines='skip', encoding='latin1')
+                elif filename.endswith('.csv'):
+                    try: df_del = pd.read_csv(del_file, sep=';', dtype=str, on_bad_lines='skip')
+                    except: df_del = pd.read_csv(del_file, sep=',', dtype=str, on_bad_lines='skip')
+                else: df_del = pd.read_excel(del_file, dtype=str)
+
+                df_del, found = smart_rename_columns(df_del)
+                if 'nopol' not in df_del.columns: st.error("❌ Kolom NOPOL tidak ditemukan!"); st.stop()
+
+                # Ambil list Nopol bersih
+                target_nopols = df_del['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper().tolist()
+                target_nopols = list(set(target_nopols)) # Hapus duplikat di file
+                
+                st.error(f"🚨 **DITEMUKAN {len(target_nopols):,} NOPOL UNTUK DIHAPUS!**")
+                with st.expander("👀 Lihat Daftar Target"): st.write(target_nopols[:50]) # Show top 50
+
+                if st.button("🔥 EKSEKUSI HAPUS PERMANEN", type="primary"):
+                    progress_bar = st.progress(0); status_text = st.empty()
+                    start_time = time.time()
+                    
+                    # Supabase Delete pake .in_() punya limit URL length, jadi harus batching
+                    # Safe limit sekitar 200-500 item per request delete
+                    BATCH_DEL = 200 
+                    total = len(target_nopols)
+                    
+                    for i in range(0, total, BATCH_DEL):
+                        batch = target_nopols[i:i+BATCH_DEL]
+                        try:
+                            supabase.table('kendaraan').delete().in_('nopol', batch).execute()
+                        except Exception as e:
+                            st.error(f"Gagal batch {i}: {e}")
+                        
+                        progress_bar.progress(min((i + BATCH_DEL) / total, 1.0))
+                        status_text.text(f"🔥 Menghapus... {min(i+BATCH_DEL, total)}/{total}")
+                    
+                    st.session_state['last_stats'] = {'total': total, 'time': round(time.time() - start_time, 2)}
+                    st.session_state['delete_success'] = True
+                    st.rerun()
+
+            except Exception as e: st.error(f"Error File: {e}")
+
+# --------------------------------------------------------------------------------
+# TAB 3: INFO INTELIJEN (Breakdown Data)
+# --------------------------------------------------------------------------------
+with tab_info:
+    with st.expander("📂 Breakdown Data Leasing"):
+        st.write("Statistik berdasarkan sampel data terbaru:")
+        df_leasing = get_leasing_distribution()
+        if not df_leasing.empty:
+            c_chart, c_table = st.columns([2, 1])
+            with c_chart: st.bar_chart(df_leasing.set_index('Leasing'))
+            with c_table: st.dataframe(df_leasing, use_container_width=True, height=300)
+        else: st.warning("Data belum tersedia.")
+
+    c_mitra, c_pic = st.columns(2)
+    with c_mitra:
+        with st.expander(f"🛡️ Daftar Mitra Lapangan"):
+            if not df_users.empty:
+                st.dataframe(df_users[df_users['role']!='pic'][['nama_lengkap', 'agency', 'no_hp']], use_container_width=True, hide_index=True)
+    with c_pic:
+        with st.expander(f"🏦 Daftar PIC Leasing"):
+             if not df_users.empty:
+                st.dataframe(df_users[df_users['role']=='pic'][['nama_lengkap', 'agency', 'no_hp']], use_container_width=True, hide_index=True)
