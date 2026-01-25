@@ -1515,13 +1515,68 @@ async def add_note(update, context):
     await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["✅ SIMPAN", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)); return ADD_CONFIRM
 async def add_save(update, context):
     if update.message.text != "✅ SIMPAN": return await cancel(update, context)
+    
     d = context.user_data
+    user = update.effective_user
+    u_db = get_user(user.id)
+    
+    # Simpan data sementara di memory bot (via context_data) untuk diambil saat Admin klik tombol
+    # Kita pakai prefix 'prop_' (proposal) + nopol agar unik
+    prop_id = d['new_nopol']
+    
+    # Siapkan paket data yang akan di-insert nanti
     final_ovd = f"{d['new_note']} (Info: {d['new_phone']})"
-    data_insert = {"nopol": d['new_nopol'], "type": d['new_unit'], "finance": d['new_finance'], "ovd": final_ovd, "branch": "-", "tahun": "-", "warna": "-", "noka": "-", "nosin": "-"}
+    payload = {
+        "nopol": d['new_nopol'], 
+        "type": d['new_unit'], 
+        "finance": d['new_finance'], 
+        "ovd": final_ovd, 
+        "branch": "-", 
+        "tahun": "-", 
+        "warna": "-", 
+        "noka": "-", 
+        "nosin": "-"
+    }
+    
+    # Simpan di memory bot sementara (akan hilang jika bot restart, tapi cukup untuk verifikasi cepat)
+    context.bot_data[f"prop_{prop_id}"] = payload
+    
+    # 1. Info ke User
+    await update.message.reply_text(
+        f"⏳ **DATA TERKIRIM UNTUK VERIFIKASI**\n"
+        f"Data Nopol `{d['new_nopol']}` sedang ditinjau Admin sebelum ditayangkan.", 
+        parse_mode='Markdown', 
+        reply_markup=ReplyKeyboardRemove()
+    )
+    
+    # 2. Info ke Admin (Minta Persetujuan)
+    msg_admin = (
+        f"📝 **PENGAJUAN DATA BARU (MANUAL)**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **Pengirim:** {clean_text(u_db.get('nama_lengkap', user.full_name))}\n"
+        f"🏢 **Agency:** {clean_text(u_db.get('agency', '-'))}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🔢 **Nopol:** `{d['new_nopol']}`\n"
+        f"🚙 **Unit:** {d['new_unit']}\n"
+        f"🏦 **Leasing:** {d['new_finance']}\n"
+        f"📱 **Info HP:** {d['new_phone']}\n"
+        f"📝 **Ket:** {d['new_note']}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"⚠️ _Data belum masuk database sebelum Anda setujui._"
+    )
+    
+    # Tombol Terima / Tolak
+    # Callback data: v_acc_NOPOL_USERID (Acc) atau v_rej_NOPOL_USERID (Reject)
+    kb = [
+        [InlineKeyboardButton("✅ SETUJUI (TAYANGKAN)", callback_data=f"v_acc_{prop_id}_{user.id}")],
+        [InlineKeyboardButton("❌ TOLAK", callback_data=f"v_rej_{prop_id}_{user.id}")]
+    ]
+    
     try:
-        supabase.table('kendaraan').upsert(data_insert, on_conflict='nopol').execute()
-        await update.message.reply_text(f"✅ **BERHASIL DISIMPAN!**\nData Nopol `{d['new_nopol']}` sudah masuk database.", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
-    except Exception as e: await update.message.reply_text(f"❌ Gagal menyimpan: {e}")
+        await context.bot.send_message(ADMIN_ID, msg_admin, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+    except Exception as e:
+        logger.error(f"Gagal kirim ke admin: {e}")
+        
     return ConversationHandler.END
 
 async def lapor_delete_start(update, context):
@@ -1686,17 +1741,56 @@ async def callback_handler(update, context):
             await query.answer("❌ Gagal Copy.", show_alert=True)
 
     elif data.startswith("v_acc_"): 
-        n=data.split("_")[2]
-        item=context.bot_data.get(f"prop_{n}")
+        # Format data: v_acc_NOPOL_USERID
+        parts = data.split("_")
+        nopol = parts[2]
+        user_id_sender = parts[3]
+        
+        # Ambil data dari memory bot_data
+        item = context.bot_data.get(f"prop_{nopol}")
+        
         if item:
-            supabase.table('kendaraan').upsert(item).execute()
-            await query.edit_message_text("✅ Masuk DB.")
-            await context.bot.send_message(data.split("_")[3], f"✅ Data `{n}` DISETUJUI & Sudah Tayang.")
+            try:
+                # Insert ke Database
+                supabase.table('kendaraan').upsert(item).execute()
+                
+                # Hapus dari memory agar hemat RAM
+                del context.bot_data[f"prop_{nopol}"]
+                
+                await query.edit_message_text(f"✅ Data `{nopol}` DISETUJUI & Sudah Tayang di Database.")
+                
+                # Kabari User Pengirim
+                try:
+                    await context.bot.send_message(user_id_sender, f"✅ **DATA DISETUJUI!**\nUnit `{nopol}` yang Anda input sudah tayang di database.", parse_mode='Markdown')
+                except: pass
+                
+            except Exception as e:
+                await query.edit_message_text(f"❌ Error Database: {e}")
         else:
-            await query.edit_message_text("⚠️ Data kedaluwarsa (Restart bot).")
-    
-    elif data.startswith("del_acc_"): supabase.table('kendaraan').delete().eq('nopol', data.split("_")[2]).execute(); await query.edit_message_text("✅ Dihapus."); await context.bot.send_message(data.split("_")[3], "✅ Hapus ACC.")
-    elif data.startswith("del_rej_"): await query.edit_message_text("❌ Ditolak."); await context.bot.send_message(data.split("_")[2], "❌ Hapus TOLAK.")
+            await query.edit_message_text("⚠️ Data kadaluwarsa (Bot sempat restart). Minta user input ulang.")
+
+    elif data.startswith("v_rej_"):
+        # Format data: v_rej_NOPOL_USERID
+        parts = data.split("_")
+        nopol = parts[2]
+        user_id_sender = parts[3]
+        
+        # Hapus dari memory (kalau ada)
+        if f"prop_{nopol}" in context.bot_data:
+            del context.bot_data[f"prop_{nopol}"]
+            
+        # Panggil form alasan penolakan (Reuse logic val_reject yang sudah ada)
+        # Kita set state agar admin bisa ketik alasan
+        context.user_data['val_rej_nopol'] = nopol
+        context.user_data['val_rej_uid'] = user_id_sender
+        
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"❌ **TOLAK PENGAJUAN MANUAL**\nUnit: {nopol}\n\nKetik ALASAN Penolakan:",
+            reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)
+        )
+        # Return state ConversationHandler (Pastikan ini sesuai dengan definisi state Anda)
+        return VAL_REJECT_REASON
 
 
 if __name__ == '__main__':
