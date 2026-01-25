@@ -20,12 +20,12 @@ import zipfile
 import json
 import html
 import difflib
-from collections import Counter
-from datetime import datetime, timedelta, time as dt_time
 import pytz
 import urllib.parse
 import shutil
 from dotenv import load_dotenv
+from collections import Counter
+from datetime import datetime, timedelta, time as dt_time
 
 from telegram import (
     Update, 
@@ -1756,7 +1756,9 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
     job_queue = app.job_queue
-    job_queue.run_daily(auto_cleanup_logs, time=time(hour=3, minute=0, second=0, tzinfo=TZ_JAKARTA), days=(0, 1, 2, 3, 4, 5, 6))
+    # Perhatikan "time=" tetap, tapi isinya jadi "dt_time"
+    # job_queue.run_daily(auto_cleanup_logs, time=dt_time(hour=3, minute=0, second=0, tzinfo=TZ_JAKARTA), days=(0, 1, 2, 3, 4, 5, 6))
+    
     print("⏰ Jadwal Cleanup Otomatis: AKTIF (Jam 03:00 WIB)")
 
     print("✅ BOT ONLINE! (v6.29 - STABLE MASTERPIECE ULTRA)")
