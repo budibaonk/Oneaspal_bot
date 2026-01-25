@@ -395,6 +395,7 @@ with st.sidebar:
     st.markdown("---")
     st.caption("ONE ASPAL SYSTEM\nStatus: ONLINE 🟢")
 
+
 # --- HEADER DASHBOARD ---
 st.markdown("## ONE ASPAL COMMANDO v8.5")
 st.markdown("<span style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE INTELLIGENCE COMMAND CENTER</span>", unsafe_allow_html=True)
