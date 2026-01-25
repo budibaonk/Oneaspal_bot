@@ -15,32 +15,14 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- CSS CUSTOM (TAMPILAN ULTIMATE) ---
+# --- CSS CUSTOM ---
 st.markdown("""
 <style>
-    /* Styling Tombol */
-    .stButton>button {
-        width: 100%;
-        font-weight: bold;
-        border-radius: 8px;
-        height: 45px;
-        transition: all 0.3s;
-    }
-    
-    /* Styling Box */
+    .stButton>button { width: 100%; font-weight: bold; border-radius: 8px; height: 45px; transition: all 0.3s; }
     .success-box { padding: 20px; background-color: #d1e7dd; color: #0f5132; border-radius: 10px; text-align: center; margin-bottom: 20px; border: 1px solid #badbcc; }
     .delete-box { padding: 20px; background-color: #f8d7da; color: #721c24; border-radius: 10px; text-align: center; margin-bottom: 20px; border: 1px solid #f5c6cb; }
-    
-    /* LOGIN CENTERED */
-    div[data-testid="column"] {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-    
-    /* Sembunyikan footer streamlit */
+    div[data-testid="column"] { display: flex; align-items: center; justify-content: center; }
     footer {visibility: hidden;}
-    
 </style>
 """, unsafe_allow_html=True)
 
@@ -48,8 +30,6 @@ st.markdown("""
 load_dotenv()
 URL = os.getenv("SUPABASE_URL")
 KEY = os.getenv("SUPABASE_KEY")
-
-# [PENTING] Ambil Password dari .env
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 
 @st.cache_resource
@@ -108,15 +88,19 @@ def delete_user_permanent(user_id):
 @st.cache_data(ttl=300)
 def get_leasing_distribution():
     try:
-        res = supabase.table('kendaraan').select('finance').order('created_at', desc=True).limit(50000).execute()
+        # Fetch data lebih banyak agar akurat (Limit 100k)
+        res = supabase.table('kendaraan').select('finance').order('created_at', desc=True).limit(100000).execute()
         df = pd.DataFrame(res.data)
         if df.empty: return pd.DataFrame()
+        
+        # Hitung dan URUTKAN di Pandas (Penting!)
         counts = df['finance'].value_counts().reset_index()
         counts.columns = ['Leasing', 'Jumlah Unit']
+        counts = counts.sort_values(by='Jumlah Unit', ascending=False) # Sort Descending
         return counts
     except: return pd.DataFrame()
 
-# --- 5. LOGIKA CLEANING & UTILS ---
+# --- 5. LOGIKA CLEANING ---
 COLUMN_ALIASES = {
     'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'plate_number', 'platenumber', 'plate_no'],
     'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'brand', 'tipeunit'],
@@ -159,12 +143,10 @@ def render_logo(width=150):
     else: st.markdown("# 🦅")
 
 # --- 6. HALAMAN LOGIN ---
-
 def check_password():
     if not ADMIN_PASSWORD:
         st.error("⚠️ Password Admin belum disetting di .env atau Secrets!")
         return
-
     if st.session_state['password_input'] == ADMIN_PASSWORD:
         st.session_state['authenticated'] = True
         del st.session_state['password_input']
@@ -175,17 +157,11 @@ if not st.session_state['authenticated']:
     with c2:
         st.markdown("<div style='margin-top: 50px;'></div>", unsafe_allow_html=True)
         col_img_1, col_img_2, col_img_3 = st.columns([1,2,1])
-        with col_img_2:
-            render_logo(width=180)
-            
+        with col_img_2: render_logo(width=180)
         st.markdown("<h3 style='text-align: center; margin-bottom: 20px;'>One Aspal Commando</h3>", unsafe_allow_html=True)
-        
         st.text_input("Password Akses", type="password", key="password_input", on_change=check_password, placeholder="Masukkan Password Admin")
-        st.caption("🔒 Secured System v4.0")
-        
-        if not ADMIN_PASSWORD:
-            st.warning("Admin: Harap setting ADMIN_PASSWORD di .env")
-            
+        st.caption("🔒 Secured System v4.1")
+        if not ADMIN_PASSWORD: st.warning("Admin: Harap setting ADMIN_PASSWORD di .env")
     st.stop()
 
 # --- 7. SIDEBAR ---
@@ -196,7 +172,7 @@ with st.sidebar:
     if st.button("🚪 LOGOUT", type="secondary"):
         st.session_state['authenticated'] = False; st.rerun()
     st.markdown("---")
-    st.info("Status: **Online** 🟢\nRole: **Super Admin**")
+    st.info("Status: **Online** 🟢")
 
 # --- 8. HEADER UTAMA ---
 c_h1, c_h2 = st.columns([1, 5])
@@ -219,34 +195,30 @@ m3.metric("🏦 MITRA LEASING", f"{pic_count}")
 st.markdown("---")
 
 # === TAB MENU UTAMA ===
-tab1, tab2, tab3, tab4 = st.tabs([
-    "📊 ANALISA LEASING", 
-    "🛡️ MANAJEMEN PERSONIL", 
-    "📤 UPLOAD DATA", 
-    "🗑️ HAPUS DATA"
-])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 ANALISA LEASING", "🛡️ MANAJEMEN PERSONIL", "📤 UPLOAD DATA", "🗑️ HAPUS DATA"])
 
 # -----------------------------------------------------------------------------
-# TAB 1: ANALISA LEASING (CHART)
+# TAB 1: ANALISA LEASING (FIXED SORTING)
 # -----------------------------------------------------------------------------
 with tab1:
-    st.subheader("📊 Breakdown Data Leasing")
+    st.subheader("📊 Breakdown Data Leasing (Terbanyak - Terkecil)")
     df_leasing = get_leasing_distribution()
     
     if not df_leasing.empty:
+        # Chart Horizontal Bar yang sudah diurutkan
         chart = alt.Chart(df_leasing).mark_bar().encode(
             x=alt.X('Jumlah Unit', title='Jumlah Data'),
-            y=alt.Y('Leasing', sort='-x', title='Nama Leasing'),
+            y=alt.Y('Leasing', sort='-x', title='Nama Leasing'), # Sort Descending berdasarkan X
             color=alt.Color('Jumlah Unit', legend=None, scale=alt.Scale(scheme='blues')),
             tooltip=['Leasing', 'Jumlah Unit']
-        ).properties(height=600).interactive()
+        ).properties(height=max(400, len(df_leasing)*20)).interactive() # Tinggi dinamis
         
         st.altair_chart(chart, use_container_width=True)
-        with st.expander("Lihat Data Mentah"): st.dataframe(df_leasing, use_container_width=True)
+        with st.expander("Lihat Data Tabel"): st.dataframe(df_leasing, use_container_width=True)
     else: st.info("Belum ada data unit yang cukup untuk dianalisa.")
 
 # -----------------------------------------------------------------------------
-# TAB 2: MANAJEMEN PERSONIL
+# TAB 2: MANAJEMEN PERSONIL (FEEDBACK & MANUAL INPUT)
 # -----------------------------------------------------------------------------
 with tab2:
     st.subheader("🛡️ Kontrol Personil & Mitra")
@@ -277,51 +249,63 @@ with tab2:
             d2.info(f"**Role:** {user_detail['role'].upper()}")
             d3.info(f"**Quota Exp:** {str(user_detail.get('expiry_date', '-'))[:10]}")
             
-            c_act1, c_act2, c_act3 = st.columns(3)
-            with c_act1:
-                if st.button("➕ Tambah 30 Hari", type="primary"):
-                    if add_user_quota(selected_uid, 30):
-                        st.success(f"Masa aktif {user_detail['nama_lengkap']} ditambah 30 hari!")
-                        time.sleep(1); st.rerun()
-            with c_act2:
+            st.divider()
+            
+            # --- PANEL AKSI DENGAN FEEDBACK POPUP ---
+            col_add, col_status, col_del = st.columns([2, 2, 2])
+            
+            # 1. TAMBAH HARI (MANUAL INPUT)
+            with col_add:
+                st.markdown("##### ⏳ Tambah Masa Aktif")
+                days_input = st.number_input("Jumlah Hari:", min_value=1, value=30, step=1)
+                if st.button("➕ Tambah Quota", type="primary"):
+                    if add_user_quota(selected_uid, days_input):
+                        st.success(f"✅ BERHASIL! {user_detail['nama_lengkap']} ditambah {days_input} hari.")
+                        time.sleep(2) # Tahan 2 detik biar user baca
+                        st.rerun()
+                    else: st.error("❌ Gagal update.")
+
+            # 2. STATUS (BAN/UNBAN)
+            with col_status:
+                st.markdown("##### 🚦 Status Akun")
                 if user_detail['status'] == 'active':
                     if st.button("⛔ BAN USER (Blokir)"):
                         update_user_status(selected_uid, 'banned')
-                        st.warning(f"User {user_detail['nama_lengkap']} telah DIBLOKIR.")
-                        time.sleep(1); st.rerun()
+                        st.warning(f"⛔ Akun {user_detail['nama_lengkap']} telah DIBLOKIR.")
+                        time.sleep(2)
+                        st.rerun()
                 else:
                     if st.button("✅ UNBAN (Aktifkan)"):
                         update_user_status(selected_uid, 'active')
-                        st.success(f"User {user_detail['nama_lengkap']} telah DIAKTIFKAN.")
-                        time.sleep(1); st.rerun()
-            with c_act3:
+                        st.success(f"✅ Akun {user_detail['nama_lengkap']} telah DIAKTIFKAN.")
+                        time.sleep(2)
+                        st.rerun()
+
+            # 3. HAPUS PERMANEN
+            with col_del:
+                st.markdown("##### ⚠️ Zona Bahaya")
                 if st.button("🗑️ HAPUS PERMANEN"):
                     delete_user_permanent(selected_uid)
-                    st.error(f"User {user_detail['nama_lengkap']} BERHASIL DIHAPUS selamanya.")
-                    time.sleep(1); st.rerun()
+                    st.error(f"🗑️ User {user_detail['nama_lengkap']} TELAH DIHAPUS SELAMANYA.")
+                    time.sleep(2)
+                    st.rerun()
 
 # -----------------------------------------------------------------------------
-# TAB 3: UPLOAD DATA (FULL LOGIC)
+# TAB 3 & 4: UPLOAD & HAPUS DATA (SAMA SEPERTI SEBELUMNYA)
 # -----------------------------------------------------------------------------
 with tab3:
     st.subheader("📤 Upload Data Baru")
-    
     if st.session_state['upload_success']:
         stats = st.session_state['last_stats']
-        st.markdown(f"""<div class="success-box"><h2>✅ SUKSES!</h2><p>Data berhasil disimpan.</p></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="success-box"><h2>✅ SUKSES!</h2></div>""", unsafe_allow_html=True)
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total", f"{stats.get('total', 0):,}")
-        c2.metric("Sukses", f"{stats.get('suc', 0):,}")
-        c3.metric("Gagal", f"{stats.get('fail', 0):,}")
-        c4.metric("Waktu", f"{stats.get('time', 0)}s")
+        c1.metric("Total", f"{stats.get('total', 0):,}"); c2.metric("Sukses", f"{stats.get('suc', 0):,}")
+        c3.metric("Gagal", f"{stats.get('fail', 0):,}"); c4.metric("Waktu", f"{stats.get('time', 0)}s")
         if st.button("⬅️ Upload Lagi"): st.session_state['upload_success'] = False; st.rerun()
     else:
-        st.info("Support: Excel (.xlsx), CSV (.csv), Text (.txt)")
-        uploaded_file = st.file_uploader("Drop File di sini", type=['xlsx','csv','txt'], key=f"up_{st.session_state['uploader_key']}")
-        
+        uploaded_file = st.file_uploader("Drop File Excel/CSV/TXT", type=['xlsx','csv','txt'], key=f"up_{st.session_state['uploader_key']}")
         if uploaded_file:
             try:
-                # 1. BACA FILE
                 filename = uploaded_file.name.lower()
                 if filename.endswith('.txt'):
                     try: df = pd.read_csv(uploaded_file, sep='\t', dtype=str, on_bad_lines='skip', encoding='utf-8')
@@ -329,21 +313,16 @@ with tab3:
                 elif filename.endswith('.csv'):
                     try: df = pd.read_csv(uploaded_file, sep=';', dtype=str, on_bad_lines='skip')
                     except: df = pd.read_csv(uploaded_file, sep=',', dtype=str, on_bad_lines='skip')
-                else: 
-                    df = pd.read_excel(uploaded_file, dtype=str)
+                else: df = pd.read_excel(uploaded_file, dtype=str)
 
-                # 2. CLEANING
                 df, found = smart_rename_columns(df)
-                if 'nopol' not in df.columns: 
-                    st.error("❌ Kolom NOPOL tidak ditemukan!")
-                    st.stop()
+                if 'nopol' not in df.columns: st.error("❌ Kolom NOPOL tidak ditemukan!"); st.stop()
                 
                 df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
                 df = df.drop_duplicates(subset=['nopol'], keep='last')
                 if 'finance' not in df.columns: df['finance'] = "UNKNOWN"
                 else: df['finance'] = df['finance'].apply(standardize_leasing_name)
                 
-                # Standardize Columns
                 valid_cols = ['nopol', 'type', 'finance', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'branch']
                 for c in valid_cols:
                     if c not in df.columns: df[c] = "-"
@@ -352,42 +331,29 @@ with tab3:
                 st.success(f"Siap proses **{len(df):,}** data.")
                 with st.expander("Preview"): st.dataframe(df[valid_cols].head())
 
-                # 3. EKSEKUSI
                 if st.button("🚀 EKSEKUSI DATABASE", type="primary"):
                     progress_bar = st.progress(0); status_text = st.empty()
                     records = json.loads(json.dumps(df[valid_cols].to_dict(orient='records'), default=str))
                     total = len(records); suc = 0; fail = 0; start_time = time.time(); BATCH = 1000
-                    
                     for i in range(0, total, BATCH):
                         batch = records[i:i+BATCH]
-                        try:
-                            supabase.table('kendaraan').upsert(batch, on_conflict='nopol', count=None).execute()
-                            suc += len(batch)
+                        try: supabase.table('kendaraan').upsert(batch, on_conflict='nopol', count=None).execute(); suc += len(batch)
                         except: fail += len(batch)
                         progress_bar.progress(min((i + BATCH) / total, 1.0))
-                    
                     st.session_state['last_stats'] = {'total': total, 'suc': suc, 'fail': fail, 'time': round(time.time() - start_time, 2)}
-                    st.session_state['upload_success'] = True
-                    st.rerun()
+                    st.session_state['upload_success'] = True; st.rerun()
             except Exception as e: st.error(f"Error: {e}")
 
-# -----------------------------------------------------------------------------
-# TAB 4: HAPUS DATA (FULL LOGIC)
-# -----------------------------------------------------------------------------
 with tab4:
     st.subheader("🗑️ Hapus Data Massal")
-    
     if st.session_state['delete_success']:
         stats = st.session_state['last_stats']
         st.markdown(f"""<div class="delete-box"><h2>🗑️ DATA TERHAPUS!</h2></div>""", unsafe_allow_html=True)
         c1, c2 = st.columns(2)
-        c1.metric("Total Hapus", f"{stats.get('total', 0):,}")
-        c2.metric("Waktu", f"{stats.get('time', 0)}s")
+        c1.metric("Total Hapus", f"{stats.get('total', 0):,}"); c2.metric("Waktu", f"{stats.get('time', 0)}s")
         if st.button("⬅️ Kembali"): st.session_state['delete_success'] = False; st.rerun()
     else:
-        st.warning("Upload file berisi NOPOL yang akan dihapus permanen.")
         del_file = st.file_uploader("File List Hapus", type=['xlsx','csv','txt'], key="del_up")
-        
         if del_file:
             try:
                 filename = del_file.name.lower()
@@ -397,30 +363,21 @@ with tab4:
                 elif filename.endswith('.csv'):
                     try: df_del = pd.read_csv(del_file, sep=';', dtype=str, on_bad_lines='skip')
                     except: df_del = pd.read_csv(del_file, sep=',', dtype=str, on_bad_lines='skip')
-                else: 
-                    df_del = pd.read_excel(del_file, dtype=str)
+                else: df_del = pd.read_excel(del_file, dtype=str)
 
                 df_del, found = smart_rename_columns(df_del)
                 if 'nopol' not in df_del.columns: st.error("❌ Kolom NOPOL tidak ditemukan!"); st.stop()
-
                 targets = df_del['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper().tolist()
                 targets = list(set(targets))
-                
                 st.error(f"Terdeteksi **{len(targets):,}** Nopol untuk dihapus.")
-                with st.expander("Lihat Sample"): st.write(targets[:20])
-
+                
                 if st.button("🔥 HAPUS PERMANEN", type="primary"):
-                    progress_bar = st.progress(0); status_text = st.empty()
-                    start_time = time.time()
-                    BATCH_DEL = 200; total = len(targets)
-                    
+                    progress_bar = st.progress(0); start_time = time.time(); BATCH_DEL = 200; total = len(targets)
                     for i in range(0, total, BATCH_DEL):
                         batch = targets[i:i+BATCH_DEL]
                         try: supabase.table('kendaraan').delete().in_('nopol', batch).execute()
                         except: pass
                         progress_bar.progress(min((i + BATCH_DEL) / total, 1.0))
-                    
                     st.session_state['last_stats'] = {'total': total, 'time': round(time.time() - start_time, 2)}
-                    st.session_state['delete_success'] = True
-                    st.rerun()
+                    st.session_state['delete_success'] = True; st.rerun()
             except Exception as e: st.error(f"Error: {e}")
