@@ -15,54 +15,70 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. CSS MASTER (CYBERPUNK STYLE) ---
+# --- 2. CSS MASTER (SLEEK CYBERPUNK - NORMAL FONT SIZE) ---
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Orbitron:wght@500;700;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Orbitron:wght@500;700&display=swap');
 
-    .stApp { background-color: #0e1117; font-family: 'Inter', sans-serif; }
+    .stApp { background-color: #0e1117; font-family: 'Inter', sans-serif; font-size: 14px; }
     
-    h1, h2, h3 { font-family: 'Orbitron', sans-serif !important; color: #ffffff; text-transform: uppercase; letter-spacing: 2px; }
+    /* HEADERS - Ukuran diperkecil tapi tetap font Tech */
+    h1 { font-family: 'Orbitron', sans-serif !important; color: #ffffff; font-size: 1.8rem !important; letter-spacing: 1px; }
+    h2 { font-family: 'Orbitron', sans-serif !important; color: #ffffff; font-size: 1.4rem !important; }
+    h3 { font-family: 'Orbitron', sans-serif !important; color: #ffffff; font-size: 1.1rem !important; }
     
-    /* GLASS CARDS */
+    /* METRIC CARDS - Lebih Ramping */
     div[data-testid="metric-container"] {
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 15px;
-        padding: 20px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        padding: 15px;
         backdrop-filter: blur(10px);
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        transition: border-color 0.3s;
     }
+    div[data-testid="metric-container"]:hover { border-color: #00f2ff; }
+    
+    /* LABEL METRIC (Kecil & Rapi) */
+    div[data-testid="metric-container"] label { font-size: 0.8rem !important; color: #888 !important; }
+    
+    /* VALUE METRIC (Tidak Raksasa) */
     div[data-testid="metric-container"] div[data-testid="stMetricValue"] {
-        color: #00f2ff !important; font-family: 'Orbitron', sans-serif; font-size: 2rem !important;
+        color: #00f2ff !important; 
+        font-family: 'Orbitron', sans-serif; 
+        font-size: 1.5rem !important; /* Diperkecil dari 2rem */
     }
 
-    /* NEON BUTTONS */
+    /* BUTTONS - Tinggi Normal */
     .stButton>button {
         background: linear-gradient(90deg, #0061ff 0%, #60efff 100%);
-        color: #000; border: none; border-radius: 8px; height: 50px;
-        font-weight: 800; font-family: 'Orbitron', sans-serif; letter-spacing: 1px; width: 100%;
+        color: #000; border: none; border-radius: 6px; height: 40px; /* Lebih pendek */
+        font-weight: 700; font-family: 'Orbitron', sans-serif; font-size: 0.9rem;
+        letter-spacing: 0.5px; width: 100%;
     }
-    .stButton>button:hover { box-shadow: 0 0 20px rgba(0, 242, 255, 0.6); color: #000; }
+    .stButton>button:hover { box-shadow: 0 0 15px rgba(0, 242, 255, 0.4); color: #000; }
 
-    /* LEADERBOARD TABLE */
+    /* LEADERBOARD TABLE - Compact */
     .leaderboard-row {
-        background: rgba(0, 242, 255, 0.05);
-        padding: 15px; margin-bottom: 8px; border-radius: 8px;
-        border-left: 4px solid #00f2ff; display: flex; justify-content: space-between; align-items: center;
-        transition: transform 0.2s;
+        background: rgba(0, 242, 255, 0.03);
+        padding: 10px 15px; margin-bottom: 5px; border-radius: 6px;
+        border-left: 3px solid #00f2ff; display: flex; justify-content: space-between; align-items: center;
+        transition: background 0.2s;
     }
-    .leaderboard-row:hover { transform: scale(1.01); background: rgba(0, 242, 255, 0.1); }
-    .leaderboard-val { font-family: 'Orbitron'; color: #00f2ff; font-weight: bold; font-size: 1.2rem; }
-    .leaderboard-rank { font-size: 1.5rem; margin-right: 15px; font-weight:bold; color: #fff; width: 30px;}
+    .leaderboard-row:hover { background: rgba(0, 242, 255, 0.08); }
+    .leaderboard-val { font-family: 'Orbitron'; color: #00f2ff; font-weight: bold; font-size: 1rem; }
+    .leaderboard-rank { font-size: 1.1rem; margin-right: 15px; font-weight:bold; color: #fff; width: 25px;}
 
-    .tech-box { background: rgba(0, 242, 255, 0.1); border-left: 5px solid #00f2ff; padding: 15px; border-radius: 5px; margin-bottom: 20px; color: #e0e0e0; }
+    /* TECH BOX INFO */
+    .tech-box { 
+        background: rgba(0, 242, 255, 0.05); 
+        border-left: 3px solid #00f2ff; 
+        padding: 12px; border-radius: 5px; 
+        margin-bottom: 15px; color: #ddd; 
+        font-size: 0.9rem;
+    }
     
-    /* GRID INFO PERSONIL */
-    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
-    .info-item { background: rgba(255,255,255,0.05); padding: 10px; border-radius: 5px; }
-    .info-label { color: #888; font-size: 0.8rem; display: block; }
-    .info-value { color: #fff; font-weight: bold; font-family: 'Orbitron'; font-size: 1.1rem; }
+    /* TABS Compact */
+    .stTabs [data-baseweb="tab"] { height: 40px; padding: 0 20px; font-size: 0.9rem; }
     
     header {visibility: hidden;} footer {visibility: hidden;}
 </style>
@@ -96,19 +112,15 @@ def get_all_users():
     try:
         res = supabase.table('users').select('*').execute()
         df = pd.DataFrame(res.data)
-        if not df.empty:
-            # Pastikan user_id string agar tidak error di selectbox (karena angka Telegram besar)
-            df['user_id'] = df['user_id'].astype(str) 
+        if not df.empty: df['user_id'] = df['user_id'].astype(str) 
         return df
     except: return pd.DataFrame()
 
 def get_hit_counts():
     try:
-        # Hitung hits dari finding_logs karena di tabel users tidak ada
         res = supabase.table('finding_logs').select('user_id').execute()
         df_logs = pd.DataFrame(res.data)
         if df_logs.empty: return pd.Series()
-        # Pastikan tipe data sama (string)
         df_logs['user_id'] = df_logs['user_id'].astype(str)
         return df_logs['user_id'].value_counts()
     except: return pd.Series()
@@ -142,7 +154,7 @@ def delete_user_permanent(user_id):
     try: supabase.table('users').delete().eq('user_id', user_id).execute(); return True
     except: return False
 
-# --- KAMUS KOLOM (LENGKAP & TERKUNCI) ---
+# --- KAMUS KOLOM (LENGKAP) ---
 COLUMN_ALIASES = {
     'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'plate_number', 'platenumber', 'plate_no'],
     'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'brand', 'tipeunit'],
@@ -191,25 +203,26 @@ if not st.session_state['authenticated']:
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         with st.container():
             c_img = st.columns([1,1,1])[1]
-            with c_img: render_logo(width=250) 
-            st.markdown("<h1 style='text-align: center; color: #00f2ff;'>SYSTEM LOGIN</h1>", unsafe_allow_html=True)
-            st.text_input("PASSPHRASE", type="password", key="password_input", on_change=check_password)
+            with c_img: render_logo(width=200) 
+            st.markdown("<h2 style='text-align: center; color: #00f2ff; margin-bottom: 5px;'>SYSTEM LOGIN</h2>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: #888; font-size: 0.9rem;'>ONE ASPAL COMMANDO v7.4</p>", unsafe_allow_html=True)
+            st.text_input("PASSPHRASE", type="password", key="password_input", on_change=check_password, label_visibility="collapsed")
             if not ADMIN_PASSWORD: st.warning("⚠️ ENV NOT CONFIGURED")
     st.stop()
 
 # --- 5. DASHBOARD UTAMA ---
 with st.sidebar:
-    render_logo(width=280) 
+    render_logo(width=220) 
     st.markdown("### OPERATIONS")
-    if st.button("🔄 REFRESH SYSTEM"): st.cache_data.clear(); st.rerun()
-    if st.button("🚪 TERMINATE SESSION"): st.session_state['authenticated'] = False; st.rerun()
-    st.markdown("---"); st.caption("ONE ASPAL SYSTEM\nStatus: ONLINE 🟢")
+    if st.button("🔄 REFRESH"): st.cache_data.clear(); st.rerun()
+    if st.button("🚪 LOGOUT"): st.session_state['authenticated'] = False; st.rerun()
+    st.markdown("---"); st.caption("STATUS: ONLINE 🟢")
 
-c1, c2 = st.columns([1, 6])
-with c1: render_logo(width=150) 
+c1, c2 = st.columns([1, 10])
+with c1: render_logo(width=80) 
 with c2: 
-    st.markdown("## ONE ASPAL COMMANDO")
-    st.markdown("<div style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE OPERATIONS DASHBOARD</div>", unsafe_allow_html=True)
+    st.markdown("<h2 style='margin-bottom:0;'>ONE ASPAL COMMANDO</h2>", unsafe_allow_html=True)
+    st.markdown("<span style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE INTELLIGENCE SYSTEM</span>", unsafe_allow_html=True)
 st.markdown("---")
 
 # --- DATA FETCHING ---
@@ -218,27 +231,31 @@ total_assets = get_total_asset_count()
 hit_counts_series = get_hit_counts() 
 active_hunters = get_active_hunters_30m()
 
+# Total Active Account (Status = Active)
+total_active_accounts = len(df_users_raw[df_users_raw['status']=='active']) if not df_users_raw.empty else 0
 mitra_total = len(df_users_raw[df_users_raw['role']!='pic']) if not df_users_raw.empty else 0
+pic_total = len(df_users_raw[df_users_raw['role']=='pic']) if not df_users_raw.empty else 0
 
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("TOTAL ASSETS", f"{total_assets:,}", "DATABASE")
-m2.metric("LIVE HUNTERS", f"{active_hunters}", "HITS (LAST 30M)") 
+# --- METRICS (5 KOLOM RAPI) ---
+m1, m2, m3, m4, m5 = st.columns(5)
+m1.metric("ASSETS", f"{total_assets:,}", "DATABASE")
+m2.metric("LIVE USERS", f"{active_hunters}", "30 MINS ACTIVE") 
 m3.metric("TOTAL MITRA", f"{mitra_total}", "REGISTERED")
-m4.metric("TOTAL PIC", f"{len(df_users_raw[df_users_raw['role']=='pic']) if not df_users_raw.empty else 0}", "LEASING HQ")
+m4.metric("TOTAL PIC", f"{pic_total}", "LEASING HQ")
+m5.metric("ACTIVE ACCOUNTS", f"{total_active_accounts}", "STATUS: ACTIVE") # Permintaan User
 st.write("")
 
-tab1, tab2, tab3, tab4 = st.tabs(["🏆 LEADERBOARD", "🛡️ PERSONIL", "📤 DATA INGEST", "🗑️ DATA PURGE"])
+tab1, tab2, tab3, tab4 = st.tabs(["🏆 LEADERBOARD", "🛡️ PERSONIL", "📤 UPLOAD", "🗑️ HAPUS"])
 
-# --- TAB 1: LEADERBOARD ---
+# --- TAB 1: LEADERBOARD (TOP 10 ONLY) ---
 with tab1:
-    st.markdown("### 🏆 TOP RANGERS (LIVE HITS)")
+    st.markdown("### 🏆 TOP 10 RANGERS (HIT COUNT)")
     if df_users_raw.empty or hit_counts_series.empty:
         st.info("NO DATA AVAILABLE YET.")
     else:
         df_rank = df_users_raw.copy()
-        # Mapping Hits dari finding_logs ke user
         df_rank['real_hits'] = df_rank['user_id'].map(hit_counts_series).fillna(0).astype(int)
-        df_rank = df_rank[df_rank['role'] != 'pic'].sort_values(by='real_hits', ascending=False).head(20)
+        df_rank = df_rank[df_rank['role'] != 'pic'].sort_values(by='real_hits', ascending=False).head(10) # CUMA TOP 10
         
         rank = 1
         for idx, row in df_rank.iterrows():
@@ -249,20 +266,20 @@ with tab1:
                 <div style="display:flex; align-items:center;">
                     <div class="leaderboard-rank" style="color:{color};">{medal}</div>
                     <div>
-                        <div style="font-weight:bold; color:white; font-size:1.1rem;">{row['nama_lengkap']}</div>
+                        <div style="font-weight:bold; color:white; font-size:1rem;">{row['nama_lengkap']}</div>
                         <div style="font-size:0.8rem; color:#aaa;">AGENCY: {row['agency']}</div>
                     </div>
                 </div>
-                <div class="leaderboard-val">{row['real_hits']} UNITS</div>
+                <div class="leaderboard-val">{row['real_hits']} HITS</div>
             </div>
             """, unsafe_allow_html=True)
             rank += 1
 
-# --- TAB 2: PERSONIL (UPDATED WITH SCHEMA) ---
+# --- TAB 2: PERSONIL ---
 with tab2:
     if df_users_raw.empty: st.warning("NO USER DATA.")
     else:
-        col_ka, col_ki = st.columns([1,2])
+        col_ka, col_ki = st.columns([1,3])
         with col_ka:
             type_choice = st.radio("DIVISION", ["🛡️ MATEL", "🏦 PIC"], horizontal=True, label_visibility="collapsed")
         
@@ -270,38 +287,25 @@ with tab2:
         target = target.sort_values('nama_lengkap')
         
         user_opts = {f"{r['nama_lengkap']} | {r['agency']}": r['user_id'] for i, r in target.iterrows()}
-        sel = st.selectbox("SELECT AGENT", list(user_opts.keys()))
+        sel = st.selectbox("SELECT AGENT", list(user_opts.keys()), label_visibility="collapsed")
         
         if sel:
             uid = user_opts[sel]; user = target[target['user_id'] == uid].iloc[0]
             real_hits = hit_counts_series.get(uid, 0)
             
-            # TAMPILAN DETAIL LENGKAP (Schema Optimized)
+            # INFO BOX COMPACT
             st.markdown(f"""
             <div class="tech-box">
-                <h3 style="margin:0; color:white;">{user['nama_lengkap']}</h3>
-                <p style="color:#00f2ff; margin-bottom:15px;">{user['agency']}</p>
-                <div class="info-grid">
-                    <div class="info-item">
-                        <span class="info-label">STATUS</span>
-                        <span class="info-value" style="color:{'#0f0' if user['status']=='active' else '#f00'}">{user['status'].upper()}</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">EXPIRY DATE</span>
-                        <span class="info-value">{str(user.get('expiry_date','-'))[:10]}</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">QUOTA (SISA)</span>
-                        <span class="info-value">{user.get('quota', 0):,}</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">USAGE (TODAY)</span>
-                        <span class="info-value">{user.get('daily_usage', 0)}x</span>
-                    </div>
-                    <div class="info-item" style="grid-column: span 2; border: 1px solid #00f2ff;">
-                        <span class="info-label">TOTAL TEMUAN (LIFETIME)</span>
-                        <span class="info-value" style="color:#00f2ff; font-size:1.5rem;">{real_hits} UNITS</span>
-                    </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <h3 style="margin:0; color:white; font-size:1.2rem;">{user['nama_lengkap']}</h3>
+                    <span style="color:#00f2ff; font-weight:bold;">{user['agency']}</span>
+                </div>
+                <hr style="border-color: rgba(255,255,255,0.1); margin: 10px 0;">
+                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:10px; font-size:0.85rem;">
+                    <div>STATUS: <b style="color:{'#0f0' if user['status']=='active' else '#f00'}">{user['status'].upper()}</b></div>
+                    <div>EXP: <b>{str(user.get('expiry_date','-'))[:10]}</b></div>
+                    <div>QUOTA: <b>{user.get('quota', 0):,}</b></div>
+                    <div>HITS: <b style="color:#00f2ff;">{real_hits}</b></div>
                 </div>
             </div>""", unsafe_allow_html=True)
             
@@ -314,18 +318,18 @@ with tab2:
             b1, b2 = st.columns(2)
             with b1:
                 if user['status'] == 'active':
-                    if st.button("⛔ FREEZE (BAN)"): update_user_status(uid, 'banned'); st.rerun()
+                    if st.button("⛔ FREEZE ACCOUNT"): update_user_status(uid, 'banned'); st.rerun()
                 else:
-                    if st.button("✅ ACTIVATE"): update_user_status(uid, 'active'); st.rerun()
+                    if st.button("✅ ACTIVATE ACCOUNT"): update_user_status(uid, 'active'); st.rerun()
             with b2:
                 if st.button("🗑️ DELETE USER"): delete_user_permanent(uid); st.rerun()
 
 # --- TAB 3: UPLOAD ---
 with tab3:
-    st.markdown("### 📤 UPLOAD PROTOCOL")
+    st.markdown("### 📤 UPLOAD DATA")
     if st.session_state['upload_success']:
         st.markdown(f"""<div class="tech-box" style="border-color:#00ff00;">✅ COMPLETE: {st.session_state['last_stats'].get('suc',0):,} UNITS</div>""", unsafe_allow_html=True)
-        if st.button("NEW UPLOAD"): st.session_state['upload_success'] = False; st.rerun()
+        if st.button("UPLOAD MORE"): st.session_state['upload_success'] = False; st.rerun()
     else:
         up_file = st.file_uploader("DROP FILE", type=['xlsx','csv','txt'], key=f"up_{st.session_state['uploader_key']}")
         if up_file and st.button("🚀 INITIATE UPLOAD"):
@@ -363,7 +367,7 @@ with tab3:
 
 # --- TAB 4: HAPUS ---
 with tab4:
-    st.markdown("### 🗑️ PURGE PROTOCOL")
+    st.markdown("### 🗑️ DELETE DATA")
     if st.session_state['delete_success']:
         st.success("✅ DATA ELIMINATED.")
         if st.button("RETURN"): st.session_state['delete_success'] = False; st.rerun()
