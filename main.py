@@ -24,6 +24,7 @@ from collections import Counter
 from datetime import datetime, timedelta, time
 import pytz
 import urllib.parse
+import shutil
 from dotenv import load_dotenv
 
 from telegram import (
@@ -1015,178 +1016,235 @@ async def set_agency_group(update, context):
         await update.message.reply_text(f"❌ Gagal set grup: {e}")
 
 # ==============================================================================
-# BAGIAN 10: FITUR UPLOAD (PERFORMANCE TUNED v6.29)
+# BAGIAN 10: FITUR UPLOAD (MOBILE OPTIMIZED & DISK BASED)
 # ==============================================================================
 
 async def upload_start(update, context):
     uid = update.effective_user.id
     if not get_user(uid): return await update.message.reply_text("⛔ Akses Ditolak.")
+    
+    # Simpan File ID untuk User Flow (Forward ke Admin)
     context.user_data['upload_file_id'] = update.message.document.file_id
     context.user_data['upload_file_name'] = update.message.document.file_name
+
+    # --- ROUTING: ADMIN vs USER ---
+    # Jika bukan Admin, masuk ke flow 'upload_leasing_user' (Lapor Upload)
+    # Cek support untuk ADMIN_ID (int) atau ADMIN_IDS (list)
+    is_admin = False
+    if 'ADMIN_ID' in globals() and uid == ADMIN_ID: is_admin = True
+    if 'ADMIN_IDS' in globals() and str(uid) in ADMIN_IDS: is_admin = True
     
-    if uid != ADMIN_ID:
-        await update.message.reply_text("📄 File diterima.\n**Leasing apa?**", parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
+    if not is_admin:
+        await update.message.reply_text(
+            "📄 File diterima.\n**Untuk leasing apa file ini?**", 
+            parse_mode='Markdown', 
+            reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True)
+        )
         return U_LEASING_USER
+
+    # --- FLOW ADMIN (PROSES DATA) ---
     
-    msg = await update.message.reply_text("⏳ **Analisa File...**", parse_mode='Markdown')
+    # 1. Siapkan Folder Temp
+    temp_dir = "temp_uploads"
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    # 2. Download File ke Disk
+    fname = update.message.document.file_name
+    file_path = os.path.join(temp_dir, f"{uid}_{int(time.time())}_{fname}")
+    
+    msg = await update.message.reply_text("⏳ **Mendownload & Menganalisa File...**", parse_mode='Markdown')
+    
     try:
         f = await update.message.document.get_file()
-        c = await f.download_as_bytearray()
-        df = read_file_robust(c, update.message.document.file_name)
+        await f.download_to_drive(file_path)
+        
+        # 3. Baca File (Preview Mode)
+        with open(file_path, 'rb') as f_read:
+            file_content = f_read.read()
+            
+        df = read_file_robust(file_content, fname)
         df = fix_header_position(df)
         df, found = smart_rename_columns(df)
-        context.user_data['df_records'] = df.to_dict(orient='records')
         
-        if 'nopol' not in df.columns: return await msg.edit_text("❌ Gagal deteksi NOPOL.")
+        if 'nopol' not in df.columns: 
+            os.remove(file_path)
+            return await msg.edit_text("❌ Gagal deteksi kolom NOPOL. Pastikan header benar.")
+
         fin = 'finance' in df.columns
+        
+        # Simpan Info File
+        context.user_data['upload_path'] = file_path
+        context.user_data['upload_cols'] = df.columns.tolist()
+        context.user_data['preview_records'] = df.head(5).to_dict(orient='records')
+        
         await msg.delete()
         
         report = (
-            f"✅ **SCAN SUKSES**\n"
+            f"✅ **SCAN BERHASIL (Mobile Mode)**\n"
             f"📊 Kolom: {', '.join(found)}\n"
-            f"📁 Baris: {len(df)}\n"
+            f"📁 Total Baris: {len(df):,}\n"
             f"🏦 Leasing: {'✅ ADA' if fin else '⚠️ TIDAK ADA'}\n\n"
             f"👉 Masukkan Nama Leasing (atau SKIP):"
         )
         await update.message.reply_text(report, reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True))
         return U_LEASING_ADMIN
-    except Exception as e: await msg.edit_text(f"❌ Error: {e}")
-    return ConversationHandler.END
+
+    except Exception as e:
+        if os.path.exists(file_path): os.remove(file_path)
+        logger.error(f"Upload Error: {e}")
+        await msg.edit_text(f"❌ Error Analisa: {e}")
+        return ConversationHandler.END
 
 async def upload_leasing_user(update, context):
     nm = update.message.text
     if nm == "❌ BATAL": return await cancel(update, context)
+    
     u = get_user(update.effective_user.id)
-    await context.bot.send_document(ADMIN_ID, context.user_data['upload_file_id'], caption=f"📥 **UPLOAD MITRA**\n👤 {u['nama_lengkap']}\n🏦 {nm}")
+    file_id = context.user_data.get('upload_file_id')
+    
+    # Forward ke Admin
+    caption = f"📥 **UPLOAD MITRA**\n👤 {u['nama_lengkap']}\n🏦 {nm}"
+    try:
+        # Kirim ke ADMIN_ID utama
+        if 'ADMIN_ID' in globals() and ADMIN_ID != 0:
+            await context.bot.send_document(ADMIN_ID, file_id, caption=caption)
+    except: pass
+
     await update.message.reply_text("✅ Terkirim ke Admin.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
 async def upload_leasing_admin(update, context):
-    nm = update.message.text.upper(); df = pd.DataFrame(context.user_data['df_records'])
+    nm = update.message.text.upper()
+    preview_data = context.user_data.get('preview_records', [])
+    cols = context.user_data.get('upload_cols', [])
     
+    if not preview_data:
+        return await update.message.reply_text("❌ Sesi kedaluwarsa. Ulangi upload.")
+
     if nm != 'SKIP': 
         clean_name = standardize_leasing_name(nm)
-        df['finance'] = clean_name
         fin_display = clean_name
     else:
-        if 'finance' in df.columns:
-            df['finance'] = df['finance'].apply(standardize_leasing_name)
-            fin_display = "SESUAI FILE"
-        else:
-            df['finance'] = 'UNKNOWN'
-            fin_display = "UNKNOWN"
-            
-    df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
-    df = df.drop_duplicates(subset=['nopol'], keep='last').replace({np.nan: None})
-    valid = ['nopol', 'type', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'finance', 'branch']
-    for c in valid: 
-        if c not in df.columns: df[c] = None
+        if 'finance' in cols: fin_display = "SESUAI FILE (Otomatis)"
+        else: fin_display = "UNKNOWN"
     
-    context.user_data['final_data_records'] = df[valid].to_dict(orient='records')
-    s = df.iloc[0]
+    context.user_data['target_leasing'] = nm 
+
+    # --- PREVIEW LENGKAP ---
+    s = preview_data[0].copy()
+    if nm != 'SKIP': s['finance'] = clean_name
+    
+    labels = {
+        'nopol': '🔢 Nopol', 'type': '🚙 Unit', 'finance': '🏦 Leasing',
+        'tahun': '📅 Tahun', 'warna': '🎨 Warna', 'noka': '🔧 Noka',
+        'nosin': '⚙️ Nosin', 'ovd': '⚠️ OVD', 'branch': '🏢 Cabang'
+    }
+    
+    detail_str = ""
+    for k, label in labels.items():
+        val = s.get(k)
+        if val and str(val).strip().lower() not in ['nan', 'none', '', '-']:
+            detail_str += f"   {label}: {val}\n"
+    if not detail_str: detail_str = "   (Data kosong/tidak terbaca)"
     
     preview_msg = (
-        f"🔎 **PREVIEW DATA**\n"
-        f"🏦 Mode: {fin_display}\n"
-        f"📊 Total: {len(df)}\n"
-        f"📝 Contoh: {s['nopol']} | {s['finance']}\n"
-        f"⚠️ Klik **EKSEKUSI** untuk lanjut."
+        f"🔎 **PREVIEW UPLOAD**\n"
+        f"🏦 Target Leasing: {fin_display}\n"
+        f"📝 **Contoh Data Baris 1:**\n"
+        f"{detail_str}\n"
+        f"⚠️ Klik EKSEKUSI untuk memproses."
     )
     await update.message.reply_text(preview_msg, reply_markup=ReplyKeyboardMarkup([["🚀 EKSEKUSI", "❌ BATAL"]], one_time_keyboard=True))
     return U_CONFIRM_UPLOAD
 
-# [CRITICAL FIX v6.29] FUNGSI UPLOAD OPTIMIZED
 async def upload_confirm_admin(update, context):
-    if update.message.text != "🚀 EKSEKUSI": return await cancel(update, context)
+    if update.message.text != "🚀 EKSEKUSI": 
+        path = context.user_data.get('upload_path')
+        if path and os.path.exists(path): os.remove(path)
+        return await cancel(update, context)
     
-    status_msg = await update.message.reply_text(
-        "⏳ **MEMULAI UPLOAD...**\n_Menyiapkan data (Fast Mode)..._", 
-        reply_markup=ReplyKeyboardRemove(), 
-        parse_mode='Markdown'
-    )
+    file_path = context.user_data.get('upload_path')
+    target_leasing = context.user_data.get('target_leasing')
     
-    data = context.user_data.get('final_data_records')
-    if not data:
-        return await status_msg.edit_text("❌ **ERROR:** Data kosong.")
+    if not file_path or not os.path.exists(file_path):
+        return await update.message.reply_text("❌ File hilang. Silakan upload ulang.")
 
-    # SANITASI: Ubah data aneh jadi string standar
-    try:
-        data = json.loads(json.dumps(data, default=str))
-    except Exception as e:
-        return await status_msg.edit_text(f"❌ **JSON ERROR:** {e}")
-
-    suc = 0
-    fail = 0
-    BATCH = 100 # Batch 100 sangat aman
-    start_time = time.time()
-    
-    # --- WORKER THREAD ---
-    def process_batch_sync(batch_data):
-        s_local = 0
-        f_local = 0
-        try:
-            # [TRICK] count=None agar Supabase tidak perlu menghitung balik (Lebih Cepat)
-            supabase.table('kendaraan').upsert(batch_data, on_conflict='nopol', count=None).execute()
-            s_local = len(batch_data)
-        except Exception as e:
-            print(f"⚠️ Batch Gagal: {e}")
-            f_local = len(batch_data)
-        return s_local, f_local
-    # ---------------------
+    status_msg = await update.message.reply_text("⏳ **MEMPROSES FILE...**", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
 
     try:
-        total_batches = (len(data) + BATCH - 1) // BATCH
+        with open(file_path, 'rb') as f_read: content = f_read.read()
+        fname = os.path.basename(file_path)
+        df = read_file_robust(content, fname)
+        df = fix_header_position(df)
+        df, _ = smart_rename_columns(df)
         
-        for i in range(0, len(data), BATCH):
+        if target_leasing != 'SKIP':
+            clean_name = standardize_leasing_name(target_leasing)
+            df['finance'] = clean_name
+        else:
+            if 'finance' in df.columns: df['finance'] = df['finance'].apply(standardize_leasing_name)
+            else: df['finance'] = 'UNKNOWN'
+        
+        # Sanitasi & Filter
+        df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
+        df = df.drop_duplicates(subset=['nopol'], keep='last').replace({np.nan: None})
+        
+        valid_cols = ['nopol', 'type', 'finance', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'branch']
+        for c in valid_cols:
+            if c not in df.columns: df[c] = None
+        
+        final_data = json.loads(json.dumps(df[valid_cols].to_dict(orient='records'), default=str))
+        total_data = len(final_data)
+
+        # PROSES UPLOAD BATCH
+        await status_msg.edit_text(f"🚀 **MENGUPLOAD {total_data:,} DATA...**")
+        
+        suc, fail = 0, 0
+        BATCH = 500
+        start_time = time.time()
+
+        def process_batch_sync(batch_data):
+            try:
+                supabase.table('kendaraan').upsert(batch_data, on_conflict='nopol', count=None).execute()
+                return len(batch_data), 0
+            except: return 0, len(batch_data)
+
+        for i in range(0, total_data, BATCH):
             if context.user_data.get('stop_signal'):
-                await status_msg.edit_text("🛑 **DIHENTIKAN.**")
+                await status_msg.edit_text("🛑 **DIHENTIKAN USER.**")
                 break
+            batch = final_data[i:i+BATCH]
+            s_b, f_b = await asyncio.to_thread(process_batch_sync, batch)
+            suc += s_b; fail += f_b
+            
+            if i % (BATCH*5) == 0:
+                elapsed = int(time.time() - start_time)
+                try: await status_msg.edit_text(f"⏳ **PROGRESS UPLOAD**\n🚀 Data: {suc:,} / {total_data:,}\n⏱ Waktu: {elapsed}s")
+                except: pass
 
-            batch = data[i:i+BATCH]
-            
-            # Eksekusi Async
-            s_batch, f_batch = await asyncio.to_thread(process_batch_sync, batch)
-            
-            suc += s_batch
-            fail += f_batch
-            
-            # Update Status (Responsif)
-            current_batch = (i // BATCH) + 1
-            if current_batch % 5 == 0 or current_batch == total_batches:
-                try: 
-                    elapsed = int(time.time() - start_time)
-                    txt = (
-                        f"⏳ **MENGUPLOAD...**\n"
-                        f"🚀 Batch: {current_batch}/{total_batches}\n"
-                        f"✅ Masuk: {suc}\n"
-                        f"❌ Gagal: {fail}\n"
-                        f"⏱ Waktu: {elapsed}s"
-                    )
-                    await status_msg.edit_text(txt)
-                except: pass 
-            
-            await asyncio.sleep(0.1)
-
-        duration = round(time.time() - start_time, 2)
-        report = f"✅ **SELESAI!**\n📊 Total: {len(data)}\n✅ Sukses: {suc}\n❌ Gagal: {fail}\n⏱ {duration}s"
-        try: await status_msg.edit_text(report)
-        except: await update.message.reply_text(report)
+        duration = int(time.time() - start_time)
+        await status_msg.edit_text(f"✅ **SELESAI!**\n📊 Total: {total_data:,}\n✅ Sukses: {suc:,}\n❌ Gagal: {fail:,}\n⏱ {duration}s")
 
     except Exception as e:
-        logger.error(f"Crash: {e}")
-        await update.message.reply_text(f"❌ Error: {str(e)}")
-    
-    context.user_data.pop('final_data_records', None)
-    context.user_data.pop('df_records', None)
-    context.user_data['stop_signal'] = False
+        logger.error(f"Upload Process Error: {e}")
+        await status_msg.edit_text(f"❌ **GAGAL:** {e}")
+    finally:
+        if file_path and os.path.exists(file_path): 
+            try: os.remove(file_path)
+            except: pass
+        context.user_data.clear()
     return ConversationHandler.END
 
 async def stop_upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['stop_signal'] = True
-    await update.message.reply_text("⚠️ **Menghentikan proses...** (Tunggu sebentar)")
+    await update.message.reply_text("⚠️ **Menghentikan proses...**")
     return ConversationHandler.END
 
 async def cancel(update, context): 
+    path = context.user_data.get('upload_path')
+    if path and os.path.exists(path): 
+        try: os.remove(path)
+        except: pass
     context.user_data.clear()
     await update.message.reply_text("🚫 Batal.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
