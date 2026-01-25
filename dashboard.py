@@ -1,7 +1,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL COMMAND CENTER                        #
-#                      VERSION: 8.5 (FINAL ABSOLUTE EDITION)                   #
+#                      VERSION: 8.6 (FOOTER CONTROL EDITION)                   #
 #                      ROLE:    ADMIN DASHBOARD CORE                           #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -31,14 +31,13 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CSS MASTER (CYBERPUNK GLASS-MORPHISM UI) ---
+# --- CSS MASTER (CYBERPUNK UI) ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Orbitron:wght@500;700;900&display=swap');
 
     .stApp { background-color: #0e1117; font-family: 'Inter', sans-serif; font-size: 14px; }
     
-    /* JUDUL & HEADER */
     h1, h2, h3 { 
         font-family: 'Orbitron', sans-serif !important; 
         color: #ffffff; 
@@ -46,7 +45,6 @@ st.markdown("""
         letter-spacing: 1px; 
     }
     
-    /* KOTAK STATISTIK (METRIC CARDS) */
     div[data-testid="metric-container"] {
         background: rgba(255, 255, 255, 0.03);
         border: 1px solid rgba(255, 255, 255, 0.08);
@@ -66,7 +64,6 @@ st.markdown("""
         font-size: 1.6rem !important;
     }
     
-    /* TOMBOL NEON */
     .stButton>button {
         background: linear-gradient(90deg, #0061ff 0%, #60efff 100%);
         color: #000; 
@@ -83,7 +80,6 @@ st.markdown("""
         transform: scale(1.01);
     }
 
-    /* LEADERBOARD DESIGN */
     .leaderboard-row {
         background: rgba(0, 242, 255, 0.04);
         padding: 15px; 
@@ -101,7 +97,6 @@ st.markdown("""
         font-size: 1.1rem;
     }
 
-    /* TECH BOX & GRID PERSONIL */
     .tech-box { 
         background: rgba(0, 242, 255, 0.05); 
         border-left: 4px solid #00f2ff; 
@@ -134,8 +129,6 @@ st.markdown("""
         font-family: 'Orbitron'; 
         font-size: 1.1rem; 
     }
-
-    /* SIDEBAR & TABS */
     .stTabs [data-baseweb="tab"] { 
         height: 50px; 
         padding: 0 30px; 
@@ -144,7 +137,23 @@ st.markdown("""
     }
     
     header {visibility: hidden;} 
-    footer {visibility: hidden;}
+    
+    /* CUSTOM FOOTER STYLE */
+    .footer-text {
+        text-align: center;
+        color: #888;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 0.8rem;
+        margin-top: 20px;
+        opacity: 0.7;
+    }
+    .footer-quote {
+        text-align: center;
+        color: #00f2ff;
+        font-style: italic;
+        font-size: 0.9rem;
+        margin-bottom: 10px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -158,520 +167,235 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 
 @st.cache_resource
 def init_connection():
-    try:
-        return create_client(URL, KEY)
-    except Exception as e:
-        st.error(f"Gagal koneksi ke database: {e}")
-        return None
+    try: return create_client(URL, KEY)
+    except: return None
 
 supabase = init_connection()
 
-# --- MANAJEMEN STATUS DASHBOARD (SESSION STATE) ---
-if 'authenticated' not in st.session_state:
-    st.session_state['authenticated'] = False
+if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
+if 'upload_stage' not in st.session_state: st.session_state['upload_stage'] = 'idle'
+if 'upload_data_cache' not in st.session_state: st.session_state['upload_data_cache'] = None
+if 'upload_found_cols' not in st.session_state: st.session_state['upload_found_cols'] = []
+if 'upload_result' not in st.session_state: st.session_state['upload_result'] = None
 
-if 'upload_stage' not in st.session_state:
-    st.session_state['upload_stage'] = 'idle'
-
-if 'upload_data_cache' not in st.session_state:
-    st.session_state['upload_data_cache'] = None
-
-if 'upload_found_cols' not in st.session_state:
-    st.session_state['upload_found_cols'] = []
-
-if 'upload_result' not in st.session_state:
-    st.session_state['upload_result'] = None
-
-# --- DATABASE CRUD FUNCTIONS ---
+# --- DATABASE CRUD ---
 def get_total_asset_count():
-    try:
-        res = supabase.table('kendaraan').select('*', count='exact', head=True).execute()
-        return res.count
-    except:
-        return 0
-
+    try: return supabase.table('kendaraan').select('*', count='exact', head=True).execute().count
+    except: return 0
 def get_all_users():
     try:
         res = supabase.table('users').select('*').execute()
         df = pd.DataFrame(res.data)
-        if not df.empty:
-            df['user_id'] = df['user_id'].astype(str)
+        if not df.empty: df['user_id'] = df['user_id'].astype(str)
         return df
-    except:
-        return pd.DataFrame()
-
+    except: return pd.DataFrame()
 def get_hit_counts():
     try:
         res = supabase.table('finding_logs').select('user_id').execute()
-        df_logs = pd.DataFrame(res.data)
-        if df_logs.empty:
-            return pd.Series()
-        return df_logs['user_id'].astype(str).value_counts()
-    except:
-        return pd.Series()
-
+        df = pd.DataFrame(res.data)
+        return df['user_id'].astype(str).value_counts() if not df.empty else pd.Series()
+    except: return pd.Series()
 def get_active_hunters_30m():
     try:
-        # Waktu 30 menit yang lalu
-        threshold = datetime.now(timezone.utc) - timedelta(minutes=30)
-        res = supabase.table('finding_logs').select('user_id').gte('created_at', threshold.isoformat()).execute()
-        df = pd.DataFrame(res.data)
-        if df.empty:
-            return 0
-        return df['user_id'].nunique()
-    except:
-        return 0
-
-def update_user_status(user_id, new_status):
+        t = datetime.now(timezone.utc) - timedelta(minutes=30)
+        res = supabase.table('finding_logs').select('user_id').gte('created_at', t.isoformat()).execute()
+        return pd.DataFrame(res.data)['user_id'].nunique() if res.data else 0
+    except: return 0
+def update_user_status(uid, stat):
+    try: supabase.table('users').update({'status': stat}).eq('user_id', uid).execute(); return True
+    except: return False
+def add_user_quota(uid, days):
     try:
-        supabase.table('users').update({'status': new_status}).eq('user_id', user_id).execute()
-        return True
-    except:
-        return False
-
-def add_user_quota(user_id, days):
-    try:
-        res = supabase.table('users').select('expiry_date').eq('user_id', user_id).execute()
+        res = supabase.table('users').select('expiry_date').eq('user_id', uid).execute()
         now = datetime.utcnow()
-        
-        if res.data and res.data[0]['expiry_date']:
-            curr_exp = datetime.fromisoformat(res.data[0]['expiry_date'].replace('Z', ''))
-            base_date = curr_exp if curr_exp > now else now
-        else:
-            base_date = now
-            
-        new_expiry = (base_date + timedelta(days=days)).isoformat()
-        supabase.table('users').update({'expiry_date': new_expiry}).eq('user_id', user_id).execute()
-        return True
-    except:
-        return False
-
-def delete_user_permanent(user_id):
-    try:
-        supabase.table('users').delete().eq('user_id', user_id).execute()
-        return True
-    except:
-        return False
+        base = datetime.fromisoformat(res.data[0]['expiry_date'].replace('Z', '')) if res.data and res.data[0]['expiry_date'] and datetime.fromisoformat(res.data[0]['expiry_date'].replace('Z', '')) > now else now
+        supabase.table('users').update({'expiry_date': (base + timedelta(days=days)).isoformat()}).eq('user_id', uid).execute(); return True
+    except: return False
+def delete_user_permanent(uid):
+    try: supabase.table('users').delete().eq('user_id', uid).execute(); return True
+    except: return False
 
 # ##############################################################################
-# BAGIAN 3: ENGINE PINTAR (ANTI-ERROR & UPLOAD)
+# BAGIAN 3: ENGINE PINTAR
 # ##############################################################################
 COLUMN_ALIASES = {
-    'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'plate_number', 'platenumber', 'plate_no'],
-    'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'brand', 'tipeunit'],
-    'tahun': ['tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture'],
+    'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi'],
+    'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'deskripsiunit', 'merk', 'object', 'kendaraan'],
+    'tahun': ['tahun', 'year', 'thn', 'rakitan', 'th'],
     'warna': ['warna', 'color', 'colour', 'cat'],
-    'noka': ['noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 'rangka', 'no rangka', 'chassis_number'],
+    'noka': ['noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 'rangka', 'no rangka'],
     'nosin': ['nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'no mesin', 'engine_number'],
     'finance': ['finance', 'leasing', 'lising', 'multifinance', 'mitra', 'principal', 'client'],
-    'ovd': ['ovd', 'overdue', 'dpd', 'keterlambatan', 'odh', 'hari', 'telat', 'aging', 'days_overdue', 'lates', 'over_due', 'od'],
+    'ovd': ['ovd', 'overdue', 'dpd', 'keterlambatan', 'odh', 'hari', 'telat', 'aging'],
     'branch': ['branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 'wilayah']
 }
-
-def normalize_text(text):
-    return ''.join(e for e in str(text) if e.isalnum()).lower()
-
+def normalize_text(t): return ''.join(e for e in str(t) if e.isalnum()).lower()
 def fix_header_position(df):
-    """Mencari lokasi header yang benar (MTF Fix)."""
-    target_aliases = [normalize_text(a) for a in COLUMN_ALIASES['nopol']]
+    target = [normalize_text(a) for a in COLUMN_ALIASES['nopol']]
     for i in range(min(30, len(df))):
-        row_vals = [normalize_text(str(x)) for x in df.iloc[i].values]
-        if any(alias in row_vals for alias in target_aliases):
-            df.columns = df.iloc[i]
-            df = df.iloc[i+1:].reset_index(drop=True)
-            return df
+        vals = [normalize_text(str(x)) for x in df.iloc[i].values]
+        if any(a in vals for a in target):
+            df.columns = df.iloc[i]; return df.iloc[i+1:].reset_index(drop=True)
     return df
-
 def smart_rename_columns(df):
-    """Rename kolom dengan proteksi duplikat."""
-    new_cols = {}
-    found_std_cols = []
-    df.columns = [str(c).strip().replace('"', '').replace("'", "").replace('\ufeff', '') for c in df.columns]
-    
+    new, found = {}, []
+    df.columns = [str(c).strip().replace('\ufeff', '') for c in df.columns]
     for col in df.columns:
-        clean_name = normalize_text(col)
-        renamed = False
-        for std_name, aliases in COLUMN_ALIASES.items():
-            aliases_clean = [normalize_text(a) for a in aliases]
-            if clean_name == std_name or clean_name in aliases_clean:
-                # ANTI-DUPLICATE CHECK
-                if std_name not in new_cols.values():
-                    new_cols[col] = std_name
-                    found_std_cols.append(std_name)
-                renamed = True
+        clean = normalize_text(col)
+        for std, aliases in COLUMN_ALIASES.items():
+            if clean == std or clean in [normalize_text(a) for a in aliases]:
+                if std not in new.values(): new[col] = std; found.append(std)
                 break
-        if not renamed:
-            new_cols[col] = col
-            
-    df.rename(columns=new_cols, inplace=True)
-    # Buang kolom kembar jika ada
-    df = df.loc[:, ~df.columns.duplicated()]
-    return df, found_std_cols
-
-def standardize_leasing_name(name):
-    clean = str(name).upper().strip().replace('"', '').replace("'", "")
-    return "UNKNOWN" if clean in ['NAN', 'NULL', '', 'NONE'] else clean
-
-def read_file_robust(uploaded_file):
-    """Membaca file dengan berbagai format."""
-    fname = uploaded_file.name.lower()
-    content = uploaded_file.getvalue()
-    
-    if fname.endswith('.zip'):
-        with zipfile.ZipFile(io.BytesIO(content)) as z:
-            valid_files = [x for x in z.namelist() if x.endswith(('.csv','.xlsx','.xls','.txt'))]
-            if valid_files:
-                content = z.read(valid_files[0])
-                fname = valid_files[0].lower()
-                uploaded_file = io.BytesIO(content)
-    else:
-        uploaded_file = io.BytesIO(content)
-        
+        if col not in new: new[col] = col
+    df.rename(columns=new, inplace=True); return df.loc[:, ~df.columns.duplicated()], found
+def read_file_robust(f):
     try:
-        if fname.endswith(('.xlsx', '.xls')):
-            return pd.read_excel(uploaded_file, dtype=str)
-        else:
-            try: return pd.read_csv(uploaded_file, sep=';', dtype=str, on_bad_lines='skip')
-            except: return pd.read_csv(uploaded_file, sep=',', dtype=str, on_bad_lines='skip')
-    except:
-        return pd.DataFrame()
+        if f.name.endswith('.zip'):
+            with zipfile.ZipFile(f) as z:
+                v = [x for x in z.namelist() if x.endswith(('.csv','.xlsx','.xls'))]
+                if v: f = io.BytesIO(z.read(v[0])); f.name = v[0]
+        if f.name.endswith(('.xlsx', '.xls')): return pd.read_excel(f, dtype=str)
+        return pd.read_csv(f, sep=None, engine='python', dtype=str, on_bad_lines='skip')
+    except: return pd.DataFrame()
+def standardize_leasing_name(n): return "UNKNOWN" if str(n).upper().strip() in ['NAN','NULL',''] else str(n).upper().strip()
 
 # ##############################################################################
-# BAGIAN 4: TAMPILAN LOGIN & LOGO
+# BAGIAN 4: LOGIN SCREEN
 # ##############################################################################
-def get_img_as_base64(file):
-    try:
-        with open(file, "rb") as f:
-            return base64.b64encode(f.read()).decode()
-    except:
-        return ""
-
 if not st.session_state['authenticated']:
-    # Layout Tengah (Login)
-    c_l1, c_l2, c_l3 = st.columns([1, 6, 1])
-    with c_l2:
+    c1, c2, c3 = st.columns([1, 6, 1])
+    with c2:
         st.markdown("<br><br><br>", unsafe_allow_html=True)
-        # Menampilkan Logo Resolusi Tinggi
         if os.path.exists("logo.png"):
-            b64_logo = get_img_as_base64("logo.png")
-            st.markdown(f'''
-                <div style="display:flex;justify-content:center;margin-bottom:30px;">
-                    <img src="data:image/png;base64,{b64_logo}" width="220" style="border-radius:15px; filter: drop-shadow(0 0 10px rgba(0,242,255,0.3));">
-                </div>
-            ''', unsafe_allow_html=True)
-        
-        st.markdown("<h2 style='text-align:center;color:#00f2ff;margin-bottom:10px;'>SYSTEM LOGIN</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center;color:#888;margin-bottom:20px;'>ONE ASPAL COMMANDO v8.5</p>", unsafe_allow_html=True)
-        
-        passphrase = st.text_input("PASSPHRASE", type="password", label_visibility="collapsed")
-        
-        if passphrase == ADMIN_PASSWORD:
-            st.session_state['authenticated'] = True
-            st.rerun()
-        elif passphrase:
-            st.error("⛔ ACCESS DENIED: Passphrase Salah.")
+            b64 = base64.b64encode(open("logo.png", "rb").read()).decode()
+            st.markdown(f'<div style="display:flex;justify-content:center;margin-bottom:30px;"><img src="data:image/png;base64,{b64}" width="220" style="border-radius:15px; filter: drop-shadow(0 0 10px rgba(0,242,255,0.3));"></div>', unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align:center;color:#00f2ff;'>SYSTEM LOGIN</h2>", unsafe_allow_html=True)
+        pwd = st.text_input("PASSPHRASE", type="password", label_visibility="collapsed")
+        if pwd == ADMIN_PASSWORD: st.session_state['authenticated'] = True; st.rerun()
     st.stop()
 
 # ##############################################################################
-# BAGIAN 5: DASHBOARD UTAMA
+# BAGIAN 5: SIDEBAR (HANYA LOGO) & HEADER
 # ##############################################################################
 with st.sidebar:
-    # 1. Menampilkan Logo
-    if os.path.exists("logo.png"):
-        st.image("logo.png", width=220)
-    
-    st.markdown("### OPERATIONS")
-    
-    # 2. Tombol Refresh
-    if st.button("🔄 REFRESH SYSTEM"):
-        st.cache_data.clear()
-        st.rerun()
-    
-    # 3. TOMBOL LOGOUT (Pastikan bagian ini ada)
-    if st.button("🚪 LOGOUT SESSION"):
-        st.session_state['authenticated'] = False
-        st.rerun()
-    
-    st.markdown("---")
+    if os.path.exists("logo.png"): st.image("logo.png", width=220)
     st.caption("ONE ASPAL SYSTEM\nStatus: ONLINE 🟢")
 
-
-# --- HEADER DASHBOARD ---
-st.markdown("## ONE ASPAL COMMANDO v8.5")
+st.markdown("## ONE ASPAL COMMANDO v8.6")
 st.markdown("<span style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE INTELLIGENCE COMMAND CENTER</span>", unsafe_allow_html=True)
 st.markdown("---")
 
-# --- METRIK UTAMA (5 KOLOM RAPI) ---
-df_all_users = get_all_users()
-total_data_assets = get_total_asset_count()
-hit_stats = get_hit_counts()
-hunters_30m = get_active_hunters_30m()
-
-# Hitung data metrik
-mitra_reg = 0
-pic_reg = 0
-ready_duty = 0
-
-if not df_all_users.empty:
-    mitra_reg = len(df_all_users[df_all_users['role'] != 'pic'])
-    pic_reg = len(df_all_users[df_all_users['role'] == 'pic'])
-    # Pastikan quota angka
-    df_all_users['quota'] = pd.to_numeric(df_all_users['quota'], errors='coerce').fillna(0)
-    ready_duty = len(df_all_users[(df_all_users['status'] == 'active') & (df_all_users['quota'] > 0)])
-
+df_u = get_all_users()
 m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric("ASSETS", f"{total_data_assets:,}", "DATABASE")
-m2.metric("LIVE USERS", f"{hunters_30m}", "30M ACTIVE")
-m3.metric("TOTAL MITRA", f"{mitra_reg}", "REGISTERED")
-m4.metric("READY", f"{ready_duty}", "ACTIVE & QUOTA > 0")
-m5.metric("Pic Leasing", f"{pic_reg}", "INTERNAL")
-
+m1.metric("ASSETS", f"{get_total_asset_count():,}", "DATABASE")
+m2.metric("LIVE USERS", f"{get_active_hunters_30m()}", "30M ACTIVE")
+m3.metric("MITRA", f"{len(df_u[df_u['role']!='pic']) if not df_u.empty else 0}", "REGISTERED")
+m4.metric("READY", f"{len(df_u[(df_u['status']=='active') & (pd.to_numeric(df_u['quota'], errors='coerce').fillna(0)>0)]) if not df_u.empty else 0}", "QUOTA > 0")
+m5.metric("PIC LEASING", f"{len(df_u[df_u['role']=='pic']) if not df_u.empty else 0}", "INTERNAL")
 st.write("")
 
 # ##############################################################################
-# BAGIAN 6: FITUR TABS
+# BAGIAN 6: FITUR TABS (LEADERBOARD, PERSONIL, UPLOAD, HAPUS)
 # ##############################################################################
 tab1, tab2, tab3, tab4 = st.tabs(["🏆 LEADERBOARD", "🛡️ PERSONIL", "📤 UPLOAD", "🗑️ HAPUS"])
 
-# --- TAB 1: LEADERBOARD (TOP 10) ---
 with tab1:
-    st.markdown("### 🏆 TOP 10 RANGERS (LIVE HITS)")
-    if df_all_users.empty or hit_stats.empty:
-        st.info("BELUM ADA DATA TEMUAN HARI INI.")
-    else:
-        df_rank = df_all_users.copy()
-        df_rank['real_hits'] = df_rank['user_id'].map(hit_stats).fillna(0).astype(int)
-        # Filter hanya Matel/Korlap
-        df_rank = df_rank[df_rank['role'] != 'pic'].sort_values(by='real_hits', ascending=False).head(10)
-        
-        for i, row in enumerate(df_rank.iterrows(), 1):
-            data = row[1]
-            st.markdown(f'''
-                <div class="leaderboard-row">
-                    <div>
-                        <b>#{i} {data['nama_lengkap']}</b><br>
-                        <small style="color:#888;">AGENCY: {data['agency']}</small>
-                    </div>
-                    <div class="leaderboard-val">{data['real_hits']} HITS</div>
-                </div>
-            ''', unsafe_allow_html=True)
+    hits = get_hit_counts()
+    if not df_u.empty and not hits.empty:
+        df_r = df_u.copy(); df_r['h'] = df_r['user_id'].map(hits).fillna(0).astype(int)
+        for i, r in enumerate(df_r[df_r['role']!='pic'].sort_values('h', ascending=False).head(10).iterrows(), 1):
+            st.markdown(f'<div class="leaderboard-row"><div><b>#{i} {r[1]["nama_lengkap"]}</b><br><small>{r[1]["agency"]}</small></div><div class="leaderboard-val">{r[1]["h"]} HITS</div></div>', unsafe_allow_html=True)
 
-# --- TAB 2: PERSONIL (GRID LENGKAP + SEMUA TOMBOL) ---
 with tab2:
-    if df_all_users.empty:
-        st.warning("DATABASE USER KOSONG.")
-    else:
-        c_div, c_none = st.columns([1, 2])
-        with c_div:
-            div_sel = st.radio("SELECT DIVISION", ["🛡️ MATEL", "🏦 Pic Leasing"], horizontal=True, label_visibility="collapsed")
-        
-        target_df = df_all_users[df_all_users['role'] != 'pic'] if "MATEL" in div_sel else df_all_users[df_all_users['role'] == 'pic']
-        target_df = target_df.sort_values('nama_lengkap')
-        
-        agent_list = [f"{r['nama_lengkap']} | {r['agency']}" for idx, r in target_df.iterrows()]
-        search_agent = st.selectbox("SEARCH AGENT", agent_list, label_visibility="collapsed")
-        
-        if search_agent:
-            # Ambil User ID dari string terpilih
-            selected_nama = search_agent.split(' | ')[0]
-            user_data = target_df[target_df['nama_lengkap'] == selected_nama].iloc[0]
-            uid = user_data['user_id']
-            real_total_hits = hit_stats.get(uid, 0)
-            
-            # --- INFO GRID (KEMBALI UTUH) ---
-            st.markdown(f'''
-                <div class="tech-box">
-                    <h3 style="margin:0;">{user_data['nama_lengkap']} | <span style="color:#00f2ff;">{user_data['agency']}</span></h3>
-                    <hr style="border-color:rgba(255,255,255,0.1); margin:15px 0;">
-                    <div class="info-grid">
-                        <div class="info-item">
-                            <span class="info-label">STATUS</span>
-                            <span class="info-value" style="color:{'#0f0' if user_data['status']=='active' else '#f44'}">{user_data['status'].upper()}</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">EXPIRY DATE</span>
-                            <span class="info-value">{str(user_data['expiry_date'])[:10]}</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">REMAINING QUOTA</span>
-                            <span class="info-value">{user_data.get('quota',0):,}</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">USAGE (TODAY)</span>
-                            <span class="info-value">{user_data.get('daily_usage',0)}x</span>
-                        </div>
-                        <div class="info-item" style="grid-column: span 2; border: 1px solid #00f2ff;">
-                            <span class="info-label">LIFETIME FIELD HITS</span>
-                            <span class="info-value" style="color:#00f2ff; font-size:1.4rem;">{real_total_hits} UNITS FOUND</span>
-                        </div>
-                    </div>
-                </div>
-            ''', unsafe_allow_html=True)
-            
-            # --- TOMBOL MANAJEMEN ---
-            c_in, c_ext = st.columns([1, 2])
-            with c_in:
-                days_add = st.number_input("DAYS", 1, 365, 30, label_visibility="collapsed")
-            with c_ext:
-                if st.button(f"➕ EXTEND ACCESS (+{days_add} DAYS)"):
-                    if add_user_quota(uid, days_add):
-                        st.success("MASA AKTIF DIPERPANJANG."); time.sleep(1); st.rerun()
-            
-            st.divider()
-            
-            b_freeze, b_delete = st.columns(2)
-            with b_freeze:
-                if user_data['status'] == 'active':
-                    if st.button("⛔ FREEZE ACCOUNT (BAN)"):
-                        update_user_status(uid, 'banned'); st.rerun()
-                else:
-                    if st.button("✅ ACTIVATE ACCOUNT"):
-                        update_user_status(uid, 'active'); st.rerun()
-            
-            with b_delete:
-                if st.button("🗑️ DELETE PERMANENT"):
-                    if delete_user_permanent(uid):
-                        st.warning("USER TELAH DIHAPUS."); time.sleep(1); st.rerun()
+    if not df_u.empty:
+        div = st.radio("DIV", ["🛡️ MATEL", "🏦 Pic Leasing"], horizontal=True, label_visibility="collapsed")
+        target = df_u[df_u['role']!='pic'] if "MATEL" in div else df_u[df_u['role']=='pic']
+        sel = st.selectbox("SEARCH", [f"{r['nama_lengkap']} | {r['agency']}" for i, r in target.iterrows()], label_visibility="collapsed")
+        if sel:
+            uid = target[target['nama_lengkap']==sel.split(' | ')[0]].iloc[0]['user_id']
+            u = target[target['user_id']==uid].iloc[0]
+            st.markdown(f'<div class="tech-box"><h3>{u["nama_lengkap"]}</h3><div class="info-grid"><div class="info-item"><span class="info-label">STATUS</span><span class="info-value" style="color:{"#0f0" if u["status"]=="active" else "#f00"}">{u["status"].upper()}</span></div><div class="info-item"><span class="info-label">EXPIRY</span><span class="info-value">{str(u["expiry_date"])[:10]}</span></div><div class="info-item"><span class="info-label">QUOTA</span><span class="info-value">{u.get("quota",0)}</span></div><div class="info-item"><span class="info-label">USAGE</span><span class="info-value">{u.get("daily_usage",0)}x</span></div><div class="info-item" style="grid-column:span 2;border:1px solid #00f2ff;"><span class="info-label">LIFETIME HITS</span><span class="info-value" style="color:#00f2ff;">{hits.get(uid,0)} FOUND</span></div></div></div>', unsafe_allow_html=True)
+            d = st.number_input("DAYS", 1, 365, 30, label_visibility="collapsed")
+            if st.button(f"➕ EXTEND (+{d} DAYS)"): add_user_quota(uid, d); st.success("OK"); st.rerun()
+            b1, b2 = st.columns(2)
+            with b1: 
+                if st.button("⛔ FREEZE" if u['status']=='active' else "✅ ACTIVATE"): update_user_status(uid, 'banned' if u['status']=='active' else 'active'); st.rerun()
+            with b2:
+                if st.button("🗑️ DELETE"): delete_user_permanent(uid); st.rerun()
 
-# --- TAB 3: UPLOAD (INTELLIGENCE MODE + REPORTING) ---
 with tab3:
-    st.markdown("### 📤 UPLOAD INTELLIGENCE")
-    
-    # TAHAP 1: IDLE (Upload File)
     if st.session_state['upload_stage'] == 'idle':
-        file_up = st.file_uploader("DROP DATA FILE", type=['xlsx','csv','txt','zip'], label_visibility="collapsed")
-        if file_up and st.button("🔍 ANALISA FILE"):
-            df_raw_file = read_file_robust(file_up)
-            if not df_raw_file.empty:
-                # MTF Fix: Scan Header
-                df_fixed_header = fix_header_position(df_raw_file)
-                df_standard, found_cols = smart_rename_columns(df_fixed_header)
-                
-                if 'nopol' in df_standard.columns:
-                    st.session_state['upload_data_cache'] = df_standard
-                    st.session_state['upload_found_cols'] = found_cols
-                    st.session_state['upload_stage'] = 'preview'
-                    st.rerun()
-                else:
-                    st.error("❌ CRITICAL ERROR: Kolom NOPOL tidak ditemukan dalam file.")
-            else:
-                st.error("❌ FILE KOSONG ATAU TIDAK TERBACA.")
-
-    # TAHAP 2: PREVIEW
+        up = st.file_uploader("DROP FILE", type=['xlsx','csv','txt','zip'], label_visibility="collapsed")
+        if up and st.button("🔍 ANALISA"):
+            df = read_file_robust(up)
+            if not df.empty:
+                df, cols = smart_rename_columns(fix_header_position(df))
+                if 'nopol' in df.columns: st.session_state['upload_data_cache'], st.session_state['upload_found_cols'], st.session_state['upload_stage'] = df, cols, 'preview'; st.rerun()
+                else: st.error("NOPOL NOT FOUND")
     elif st.session_state['upload_stage'] == 'preview':
-        df_preview = st.session_state['upload_data_cache']
-        cols_found = st.session_state['upload_found_cols']
-        
-        st.info(f"✅ SCAN BERHASIL: Ditemukan {', '.join([x.upper() for x in cols_found])} | 📊 TOTAL: {len(df_preview):,} Unit")
-        st.dataframe(df_preview.head(10), use_container_width=True)
-        
-        has_leasing_col = 'finance' in df_preview.columns
-        input_leasing = ""
-        
-        col_l1, col_l2 = st.columns([2, 1])
-        with col_l1:
-            if not has_leasing_col:
-                st.error("⚠️ LEASING TIDAK TERDETEKSI!")
-                input_leasing = st.text_input("👉 Masukkan Nama Leasing (WAJIB):").strip().upper()
-            else:
-                st.success("✅ LEASING TERDETEKSI OTOMATIS")
-                if st.checkbox("Timpa nama leasing dari file?"):
-                    input_leasing = st.text_input("Ketik Nama Leasing Baru:").strip().upper()
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        btn_cancel, btn_update = st.columns(2)
-        with btn_cancel:
-            if st.button("❌ BATAL / RESET"):
-                st.session_state['upload_stage'] = 'idle'
-                st.session_state['upload_data_cache'] = None
-                st.rerun()
-        
-        with btn_update:
-            is_valid_to_upload = not (not has_leasing_col and not input_leasing)
-            if st.button("🚀 UPDATE DATABASE", disabled=not is_valid_to_upload):
-                # Terapkan Nama Leasing
-                if input_leasing:
-                    df_preview['finance'] = standardize_leasing_name(input_leasing)
-                elif has_leasing_col:
-                    df_preview['finance'] = df_preview['finance'].apply(standardize_leasing_name)
-                
-                # Pembersihan Akhir
-                df_preview['nopol'] = df_preview['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
-                df_preview = df_preview.drop_duplicates(subset=['nopol'], keep='last')
-                
-                # Pastikan semua kolom ada
-                db_cols = ['nopol', 'type', 'finance', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'branch']
-                for c in db_cols:
-                    if c not in df_preview.columns:
-                        df_preview[c] = "-"
-                    else:
-                        df_preview[c] = df_preview[c].fillna("-")
-                
-                # Konversi ke JSON records
-                final_records = json.loads(json.dumps(df_preview[db_cols].to_dict('records'), default=str))
-                
-                # --- PROSES UPLOAD ---
-                suc_count, fail_count = 0, 0
-                prog_bar = st.progress(0, text="🚀 Memulai Sinkronisasi...")
-                
-                for i in range(0, len(final_records), 1000):
-                    batch = final_records[i:i+1000]
-                    try:
-                        supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
-                        suc_count += len(batch)
-                    except:
-                        fail_count += len(batch)
-                    
-                    prog_bar.progress(min((i+1000)/len(final_records), 1.0), text=f"🚀 Memproses {min(i+1000, len(final_records)):,} / {len(final_records):,}...")
-                
-                st.session_state['upload_result'] = {'suc': suc_count, 'fail': fail_count}
-                st.session_state['upload_stage'] = 'complete'
-                st.rerun()
-
-    # TAHAP 3: COMPLETE (REPORTING)
+        df = st.session_state['upload_data_cache']
+        st.info(f"COLS: {st.session_state['upload_found_cols']} | TOTAL: {len(df)}")
+        st.dataframe(df.head(), use_container_width=True)
+        l_in = st.text_input("LEASING NAME:") if 'finance' not in df.columns else ""
+        c1, c2 = st.columns(2)
+        with c1: 
+            if st.button("❌ RESET"): st.session_state['upload_stage']='idle'; st.rerun()
+        with c2:
+            if st.button("🚀 UPDATE DATABASE"):
+                if l_in: df['finance'] = standardize_leasing_name(l_in)
+                df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
+                df = df.drop_duplicates(subset=['nopol'])
+                for c in ['nopol','type','finance','tahun','warna','noka','nosin','ovd','branch']: 
+                    if c not in df.columns: df[c] = "-"
+                    else: df[c] = df[c].fillna("-")
+                recs = json.loads(json.dumps(df[['nopol','type','finance','tahun','warna','noka','nosin','ovd','branch']].to_dict('records'), default=str))
+                s, f, pb = 0, 0, st.progress(0, "Uploading...")
+                for i in range(0, len(recs), 1000):
+                    try: supabase.table('kendaraan').upsert(recs[i:i+1000], on_conflict='nopol').execute(); s+=len(recs[i:i+1000])
+                    except: f+=len(recs[i:i+1000])
+                    pb.progress(min((i+1000)/len(recs), 1.0))
+                st.session_state['upload_result'] = {'suc': s, 'fail': f}; st.session_state['upload_stage'] = 'complete'; st.rerun()
     elif st.session_state['upload_stage'] == 'complete':
-        res = st.session_state.get('upload_result', {'suc': 0, 'fail': 0})
-        st.markdown(f'''
-            <div class="tech-box" style="border-color:#00ff00;">
-                <h3 style="color:#00ff00; margin:0;">MISSION COMPLETE</h3>
-                <p style="margin:10px 0;">Data Sinkronisasi Berhasil Diproses:</p>
-                <div class="info-grid">
-                    <div class="info-item">
-                        <span class="info-label">BERHASIL DIUPDATE</span>
-                        <span class="info-value" style="color:#0f0;">{res['suc']:,} UNITS</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">GAGAL (ERROR)</span>
-                        <span class="info-value" style="color:#f44;">{res['fail']:,} UNITS</span>
-                    </div>
-                </div>
-            </div>
-        ''', unsafe_allow_html=True)
-        
-        if st.button("⬅️ BACK TO DASHBOARD"):
-            st.session_state['upload_stage'] = 'idle'
-            st.session_state['upload_data_cache'] = None
-            st.rerun()
+        r = st.session_state['upload_result']
+        st.success(f"SUCCESS: {r['suc']} | FAIL: {r['fail']}")
+        if st.button("BACK"): st.session_state['upload_stage']='idle'; st.rerun()
 
-# --- TAB 4: HAPUS ---
 with tab4:
-    st.markdown("### 🗑️ PURGE DATA PROTOCOL")
-    purge_file = st.file_uploader("UPLOAD TARGET LIST (NOPOL)", type=['xlsx','csv','txt'])
-    
-    if purge_file and st.button("🔥 EXECUTE DATA PURGE"):
-        df_purge = read_file_robust(purge_file)
-        if not df_purge.empty:
-            df_purge, _ = smart_rename_columns(df_purge)
-            if 'nopol' in df_purge.columns:
-                targets = list(set(df_purge['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper().tolist()))
-                
-                pb_purge = st.progress(0, text="🔥 Menghapus unit dari database...")
-                for i in range(0, len(targets), 200):
-                    batch_del = targets[i:i+200]
-                    supabase.table('kendaraan').delete().in_('nopol', batch_del).execute()
-                    pb_purge.progress(min((i+200)/len(targets), 1.0))
-                
-                st.success(f"✅ BERHASIL: {len(targets):,} Unit Telah Dihapus."); time.sleep(1); st.rerun()
-            else:
-                st.error("❌ KOLOM NOPOL TIDAK DITEMUKAN.")
+    up = st.file_uploader("PURGE LIST", type=['xlsx','csv'])
+    if up and st.button("🔥 EXECUTE"):
+        df = read_file_robust(up); df, _ = smart_rename_columns(df)
+        if 'nopol' in df.columns:
+            t = list(set(df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper().tolist()))
+            pb = st.progress(0, "Deleting..."); batch = 200
+            for i in range(0, len(t), batch):
+                supabase.table('kendaraan').delete().in_('nopol', t[i:i+batch]).execute()
+                pb.progress(min((i+batch)/len(t), 1.0))
+            st.success("DELETED"); time.sleep(1); st.rerun()
+
+# ##############################################################################
+# BAGIAN 7: FOOTER & CONTROLS (THE COOL PART)
+# ##############################################################################
+st.markdown("<br><hr style='border-color: #00f2ff; opacity: 0.3;'><br>", unsafe_allow_html=True)
+
+# Layout Footer: Tombol di kiri dan kanan, tengah kosong agar seimbang
+cf1, cf2, cf3 = st.columns([1, 2, 1])
+
+with cf1:
+    if st.button("🔄 REFRESH SYSTEM", key="footer_refresh"):
+        st.cache_data.clear()
+        st.rerun()
+
+with cf3:
+    if st.button("🚪 LOGOUT SESSION", key="footer_logout"):
+        st.session_state['authenticated'] = False
+        st.rerun()
+
+# Teks Keren di Bawah
+st.markdown("""
+    <div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div>
+    <div class="footer-text">
+        SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>
+        COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>
+        OPERATIONAL COMMAND CENTER v8.6
+    </div>
+""", unsafe_allow_html=True)
