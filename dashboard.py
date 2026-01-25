@@ -10,10 +10,10 @@ from dotenv import load_dotenv
 st.set_page_config(
     page_title="One Aspal Bot Commando",
     page_icon="🦅",
-    layout="wide" # Layout WIDE agar muat banyak data statistik
+    layout="wide"
 )
 
-# --- CSS CUSTOM (TAMPILAN COMMANDO) ---
+# --- CSS CUSTOM ---
 st.markdown("""
 <style>
     .stButton>button {
@@ -39,18 +39,6 @@ st.markdown("""
         text-align: center;
         border: 1px solid #e0e0e0;
     }
-    .big-number {
-        font-size: 32px;
-        font-weight: bold;
-        color: #1f2937;
-    }
-    .stat-label {
-        color: #6b7280;
-        font-size: 14px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-    }
-    h1 { color: #111827; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -72,43 +60,31 @@ if 'upload_success' not in st.session_state: st.session_state['upload_success'] 
 if 'last_stats' not in st.session_state: st.session_state['last_stats'] = {}
 if 'uploader_key' not in st.session_state: st.session_state['uploader_key'] = 0
 
-# --- 4. FUNGSI INTELIJEN (DATA STATS) ---
-
-@st.cache_data(ttl=60) # Cache 60 detik biar gak berat loading terus
+# --- 4. FUNGSI INTELIJEN ---
+@st.cache_data(ttl=60)
 def get_total_asset_count():
-    try:
-        # Mengambil jumlah total data (Head request only, sangat cepat)
-        count = supabase.table('kendaraan').select('*', count='exact', head=True).execute().count
-        return count
+    try: return supabase.table('kendaraan').select('*', count='exact', head=True).execute().count
     except: return 0
 
 @st.cache_data(ttl=60)
 def get_user_stats():
     try:
-        # Ambil semua user (ringan karena kolom tertentu saja)
         res = supabase.table('users').select('nama_lengkap, agency, role, status, no_hp, alamat').execute()
-        df = pd.DataFrame(res.data)
-        return df
+        return pd.DataFrame(res.data)
     except: return pd.DataFrame()
 
-@st.cache_data(ttl=300) # Cache 5 menit karena query leasing berat
+@st.cache_data(ttl=300)
 def get_leasing_distribution():
-    # CATATAN: Untuk jutaan data, sebaiknya pakai RPC Supabase. 
-    # Ini versi Python (Fetch Finance Column Only)
     try:
-        # Kita ambil sample 10.000 data terakhir untuk tren, atau semua kalau kuat
-        # Agar tidak crash memory, kita batasi fetch misal 50.000 baris terbaru
         res = supabase.table('kendaraan').select('finance').order('created_at', desc=True).limit(50000).execute()
         df = pd.DataFrame(res.data)
         if df.empty: return pd.DataFrame()
-        
-        # Hitung distribusi
         counts = df['finance'].value_counts().reset_index()
         counts.columns = ['Leasing', 'Jumlah Unit (Sample)']
         return counts
     except: return pd.DataFrame()
 
-# --- 5. LOGIKA CLEANING (SAMA) ---
+# --- 5. LOGIKA CLEANING ---
 COLUMN_ALIASES = {
     'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'plate_number', 'platenumber', 'plate_no'],
     'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'brand', 'tipeunit'],
@@ -145,7 +121,7 @@ def standardize_leasing_name(name):
     return clean
 
 # --- 6. LOGOUT & LOGIN ---
-ADMIN_PASSWORD = "@Budi2542136221" 
+ADMIN_PASSWORD = "OneAspal2026"
 
 def logout():
     st.session_state['authenticated'] = False
@@ -157,20 +133,29 @@ def check_password():
         del st.session_state['password_input']
     else: st.error("⛔ Akses Ditolak!")
 
+# --- HELPER: TAMPILKAN LOGO (ANTI CRASH) ---
+def render_logo(width=150):
+    if os.path.exists("logo.png"):
+        try:
+            st.image("logo.png", width=width)
+        except Exception:
+            # Fallback jika gambar rusak
+            st.markdown("# 🦅")
+            st.caption("*(Logo Error/Corrupt)*")
+    else:
+        st.markdown("# 🦅")
+
 if not st.session_state['authenticated']:
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        # Placeholder Logo jika file belum ada
-        if os.path.exists("logo.png"): st.image("logo.png", width=150)
-        else: st.markdown("# 🦅")
+        render_logo(width=150)
         st.markdown("<h3 style='text-align: center;'>Login Commando</h3>", unsafe_allow_html=True)
         st.text_input("Password", type="password", key="password_input", on_change=check_password)
     st.stop()
 
 # --- 7. SIDEBAR ---
 with st.sidebar:
-    if os.path.exists("logo.png"): st.image("logo.png", width=200)
-    else: st.markdown("# 🦅 ONE ASPAL")
+    render_logo(width=200)
     
     st.markdown("---")
     st.markdown("### 👤 Admin Panel")
@@ -180,24 +165,20 @@ with st.sidebar:
     st.markdown("---")
     st.info("Versi: Commando v3.0\nStatus: Online 🟢")
 
-# --- 8. DASHBOARD UTAMA (COMMANDO UI) ---
+# --- 8. DASHBOARD UTAMA ---
 col_head1, col_head2 = st.columns([1, 4])
 with col_head1:
-    # Logo kecil di header (opsional)
-    if os.path.exists("logo.png"): st.image("logo.png", width=100)
-    else: st.markdown("# 🦅")
+    render_logo(width=100)
 with col_head2:
     st.title("One Aspal Bot Commando")
     st.markdown("Selamat datang, Komandan! Berikut laporan intelijen hari ini.")
 
 st.markdown("---")
 
-# === BAGIAN INTELIJEN (DATA STATISTIK) ===
-# Ambil Data (Cached)
+# === STATISTIK ===
 total_assets = get_total_asset_count()
 df_users = get_user_stats()
 
-# Filter User
 if not df_users.empty:
     mitra_lapangan = df_users[df_users['role'] != 'pic']
     mitra_leasing = df_users[df_users['role'] == 'pic']
@@ -206,7 +187,6 @@ if not df_users.empty:
 else:
     count_mitra = 0; count_pic = 0; mitra_lapangan = pd.DataFrame(); mitra_leasing = pd.DataFrame()
 
-# TAMPILAN KARTU STATISTIK (METRIC)
 m1, m2, m3 = st.columns(3)
 m1.metric("📂 TOTAL DATA ASET", f"{total_assets:,}", delta="Real-time DB")
 m2.metric("🛡️ MITRA LAPANGAN", f"{count_mitra} Personil", delta="Active Agents")
@@ -214,42 +194,32 @@ m3.metric("🏦 MITRA LEASING (PIC)", f"{count_pic} User", delta="Internal")
 
 st.markdown("### 📊 Laporan Detail")
 
-# EXPANDER 1: LEASING STATS
-with st.expander("📂 Breakdown Data Leasing (Klik untuk Buka)"):
-    st.write("Generating statistics from sample data...")
+with st.expander("📂 Breakdown Data Leasing"):
+    st.write("Generating statistics...")
     df_leasing = get_leasing_distribution()
     if not df_leasing.empty:
-        # Tampilkan Chart & Tabel Side-by-Side
         c_chart, c_table = st.columns([2, 1])
-        with c_chart:
-            st.bar_chart(df_leasing.set_index('Leasing'))
-        with c_table:
-            st.dataframe(df_leasing, use_container_width=True, height=300)
-    else:
-        st.warning("Data leasing belum tersedia atau koneksi lambat.")
+        with c_chart: st.bar_chart(df_leasing.set_index('Leasing'))
+        with c_table: st.dataframe(df_leasing, use_container_width=True, height=300)
+    else: st.warning("Data belum tersedia.")
 
-# EXPANDER 2: DAFTAR PERSONIL
 c_mitra, c_pic = st.columns(2)
-
 with c_mitra:
     with st.expander(f"🛡️ Daftar Mitra Lapangan ({count_mitra})"):
         if not mitra_lapangan.empty:
-            show_cols_mitra = mitra_lapangan[['nama_lengkap', 'agency', 'no_hp', 'alamat']]
-            st.dataframe(show_cols_mitra, use_container_width=True, hide_index=True)
+            st.dataframe(mitra_lapangan[['nama_lengkap', 'agency', 'no_hp', 'alamat']], use_container_width=True, hide_index=True)
         else: st.text("Kosong.")
 
 with c_pic:
     with st.expander(f"🏦 Daftar PIC Leasing ({count_pic})"):
         if not mitra_leasing.empty:
-            show_cols_pic = mitra_leasing[['nama_lengkap', 'agency', 'no_hp']]
-            st.dataframe(show_cols_pic, use_container_width=True, hide_index=True)
+            st.dataframe(mitra_leasing[['nama_lengkap', 'agency', 'no_hp']], use_container_width=True, hide_index=True)
         else: st.text("Kosong.")
 
 st.markdown("---")
 
-# === BAGIAN UPLOADER (OPERASIONAL) ===
+# === UPLOADER ===
 if st.session_state['upload_success']:
-    # MODE SUKSES (ROKET)
     stats = st.session_state['last_stats']
     placeholder = st.empty()
     with placeholder.container():
@@ -273,7 +243,6 @@ if st.session_state['upload_success']:
         st.rerun()
 
 else:
-    # MODE UPLOAD
     st.markdown("### 📤 Upload Data Intelijen Baru")
     uploaded_file = st.file_uploader("Drop file Excel/CSV/TXT di sini:", type=['xlsx', 'xls', 'csv', 'txt'], key=f"uploader_{st.session_state['uploader_key']}")
 
