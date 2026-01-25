@@ -1,7 +1,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 6.29 (STABLE - ANTI TIMEOUT EDITION)           #
+#                      VERSION: 6.30 (FINAL SYNC - INTELLIGENCE READY)         #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -58,7 +58,6 @@ except ImportError:
 
 # --- KONFIGURASI ADMIN ---
 # Masukkan ID Telegram Anda di sini agar fitur /rekap dan Notifikasi jalan
-# Contoh: ADMIN_IDS = ['123456789', '987654321']
 ADMIN_IDS = ['7530512170']
 
 # ##############################################################################
@@ -100,7 +99,7 @@ BANK_INFO = """
 
 # --- DIAGNOSTIC STARTUP ---
 print("\n" + "="*50)
-print("🔍 SYSTEM DIAGNOSTIC STARTUP (v6.29)")
+print("🔍 SYSTEM DIAGNOSTIC STARTUP (v6.30)")
 print("="*50)
 
 try:
@@ -280,11 +279,18 @@ def standardize_leasing_name(name):
     clean = re.sub(r'\(.*?\)', '', clean).strip()
     return clean
 
-def log_successful_hit(user_id, user_name, unit_data):
+# [CRITICAL UPDATE] LOGIC PENCATATAN LOG DIUBAH MENERIMA USER OBJECT
+def log_successful_hit(user_db, unit_data):
     try:
         leasing_raw = str(unit_data.get('finance', 'UNKNOWN')).upper().strip()
         nopol_val = unit_data.get('nopol', '-')
         unit_val = unit_data.get('type', '-')
+
+        # Ambil data dari object user_db yang sudah dipassing
+        user_id = user_db.get('user_id')
+        user_name = user_db.get('nama_lengkap', 'Unknown')
+        user_hp = user_db.get('no_hp', '-')
+        user_agency = user_db.get('agency', '-')
 
         payload = {
             "leasing": leasing_raw,
@@ -292,8 +298,8 @@ def log_successful_hit(user_id, user_name, unit_data):
             "unit": unit_val,
             "user_id": user_id,
             "nama_matel": user_name,
-            "no_hp": "-", 
-            "nama_pt": "-" 
+            "no_hp": user_hp,      # SEKARANG TERISI
+            "nama_pt": user_agency # SEKARANG TERISI
         }
         supabase.table('finding_logs').insert(payload).execute()
         
@@ -1461,7 +1467,8 @@ async def show_unit_detail_original(update, context, d, u):
     await notify_leasing_group(context, u, d)   # Ke Leasing
     await notify_agency_group(context, u, d)    # Ke Agency
     increment_daily_usage(u['user_id'], u.get('daily_usage', 0))
-    log_successful_hit(u['user_id'], u['nama_lengkap'], d)
+    # [FIX CALL] Pass full user object 'u' instead of just id/name
+    log_successful_hit(u, d)
 
 async def show_multi_choice(update, context, data_list, keyword):
     global GLOBAL_INFO; info_txt = f"📢 INFO: {GLOBAL_INFO}\n\n" if GLOBAL_INFO else ""
@@ -1794,7 +1801,7 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v6.29 (TIMEOUT FIX) STARTING...")
+    print("🚀 ONEASPAL BOT v6.30 (INTELLIGENCE READY) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     app.add_handler(CommandHandler('stop', stop_upload_command)) # Priority
@@ -1855,5 +1862,5 @@ if __name__ == '__main__':
     
     print("⏰ Jadwal Cleanup Otomatis: AKTIF (Jam 03:00 WIB)")
 
-    print("✅ BOT ONLINE! (v6.29 - STABLE MASTERPIECE ULTRA)")
+    print("✅ BOT ONLINE! (v6.30 - INTELLIGENCE READY)")
     app.run_polling()
