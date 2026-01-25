@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. CSS MASTER (CYBERPUNK STYLE) ---
+# --- 2. CSS MASTER (CYBERPUNK STYLE - LOGO BIGGER) ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Orbitron:wght@500;700;900&display=swap');
@@ -50,10 +50,17 @@ st.markdown("""
         background-color: #1c2029; color: #00f2ff; font-family: 'Orbitron'; font-size: 1.2rem; text-align: center; border: 1px solid #303642;
     }
 
-    /* TABS */
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; background-color: transparent; }
-    .stTabs [data-baseweb="tab"] { height: 50px; background-color: #1c2029; border-radius: 8px; color: #fff; font-family: 'Orbitron'; border: 1px solid #303642; }
-    .stTabs [data-baseweb="tab"][aria-selected="true"] { background-color: #00f2ff; color: #000; border: none; box-shadow: 0 0 10px rgba(0, 242, 255, 0.5); }
+    /* LEADERBOARD TABLE */
+    .leaderboard-row {
+        background: rgba(0, 242, 255, 0.05);
+        padding: 10px; margin-bottom: 5px; border-radius: 5px;
+        border-left: 3px solid #00f2ff; display: flex; justify-content: space-between; align-items: center;
+    }
+    .leaderboard-val { font-family: 'Orbitron'; color: #00f2ff; font-weight: bold; font-size: 1.1rem; }
+
+    /* LOGO ADJUSTMENT */
+    img { margin-bottom: 10px; transition: transform 0.3s; }
+    img:hover { transform: scale(1.05); }
 
     .tech-box { background: rgba(0, 242, 255, 0.1); border-left: 5px solid #00f2ff; padding: 15px; border-radius: 5px; margin-bottom: 20px; color: #e0e0e0; }
     header {visibility: hidden;} footer {visibility: hidden;}
@@ -86,6 +93,7 @@ def get_total_asset_count():
 
 def get_all_users():
     try:
+        # Ambil extra kolom 'hits' dan 'last_active' jika ada (untuk leaderboard)
         res = supabase.table('users').select('*').execute()
         return pd.DataFrame(res.data)
     except: return pd.DataFrame()
@@ -109,7 +117,7 @@ def delete_user_permanent(user_id):
     try: supabase.table('users').delete().eq('user_id', user_id).execute(); return True
     except: return False
 
-# --- [CRITICAL] KAMUS KOLOM SESUAI PERINTAH ---
+# --- KAMUS KOLOM ---
 COLUMN_ALIASES = {
     'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'plate_number', 'platenumber', 'plate_no'],
     'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'brand', 'tipeunit'],
@@ -123,20 +131,15 @@ COLUMN_ALIASES = {
 }
 
 def normalize_text(text):
-    # Buat lowercase dan hilangkan simbol agar 'No Polisi' -> 'nopolisi' (cocok dengan alias)
     return ''.join(e for e in str(text) if e.isalnum()).lower()
 
 def smart_rename_columns(df):
     new = {}
-    # Bersihkan header kolom asli dari spasi aneh/tanda kutip
     df.columns = [str(c).strip().replace('"', '').replace("'", "").replace('\ufeff', '') for c in df.columns]
-    
     for col in df.columns:
-        clean = normalize_text(col) # Normalize header file upload
+        clean = normalize_text(col)
         renamed = False
         for std, aliases in COLUMN_ALIASES.items():
-            # Cek apakah header file (clean) ada di dalam daftar alias kita
-            # Kita juga normalize aliasnya biar 'no polisi' di dict cocok dengan 'nopolisi' hasil normalize
             aliases_clean = [normalize_text(a) for a in aliases]
             if clean == std or clean in aliases_clean:
                 new[col] = std; renamed = True; break
@@ -148,7 +151,9 @@ def standardize_leasing_name(name):
     clean = str(name).upper().strip().replace('"', '').replace("'", "")
     return "UNKNOWN" if clean in ['NAN', 'NULL', ''] else clean
 
+# --- RENDER LOGO (SIZE UPGRADED) ---
 def render_logo(width=150):
+    # Width default dinaikkan, tapi bisa di-override
     if os.path.exists("logo.png"): st.image("logo.png", width=width)
     else: st.markdown("<h1>🦅</h1>", unsafe_allow_html=True)
 
@@ -164,7 +169,8 @@ if not st.session_state['authenticated']:
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         with st.container():
             c_img = st.columns([1,1,1])[1]
-            with c_img: render_logo(width=140)
+            # LOGO LOGIN: BESAR
+            with c_img: render_logo(width=250) 
             st.markdown("<h1 style='text-align: center; color: #00f2ff;'>SYSTEM LOGIN</h1>", unsafe_allow_html=True)
             st.text_input("PASSPHRASE", type="password", key="password_input", on_change=check_password)
             if not ADMIN_PASSWORD: st.warning("⚠️ ENV NOT CONFIGURED")
@@ -172,32 +178,79 @@ if not st.session_state['authenticated']:
 
 # --- 5. DASHBOARD UTAMA ---
 with st.sidebar:
-    render_logo(width=180)
+    # LOGO SIDEBAR: BESAR (Full Width-ish)
+    render_logo(width=280) 
     st.markdown("### OPERATIONS")
     if st.button("🔄 REFRESH SYSTEM"): st.cache_data.clear(); st.rerun()
     if st.button("🚪 TERMINATE SESSION"): st.session_state['authenticated'] = False; st.rerun()
     st.markdown("---"); st.caption("ONE ASPAL SYSTEM\nStatus: ONLINE 🟢")
 
+# --- HEADER AREA ---
 c1, c2 = st.columns([1, 6])
-with c1: render_logo(width=70)
-with c2: st.markdown("## ONE ASPAL COMMANDO"); st.markdown("<div style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE OPERATIONS DASHBOARD</div>", unsafe_allow_html=True)
+with c1: 
+    # LOGO HEADER: BESAR
+    render_logo(width=150) 
+with c2: 
+    st.markdown("## ONE ASPAL COMMANDO")
+    st.markdown("<div style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE OPERATIONS DASHBOARD</div>", unsafe_allow_html=True)
 st.markdown("---")
 
+# --- METRICS & LIVE STATS ---
 df_users_raw = get_all_users()
 total_assets = get_total_asset_count()
-m1, m2, m3 = st.columns(3)
+
+# Hitung Online User (Simulasi based on 'status' active, idealnya pakai kolom 'last_active')
+# Kita ambil user yang statusnya 'active' sebagai proxy "Ready to Deploy"
+online_count = len(df_users_raw[df_users_raw['status']=='active']) if not df_users_raw.empty else 0
+mitra_total = len(df_users_raw[df_users_raw['role']!='pic']) if not df_users_raw.empty else 0
+
+m1, m2, m3, m4 = st.columns(4)
 m1.metric("TOTAL ASSETS", f"{total_assets:,}", "DATABASE")
-m2.metric("ACTIVE AGENTS", f"{len(df_users_raw[df_users_raw['role']!='pic']) if not df_users_raw.empty else 0}", "FIELD")
-m3.metric("LEASING HQ", f"{len(df_users_raw[df_users_raw['role']=='pic']) if not df_users_raw.empty else 0}", "PIC")
+m2.metric("AGENTS READY", f"{online_count}", "ONLINE (ACTIVE)") # User Aktif
+m3.metric("TOTAL MITRA", f"{mitra_total}", "REGISTERED")
+m4.metric("TOTAL PIC", f"{len(df_users_raw[df_users_raw['role']=='pic']) if not df_users_raw.empty else 0}", "LEASING HQ")
 st.write("")
 
-tab1, tab2, tab3 = st.tabs(["🛡️ PERSONIL", "📤 DATA INGEST", "🗑️ DATA PURGE"])
+tab1, tab2, tab3, tab4 = st.tabs(["🏆 LEADERBOARD", "🛡️ PERSONIL", "📤 DATA INGEST", "🗑️ DATA PURGE"])
 
-# --- TAB 1: PERSONIL ---
+# --- TAB 1: LEADERBOARD (NEW FEATURE) ---
 with tab1:
+    st.markdown("### 🏆 TOP RANGERS (HIT COUNT)")
+    if df_users_raw.empty:
+        st.info("NO DATA AVAILABLE.")
+    else:
+        # Cek apakah kolom 'hits' ada. Jika tidak, buat dummy 0.
+        leader_df = df_users_raw.copy()
+        if 'hits' not in leader_df.columns:
+            leader_df['hits'] = 0 # Default jika belum ada sistem logging
+            st.caption("⚠️ Note: Kolom 'hits' belum terdeteksi di Database. Menampilkan default 0.")
+        
+        # Filter hanya Mitra & Sortir
+        leader_df = leader_df[leader_df['role'] != 'pic'].sort_values(by='hits', ascending=False).head(10)
+        
+        # Tampilan List Keren
+        for idx, row in leader_df.iterrows():
+            st.markdown(f"""
+            <div class="leaderboard-row">
+                <div style="display:flex; align-items:center;">
+                    <span style="font-size:1.5rem; margin-right:15px;">🏅</span>
+                    <div>
+                        <div style="font-weight:bold; color:white;">{row['nama_lengkap']}</div>
+                        <div style="font-size:0.8rem; color:#aaa;">{row['agency']}</div>
+                    </div>
+                </div>
+                <div class="leaderboard-val">{row['hits']} HITS</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+# --- TAB 2: PERSONIL ---
+with tab2:
     if df_users_raw.empty: st.warning("NO USER DATA.")
     else:
-        type_choice = st.radio("DIVISION", ["🛡️ MATEL", "🏦 PIC"], horizontal=True, label_visibility="collapsed")
+        col_ka, col_ki = st.columns([1,2])
+        with col_ka:
+            type_choice = st.radio("DIVISION", ["🛡️ MATEL", "🏦 PIC"], horizontal=True, label_visibility="collapsed")
+        
         target = df_users_raw[df_users_raw['role'] != 'pic'] if "MATEL" in type_choice else df_users_raw[df_users_raw['role'] == 'pic']
         target = target.sort_values('nama_lengkap')
         
@@ -206,7 +259,18 @@ with tab1:
         
         if sel:
             uid = user_opts[sel]; user = target[target['user_id'] == uid].iloc[0]
-            st.markdown(f"""<div class="tech-box"><h3 style="margin:0; color:white;">{user['nama_lengkap']}</h3><p style="color:#00f2ff;">{user['agency']}</p><p>STATUS: {user['status'].upper()} | EXP: {str(user.get('expiry_date','-'))[:10]}</p></div>""", unsafe_allow_html=True)
+            # Tampilkan Hits juga di detail personil
+            user_hits = user['hits'] if 'hits' in user else 0
+            
+            st.markdown(f"""<div class="tech-box">
+                <h3 style="margin:0; color:white;">{user['nama_lengkap']}</h3>
+                <p style="color:#00f2ff;">{user['agency']}</p>
+                <div style="display:flex; gap:20px;">
+                    <span>STATUS: <b>{user['status'].upper()}</b></span>
+                    <span>EXP: <b>{str(user.get('expiry_date','-'))[:10]}</b></span>
+                    <span>TOTAL HITS: <b style="color:#00f2ff;">{user_hits}</b></span>
+                </div>
+            </div>""", unsafe_allow_html=True)
             
             c_in, c_btn = st.columns([1, 2])
             with c_in: days = st.number_input("DAYS", 1, 30, label_visibility="collapsed")
@@ -224,8 +288,8 @@ with tab1:
             with b2:
                 if st.button("🗑️ DELETE USER"): delete_user_permanent(uid); st.rerun()
 
-# --- TAB 2: UPLOAD (DENGAN KAMUS LENGKAP) ---
-with tab2:
+# --- TAB 3: UPLOAD ---
+with tab3:
     st.markdown("### 📤 UPLOAD PROTOCOL")
     if st.session_state['upload_success']:
         st.markdown(f"""<div class="tech-box" style="border-color:#00ff00;">✅ COMPLETE: {st.session_state['last_stats'].get('suc',0):,} UNITS</div>""", unsafe_allow_html=True)
@@ -241,22 +305,18 @@ with tab2:
                     except: df = pd.read_csv(up_file, sep=',', dtype=str, on_bad_lines='skip')
                 else: df = pd.read_excel(up_file, dtype=str)
                 
-                # 1. RENAME KOLOM (Pakai Kamus Lengkap)
                 df, _ = smart_rename_columns(df)
                 if 'nopol' not in df.columns: st.error("CRITICAL: NOPOL MISSING"); st.stop()
                 
-                # 2. ISI KOLOM KOSONG (Robustness Check)
                 valid_cols = ['nopol', 'type', 'finance', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'branch']
                 for c in valid_cols:
                     if c not in df.columns: df[c] = "-"
                     else: df[c] = df[c].fillna("-").replace(['nan','NaN','NULL',''], '-')
                 
-                # 3. CLEANING
                 df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
                 df = df.drop_duplicates(subset=['nopol'], keep='last')
                 df['finance'] = df['finance'].apply(standardize_leasing_name)
                 
-                # 4. EXECUTE
                 records = json.loads(json.dumps(df[valid_cols].to_dict(orient='records'), default=str))
                 prog = st.progress(0); total = len(records); suc = 0
                 for i in range(0, total, 1000):
@@ -269,8 +329,8 @@ with tab2:
                 st.session_state['upload_success'] = True; st.rerun()
             except Exception as e: st.error(f"SYSTEM ERROR: {e}")
 
-# --- TAB 3: HAPUS ---
-with tab3:
+# --- TAB 4: HAPUS ---
+with tab4:
     st.markdown("### 🗑️ PURGE PROTOCOL")
     if st.session_state['delete_success']:
         st.success("✅ DATA ELIMINATED.")
