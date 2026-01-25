@@ -226,7 +226,7 @@ m1.metric("ASSETS", f"{total_assets:,}", "DATABASE")
 m2.metric("LIVE USERS", f"{get_active_hunters_30m()}", "30M ACTIVE")
 m3.metric("MITRA", f"{len(df_u[df_u['role']!='pic']) if not df_u.empty else 0}", "REGISTERED")
 m4.metric("READY", f"{len(df_u[(df_u['status']=='active') & (pd.to_numeric(df_u['quota'], errors='coerce').fillna(0)>0)]) if not df_u.empty else 0}", "ACTIVE & QUOTA>0")
-m5.metric("PIC HQ", f"{len(df_u[df_u['role']=='pic']) if not df_u.empty else 0}", "LEASING HQ")
+m5.metric("Pic Leasing", f"{len(df_u[df_u['role']=='pic']) if not df_u.empty else 0}", "INTERNAL")
 st.write("")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏆 LEADERBOARD", "🛡️ PERSONIL", "📤 UPLOAD", "🗑️ HAPUS"])
@@ -247,7 +247,7 @@ with tab1:
 with tab2:
     if df_u.empty: st.warning("NO USER DATA.")
     else:
-        div = st.radio("SELECT DIVISION", ["🛡️ MATEL", "🏦 PIC"], horizontal=True, label_visibility="collapsed")
+        div = st.radio("SELECT DIVISION", ["🛡️ MATEL", "🏦 Pic Leasing"], horizontal=True, label_visibility="collapsed")
         target = df_u[df_u['role'] != 'pic'] if "MATEL" in div else df_u[df_u['role'] == 'pic']
         target = target.sort_values('nama_lengkap')
         user_list = [f"{r['nama_lengkap']} | {r['agency']}" for i, r in target.iterrows()]
