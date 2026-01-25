@@ -3,6 +3,7 @@ import pandas as pd
 import time
 import json
 import os
+import base64
 from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -15,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. CSS MASTER (SLEEK CYBERPUNK - NORMAL FONT SIZE) ---
+# --- 2. CSS MASTER (SLEEK CYBERPUNK) ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Orbitron:wght@500;700&display=swap');
@@ -177,25 +178,45 @@ def standardize_leasing_name(name):
     clean = str(name).upper().strip().replace('"', '').replace("'", "")
     return "UNKNOWN" if clean in ['NAN', 'NULL', ''] else clean
 
+# --- UTILS VISUAL ---
+def get_img_as_base64(file):
+    with open(file, "rb") as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
+
 def render_logo(width=150):
+    # Standar render untuk Sidebar & Header
     if os.path.exists("logo.png"): st.image("logo.png", width=width)
     else: st.markdown("<h1>🦅</h1>", unsafe_allow_html=True)
 
-# --- 4. HALAMAN LOGIN ---
+# --- 4. HALAMAN LOGIN (PRECISION CENTER) ---
 def check_password():
     if st.session_state['password_input'] == ADMIN_PASSWORD:
         st.session_state['authenticated'] = True; del st.session_state['password_input']
     else: st.error("⛔ ACCESS DENIED")
 
 if not st.session_state['authenticated']:
-    col_ctr = st.columns([1, 8, 1])[1]
+    # Menggunakan Layout Kolom Simpel agar Fokus Tengah
+    col_ctr = st.columns([1, 6, 1])[1]
     with col_ctr:
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         with st.container():
-            c_img = st.columns([1,1,1])[1]
-            with c_img: render_logo(width=200) 
+            # [JURUS CENTER] Menggunakan HTML Div untuk memaksa logo di tengah 100%
+            if os.path.exists("logo.png"):
+                img_b64 = get_img_as_base64("logo.png")
+                st.markdown(
+                    f"""
+                    <div style="display: flex; justify-content: center; margin-bottom: 20px;">
+                        <img src="data:image/png;base64,{img_b64}" width="200" style="border-radius:10px;">
+                    </div>
+                    """, 
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown("<h1 style='text-align: center;'>🦅</h1>", unsafe_allow_html=True)
+
             st.markdown("<h2 style='text-align: center; color: #00f2ff; margin-bottom: 5px;'>SYSTEM LOGIN</h2>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align: center; color: #888; font-size: 0.9rem;'>ONE ASPAL COMMANDO v7.5</p>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: #888; font-size: 0.9rem;'>ONE ASPAL COMMANDO v7.6</p>", unsafe_allow_html=True)
             st.text_input("PASSPHRASE", type="password", key="password_input", on_change=check_password, label_visibility="collapsed")
             if not ADMIN_PASSWORD: st.warning("⚠️ ENV NOT CONFIGURED")
     st.stop()
@@ -221,7 +242,7 @@ total_assets = get_total_asset_count()
 hit_counts_series = get_hit_counts() 
 active_hunters = get_active_hunters_30m()
 
-# --- HITUNG METRIK UTAMA ---
+# --- HITUNG METRIK ---
 mitra_total = 0
 pic_total = 0
 total_active_accounts = 0
@@ -229,18 +250,10 @@ total_active_accounts = 0
 if not df_users_raw.empty:
     mitra_total = len(df_users_raw[df_users_raw['role']!='pic'])
     pic_total = len(df_users_raw[df_users_raw['role']=='pic'])
-    
-    # [LOGIC BARU] Active = Status Active AND Quota > 0
-    # Kita pastikan kolom quota dibaca sebagai angka, isi NaN dengan 0
     if 'quota' in df_users_raw.columns:
         df_users_raw['quota'] = pd.to_numeric(df_users_raw['quota'], errors='coerce').fillna(0)
-    else:
-        df_users_raw['quota'] = 0 # Jaga-jaga jika kolom tidak ada
-        
-    total_active_accounts = len(df_users_raw[
-        (df_users_raw['status'] == 'active') & 
-        (df_users_raw['quota'] > 0)
-    ])
+    else: df_users_raw['quota'] = 0
+    total_active_accounts = len(df_users_raw[(df_users_raw['status'] == 'active') & (df_users_raw['quota'] > 0)])
 
 # --- METRICS (5 KOLOM RAPI) ---
 m1, m2, m3, m4, m5 = st.columns(5)
@@ -248,12 +261,12 @@ m1.metric("ASSETS", f"{total_assets:,}", "DATABASE")
 m2.metric("LIVE USERS", f"{active_hunters}", "30 MINS ACTIVE") 
 m3.metric("TOTAL MITRA", f"{mitra_total}", "REGISTERED")
 m4.metric("TOTAL PIC", f"{pic_total}", "LEASING HQ")
-m5.metric("READY FOR DUTY", f"{total_active_accounts}", "ACTIVE & QUOTA > 0") # Updated Label
+m5.metric("READY FOR DUTY", f"{total_active_accounts}", "ACTIVE & QUOTA > 0")
 st.write("")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏆 LEADERBOARD", "🛡️ PERSONIL", "📤 UPLOAD", "🗑️ HAPUS"])
 
-# --- TAB 1: LEADERBOARD (TOP 10 ONLY) ---
+# --- TAB 1: LEADERBOARD (TOP 10) ---
 with tab1:
     st.markdown("### 🏆 TOP 10 RANGERS (HIT COUNT)")
     if df_users_raw.empty or hit_counts_series.empty:
@@ -299,7 +312,6 @@ with tab2:
             uid = user_opts[sel]; user = target[target['user_id'] == uid].iloc[0]
             real_hits = hit_counts_series.get(uid, 0)
             
-            # INFO BOX COMPACT
             st.markdown(f"""
             <div class="tech-box">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
