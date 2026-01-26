@@ -1,7 +1,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL COMMAND CENTER                        #
-#                      VERSION: 8.7 (MOBILE VISIBILITY FIX)                    #
+#                      VERSION: 8.8 (PRECISION UPDATE)                         #
 #                      ROLE:    ADMIN DASHBOARD CORE                           #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -190,6 +190,7 @@ if 'upload_result' not in st.session_state: st.session_state['upload_result'] = 
 def get_total_asset_count():
     try: return supabase.table('kendaraan').select('*', count='exact', head=True).execute().count
     except: return 0
+
 def get_all_users():
     try:
         res = supabase.table('users').select('*').execute()
@@ -197,21 +198,26 @@ def get_all_users():
         if not df.empty: df['user_id'] = df['user_id'].astype(str)
         return df
     except: return pd.DataFrame()
+
 def get_hit_counts():
     try:
         res = supabase.table('finding_logs').select('user_id').execute()
         df = pd.DataFrame(res.data)
         return df['user_id'].astype(str).value_counts() if not df.empty else pd.Series()
     except: return pd.Series()
-def get_active_hunters_30m():
+
+# [REVISI] LIVE USER JADI 5 MENIT AGAR LEBIH PRESISI
+def get_active_hunters_5m():
     try:
-        t = datetime.now(timezone.utc) - timedelta(minutes=30)
+        t = datetime.now(timezone.utc) - timedelta(minutes=5)
         res = supabase.table('finding_logs').select('user_id').gte('created_at', t.isoformat()).execute()
         return pd.DataFrame(res.data)['user_id'].nunique() if res.data else 0
     except: return 0
+
 def update_user_status(uid, stat):
     try: supabase.table('users').update({'status': stat}).eq('user_id', uid).execute(); return True
     except: return False
+
 def add_user_quota(uid, days):
     try:
         res = supabase.table('users').select('expiry_date').eq('user_id', uid).execute()
@@ -219,6 +225,7 @@ def add_user_quota(uid, days):
         base = datetime.fromisoformat(res.data[0]['expiry_date'].replace('Z', '')) if res.data and res.data[0]['expiry_date'] and datetime.fromisoformat(res.data[0]['expiry_date'].replace('Z', '')) > now else now
         supabase.table('users').update({'expiry_date': (base + timedelta(days=days)).isoformat()}).eq('user_id', uid).execute(); return True
     except: return False
+
 def delete_user_permanent(uid):
     try: supabase.table('users').delete().eq('user_id', uid).execute(); return True
     except: return False
@@ -289,14 +296,15 @@ with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", width=220)
     st.caption("ONE ASPAL SYSTEM\nStatus: ONLINE 🟢")
 
-st.markdown("## ONE ASPAL COMMANDO v8.7")
+st.markdown("## ONE ASPAL COMMANDO v8.8")
 st.markdown("<span style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE INTELLIGENCE COMMAND CENTER</span>", unsafe_allow_html=True)
 st.markdown("---")
 
 df_u = get_all_users()
 m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("ASSETS", f"{get_total_asset_count():,}", "DATABASE")
-m2.metric("LIVE USERS", f"{get_active_hunters_30m()}", "30M ACTIVE")
+# [REVISI] Menggunakan fungsi get_active_hunters_5m
+m2.metric("LIVE USERS", f"{get_active_hunters_5m()}", "5M ACTIVE")
 m3.metric("MITRA", f"{len(df_u[df_u['role']!='pic']) if not df_u.empty else 0}", "REGISTERED")
 m4.metric("READY", f"{len(df_u[(df_u['status']=='active') & (pd.to_numeric(df_u['quota'], errors='coerce').fillna(0)>0)]) if not df_u.empty else 0}", "QUOTA > 0")
 m5.metric("Pic Leasing", f"{len(df_u[df_u['role']=='pic']) if not df_u.empty else 0}", "INTERNAL")
@@ -314,15 +322,60 @@ with tab1:
         for i, r in enumerate(df_r[df_r['role']!='pic'].sort_values('h', ascending=False).head(10).iterrows(), 1):
             st.markdown(f'<div class="leaderboard-row"><div><b>#{i} {r[1]["nama_lengkap"]}</b><br><small>{r[1]["agency"]}</small></div><div class="leaderboard-val">{r[1]["h"]} HITS</div></div>', unsafe_allow_html=True)
 
+# [REVISI] BAGIAN PERSONIL (SORT & DETAILS)
 with tab2:
     if not df_u.empty:
         div = st.radio("DIV", ["🛡️ MATEL", "🏦 Pic Leasing"], horizontal=True, label_visibility="collapsed")
         target = df_u[df_u['role']!='pic'] if "MATEL" in div else df_u[df_u['role']=='pic']
-        sel = st.selectbox("SEARCH", [f"{r['nama_lengkap']} | {r['agency']}" for i, r in target.iterrows()], label_visibility="collapsed")
+        
+        # [REVISI] Sortir Berdasarkan Abjad Nama (Case Insensitive)
+        target = target.sort_values(by="nama_lengkap", key=lambda col: col.str.lower())
+        
+        # Dropdown Search
+        sel = st.selectbox("SEARCH AGENT", [f"{r['nama_lengkap']} | {r['agency']}" for i, r in target.iterrows()], label_visibility="collapsed")
+        
         if sel:
             uid = target[target['nama_lengkap']==sel.split(' | ')[0]].iloc[0]['user_id']
             u = target[target['user_id']==uid].iloc[0]
-            st.markdown(f'<div class="tech-box"><h3>{u["nama_lengkap"]}</h3><div class="info-grid"><div class="info-item"><span class="info-label">STATUS</span><span class="info-value" style="color:{"#0f0" if u["status"]=="active" else "#f00"}">{u["status"].upper()}</span></div><div class="info-item"><span class="info-label">EXPIRY</span><span class="info-value">{str(u["expiry_date"])[:10]}</span></div><div class="info-item"><span class="info-label">QUOTA</span><span class="info-value">{u.get("quota",0)}</span></div><div class="info-item"><span class="info-label">USAGE</span><span class="info-value">{u.get("daily_usage",0)}x</span></div><div class="info-item" style="grid-column:span 2;border:1px solid #00f2ff;"><span class="info-label">LIFETIME HITS</span><span class="info-value" style="color:#00f2ff;">{hits.get(uid,0)} FOUND</span></div></div></div>', unsafe_allow_html=True)
+            
+            # [REVISI] Format Tampilan Detail (Nama, HP, PT, Domisili)
+            st.markdown(f'''
+                <div class="tech-box">
+                    <h3>{u["nama_lengkap"]}</h3>
+                    <hr style="border-color:rgba(255,255,255,0.1); margin:15px 0;">
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <span class="info-label">STATUS</span>
+                            <span class="info-value" style="color:{'#0f0' if u["status"]=="active" else "#f00"}">{u["status"].upper()}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">NO HP / WA</span>
+                            <span class="info-value">{u.get("no_hp", "-")}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">PT / AGENCY</span>
+                            <span class="info-value">{u.get("agency", "-")}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">DOMISILI</span>
+                            <span class="info-value">{u.get("alamat", "-")}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">EXPIRY</span>
+                            <span class="info-value">{str(u["expiry_date"])[:10]}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">QUOTA</span>
+                            <span class="info-value">{u.get("quota",0)}</span>
+                        </div>
+                        <div class="info-item" style="grid-column:span 2;border:1px solid #00f2ff;">
+                            <span class="info-label">LIFETIME HITS</span>
+                            <span class="info-value" style="color:#00f2ff;">{hits.get(uid,0)} FOUND</span>
+                        </div>
+                    </div>
+                </div>
+            ''', unsafe_allow_html=True)
+            
             d = st.number_input("DAYS", 1, 365, 30, label_visibility="collapsed")
             if st.button(f"➕ EXTEND (+{d} DAYS)"): add_user_quota(uid, d); st.success("OK"); st.rerun()
             b1, b2 = st.columns(2)
@@ -394,6 +447,6 @@ st.markdown("""
     <div class="footer-text">
         SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>
         COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>
-        OPERATIONAL COMMAND CENTER v8.7
+        OPERATIONAL COMMAND CENTER v8.8
     </div>
 """, unsafe_allow_html=True)
