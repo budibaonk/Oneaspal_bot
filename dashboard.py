@@ -1,7 +1,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL COMMAND CENTER                        #
-#                      VERSION: 8.6 (FOOTER CONTROL EDITION)                   #
+#                      VERSION: 8.7 (MOBILE VISIBILITY FIX)                    #
 #                      ROLE:    ADMIN DASHBOARD CORE                           #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -31,42 +31,58 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CSS MASTER (CYBERPUNK UI) ---
+# --- CSS MASTER (MOBILE COMPATIBLE FIX) ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Orbitron:wght@500;700;900&display=swap');
 
-    .stApp { background-color: #0e1117; font-family: 'Inter', sans-serif; font-size: 14px; }
+    /* BACKGROUND UTAMA */
+    .stApp { background-color: #0e1117 !important; font-family: 'Inter', sans-serif; font-size: 14px; }
     
-    h1, h2, h3 { 
+    /* PAKSA SEMUA TEKS JADI PUTIH (FIX UNTUK HP) */
+    p, span, div, li {
+        color: #e0e0e0;
+    }
+
+    /* JUDUL & HEADER - PAKSA PUTIH */
+    h1, h2, h3, h4, h5, h6 { 
         font-family: 'Orbitron', sans-serif !important; 
-        color: #ffffff; 
+        color: #ffffff !important; 
         text-transform: uppercase; 
         letter-spacing: 1px; 
     }
     
-    div[data-testid="metric-container"] {
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        padding: 20px;
-        backdrop-filter: blur(10px);
-        transition: all 0.3s ease;
+    /* WARNA LABEL METRIC (ASSETS, LIVE USERS, DLL) */
+    div[data-testid="stMetricLabel"] {
+        color: #a0a0a0 !important; /* Abu terang agar terbaca */
+        font-size: 0.9rem !important;
     }
-    div[data-testid="metric-container"]:hover { 
-        border-color: #00f2ff; 
-        transform: translateY(-3px);
-        box-shadow: 0 5px 15px rgba(0, 242, 255, 0.2);
-    }
-    div[data-testid="metric-container"] div[data-testid="stMetricValue"] {
-        color: #00f2ff !important; 
+
+    /* WARNA ANGKA METRIC (4,978,995) */
+    div[data-testid="stMetricValue"] {
+        color: #00f2ff !important; /* Cyan Neon */
         font-family: 'Orbitron', sans-serif; 
         font-size: 1.6rem !important;
     }
+
+    /* WARNA DELTA/PANAH KECIL */
+    div[data-testid="stMetricDelta"] {
+        color: #00ff00 !important; /* Hijau */
+    }
     
+    /* KOTAK STATISTIK (METRIC CARDS) */
+    div[data-testid="metric-container"] {
+        background: rgba(255, 255, 255, 0.05) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 12px;
+        padding: 15px;
+        backdrop-filter: blur(10px);
+    }
+    
+    /* TOMBOL NEON */
     .stButton>button {
-        background: linear-gradient(90deg, #0061ff 0%, #60efff 100%);
-        color: #000; 
+        background: linear-gradient(90deg, #0061ff 0%, #60efff 100%) !important;
+        color: #000000 !important; 
         border: none; 
         border-radius: 8px; 
         height: 45px;
@@ -75,11 +91,8 @@ st.markdown("""
         width: 100%;
         transition: all 0.3s;
     }
-    .stButton>button:hover { 
-        box-shadow: 0 0 20px rgba(0, 242, 255, 0.5); 
-        transform: scale(1.01);
-    }
 
+    /* LEADERBOARD DESIGN */
     .leaderboard-row {
         background: rgba(0, 242, 255, 0.04);
         padding: 15px; 
@@ -92,11 +105,12 @@ st.markdown("""
     }
     .leaderboard-val { 
         font-family: 'Orbitron'; 
-        color: #00f2ff; 
+        color: #00f2ff !important; 
         font-weight: bold; 
         font-size: 1.1rem;
     }
 
+    /* TECH BOX & GRID PERSONIL */
     .tech-box { 
         background: rgba(0, 242, 255, 0.05); 
         border-left: 4px solid #00f2ff; 
@@ -117,23 +131,17 @@ st.markdown("""
         border-radius: 6px; 
     }
     .info-label { 
-        color: #888; 
+        color: #aaa !important; 
         font-size: 0.8rem; 
         display: block; 
         margin-bottom: 4px;
         text-transform: uppercase;
     }
     .info-value { 
-        color: #fff; 
+        color: #ffffff !important; 
         font-weight: bold; 
         font-family: 'Orbitron'; 
         font-size: 1.1rem; 
-    }
-    .stTabs [data-baseweb="tab"] { 
-        height: 50px; 
-        padding: 0 30px; 
-        font-family: 'Orbitron'; 
-        font-size: 0.9rem; 
     }
     
     header {visibility: hidden;} 
@@ -275,13 +283,13 @@ if not st.session_state['authenticated']:
     st.stop()
 
 # ##############################################################################
-# BAGIAN 5: SIDEBAR (HANYA LOGO) & HEADER
+# BAGIAN 5: SIDEBAR & HEADER
 # ##############################################################################
 with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", width=220)
     st.caption("ONE ASPAL SYSTEM\nStatus: ONLINE 🟢")
 
-st.markdown("## ONE ASPAL COMMANDO v8.6")
+st.markdown("## ONE ASPAL COMMANDO v8.7")
 st.markdown("<span style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE INTELLIGENCE COMMAND CENTER</span>", unsafe_allow_html=True)
 st.markdown("---")
 
@@ -291,11 +299,11 @@ m1.metric("ASSETS", f"{get_total_asset_count():,}", "DATABASE")
 m2.metric("LIVE USERS", f"{get_active_hunters_30m()}", "30M ACTIVE")
 m3.metric("MITRA", f"{len(df_u[df_u['role']!='pic']) if not df_u.empty else 0}", "REGISTERED")
 m4.metric("READY", f"{len(df_u[(df_u['status']=='active') & (pd.to_numeric(df_u['quota'], errors='coerce').fillna(0)>0)]) if not df_u.empty else 0}", "QUOTA > 0")
-m5.metric("PIC LEASING", f"{len(df_u[df_u['role']=='pic']) if not df_u.empty else 0}", "INTERNAL")
+m5.metric("Pic Leasing", f"{len(df_u[df_u['role']=='pic']) if not df_u.empty else 0}", "INTERNAL")
 st.write("")
 
 # ##############################################################################
-# BAGIAN 6: FITUR TABS (LEADERBOARD, PERSONIL, UPLOAD, HAPUS)
+# BAGIAN 6: FITUR TABS
 # ##############################################################################
 tab1, tab2, tab3, tab4 = st.tabs(["🏆 LEADERBOARD", "🛡️ PERSONIL", "📤 UPLOAD", "🗑️ HAPUS"])
 
@@ -373,29 +381,19 @@ with tab4:
             st.success("DELETED"); time.sleep(1); st.rerun()
 
 # ##############################################################################
-# BAGIAN 7: FOOTER & CONTROLS (THE COOL PART)
+# BAGIAN 7: FOOTER & CONTROLS
 # ##############################################################################
 st.markdown("<br><hr style='border-color: #00f2ff; opacity: 0.3;'><br>", unsafe_allow_html=True)
-
-# Layout Footer: Tombol di kiri dan kanan, tengah kosong agar seimbang
 cf1, cf2, cf3 = st.columns([1, 2, 1])
-
 with cf1:
-    if st.button("🔄 REFRESH SYSTEM", key="footer_refresh"):
-        st.cache_data.clear()
-        st.rerun()
-
+    if st.button("🔄 REFRESH SYSTEM", key="footer_refresh"): st.cache_data.clear(); st.rerun()
 with cf3:
-    if st.button("🚪 LOGOUT SESSION", key="footer_logout"):
-        st.session_state['authenticated'] = False
-        st.rerun()
-
-# Teks Keren di Bawah
+    if st.button("🚪 LOGOUT SESSION", key="footer_logout"): st.session_state['authenticated'] = False; st.rerun()
 st.markdown("""
     <div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div>
     <div class="footer-text">
         SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>
         COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>
-        OPERATIONAL COMMAND CENTER v8.6
+        OPERATIONAL COMMAND CENTER v8.7
     </div>
 """, unsafe_allow_html=True)
