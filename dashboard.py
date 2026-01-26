@@ -1,7 +1,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL COMMAND CENTER                        #
-#                      VERSION: 8.8 (PRECISION UPDATE)                         #
+#                      VERSION: 8.9.2 (TEXT FIX: PIC LEASING)                  #
 #                      ROLE:    ADMIN DASHBOARD CORE                           #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -307,7 +307,7 @@ m1.metric("ASSETS", f"{get_total_asset_count():,}", "DATABASE")
 m2.metric("LIVE USERS", f"{get_active_hunters_5m()}", "5M ACTIVE")
 m3.metric("MITRA", f"{len(df_u[df_u['role']!='pic']) if not df_u.empty else 0}", "REGISTERED")
 m4.metric("READY", f"{len(df_u[(df_u['status']=='active') & (pd.to_numeric(df_u['quota'], errors='coerce').fillna(0)>0)]) if not df_u.empty else 0}", "QUOTA > 0")
-m5.metric("Pic Leasing", f"{len(df_u[df_u['role']=='pic']) if not df_u.empty else 0}", "INTERNAL")
+m5.metric("PIC LEASING", f"{len(df_u[df_u['role']=='pic']) if not df_u.empty else 0}", "INTERNAL")
 st.write("")
 
 # ##############################################################################
@@ -325,7 +325,7 @@ with tab1:
 # [REVISI] BAGIAN PERSONIL (SORT & DETAILS)
 with tab2:
     if not df_u.empty:
-        div = st.radio("DIV", ["🛡️ MATEL", "🏦 Pic Leasing"], horizontal=True, label_visibility="collapsed")
+        div = st.radio("DIV", ["🛡️ MATEL", "🏦 PIC LEASING"], horizontal=True, label_visibility="collapsed")
         target = df_u[df_u['role']!='pic'] if "MATEL" in div else df_u[df_u['role']=='pic']
         
         # [REVISI] Sortir Berdasarkan Abjad Nama (Case Insensitive)
@@ -447,6 +447,6 @@ st.markdown("""
     <div class="footer-text">
         SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>
         COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>
-        OPERATIONAL COMMAND CENTER v8.8
+        OPERATIONAL COMMAND CENTER v8.9.2
     </div>
 """, unsafe_allow_html=True)
