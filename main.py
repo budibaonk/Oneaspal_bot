@@ -1798,6 +1798,44 @@ async def callback_handler(update, context):
         )
         # Return state ConversationHandler (Pastikan ini sesuai dengan definisi state Anda)
         return VAL_REJECT_REASON
+    
+    # --- [REVISI FIX: FITUR LAPOR DELETE] ---
+    elif data.startswith("del_acc_"):
+        # Format data dari tombol: del_acc_NOPOL_USERID
+        parts = data.split("_")
+        nopol_target = parts[2]
+        user_id_pelapor = parts[3]
+        
+        try:
+            # 1. Hapus dari Database Supabase
+            supabase.table('kendaraan').delete().eq('nopol', nopol_target).execute()
+            
+            # 2. Ubah pesan Admin jadi "Sukses"
+            await query.edit_message_text(
+                text=f"✅ <b>DISETUJUI & DIHAPUS</b>\nUnit: {nopol_target} telah dibersihkan dari database.", 
+                parse_mode='HTML'
+            )
+            
+            # 3. Beri Notifikasi ke User Pelapor (Feedback)
+            try: 
+                await context.bot.send_message(user_id_pelapor, f"✅ <b>LAPORAN DISETUJUI</b>\nUnit <code>{nopol_target}</code> telah kami hapus dari database. Terima kasih kontribusinya.", parse_mode='HTML')
+            except: pass
+            
+        except Exception as e:
+            # Jika error (misal unit sudah dihapus duluan)
+            await query.answer(f"❌ Gagal Hapus: {e}", show_alert=True)
+
+    elif data.startswith("del_rej_"):
+        # Format data dari tombol: del_rej_USERID
+        user_id_pelapor = data.split("_")[2]
+        
+        # 1. Ubah pesan Admin jadi "Ditolak"
+        await query.edit_message_text(text="❌ <b>LAPORAN DITOLAK</b>\nData unit dipertahankan.", parse_mode='HTML')
+        
+        # 2. Beri Notifikasi ke User Pelapor
+        try: 
+            await context.bot.send_message(user_id_pelapor, "⚠️ Laporan penghapusan unit Anda ditolak oleh Admin. Data dinilai masih valid.", parse_mode='HTML')
+        except: pass
 
 
 if __name__ == '__main__':
