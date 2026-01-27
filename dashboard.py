@@ -1,7 +1,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL COMMAND CENTER                        #
-#                      VERSION: 9.0 (LIVE OPS MONITORING)                      #
+#                      VERSION: 9.1 (ADJUSTED TIMEOUT 30m/60m)                 #
 #                      ROLE:    ADMIN DASHBOARD CORE                           #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -17,7 +17,7 @@ import re
 import numpy as np
 import io
 import zipfile
-import pytz  # [PENTING] Library Timezone untuk Live Monitoring
+import pytz  
 from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -40,10 +40,8 @@ st.markdown("""
     /* BACKGROUND UTAMA */
     .stApp { background-color: #0e1117 !important; font-family: 'Inter', sans-serif; font-size: 14px; }
     
-    /* FIX WARNA TEXT UNTUK HP */
     p, span, div, li { color: #e0e0e0; }
 
-    /* HEADER & JUDUL */
     h1, h2, h3, h4, h5, h6 { 
         font-family: 'Orbitron', sans-serif !important; 
         color: #ffffff !important; 
@@ -51,7 +49,6 @@ st.markdown("""
         letter-spacing: 1px; 
     }
     
-    /* DESIGN METRIC (ANGKA STATISTIK) */
     div[data-testid="stMetricLabel"] { color: #a0a0a0 !important; font-size: 0.9rem !important; }
     div[data-testid="stMetricValue"] { color: #00f2ff !important; font-family: 'Orbitron', sans-serif; font-size: 1.6rem !important; }
     div[data-testid="metric-container"] {
@@ -62,14 +59,12 @@ st.markdown("""
         backdrop-filter: blur(10px);
     }
     
-    /* TOMBOL NEON */
     .stButton>button {
         background: linear-gradient(90deg, #0061ff 0%, #60efff 100%) !important;
         color: #000000 !important; border: none; border-radius: 8px; height: 45px;
         font-weight: 800; font-family: 'Orbitron', sans-serif; width: 100%; transition: all 0.3s;
     }
 
-    /* BARIS LEADERBOARD */
     .leaderboard-row {
         background: rgba(0, 242, 255, 0.04); padding: 15px; margin-bottom: 8px;
         border-radius: 8px; border-left: 4px solid #00f2ff;
@@ -77,7 +72,6 @@ st.markdown("""
     }
     .leaderboard-val { font-family: 'Orbitron'; color: #00f2ff !important; font-weight: bold; font-size: 1.1rem; }
 
-    /* DETAIL PERSONIL */
     .tech-box { background: rgba(0, 242, 255, 0.05); border-left: 4px solid #00f2ff; padding: 20px; border-radius: 8px; color: #ddd; margin-bottom: 20px; }
     .info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 15px; }
     .info-item { background: rgba(255,255,255,0.05); padding: 12px; border-radius: 6px; }
@@ -86,7 +80,6 @@ st.markdown("""
     
     header {visibility: hidden;} 
     
-    /* FOOTER */
     .footer-text { text-align: center; color: #888; font-family: 'Orbitron', sans-serif; font-size: 0.8rem; margin-top: 20px; opacity: 0.7; }
     .footer-quote { text-align: center; color: #00f2ff; font-style: italic; font-size: 0.9rem; margin-bottom: 10px; }
 </style>
@@ -107,7 +100,6 @@ def init_connection():
 
 supabase = init_connection()
 
-# Session State Init
 if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
 if 'upload_stage' not in st.session_state: st.session_state['upload_stage'] = 'idle'
 if 'upload_data_cache' not in st.session_state: st.session_state['upload_data_cache'] = None
@@ -135,28 +127,24 @@ def get_hit_counts():
         return df['user_id'].astype(str).value_counts() if not df.empty else pd.Series()
     except: return pd.Series()
 
-# [REVISI] LIVE USER COUNT (BERDASARKAN LAST_SEEN < 5 MENIT)
+# [REVISI] LIVE USER COUNT (BERDASARKAN LAST_SEEN < 30 MENIT)
+# Update Logika: 5 Menit -> 30 Menit dianggap "LIVE"
 def get_live_users_count():
     try:
-        # Ambil kolom last_seen
         res = supabase.table('users').select('last_seen').execute()
         df = pd.DataFrame(res.data)
-        
         if 'last_seen' not in df.columns: return 0
         
-        # Konversi Timezone
         TZ = pytz.timezone('Asia/Jakarta')
         df['last_seen'] = pd.to_datetime(df['last_seen'], errors='coerce')
-        
-        # Handle yang timezone-naive
         if df['last_seen'].dt.tz is None:
             df['last_seen'] = df['last_seen'].dt.tz_localize('UTC').dt.tz_convert(TZ)
         else:
             df['last_seen'] = df['last_seen'].dt.tz_convert(TZ)
             
-        # Hitung User Aktif < 5 Menit
         now = datetime.now(TZ)
-        limit = now - timedelta(minutes=5)
+        # [UPDATE] Limit jadi 30 menit
+        limit = now - timedelta(minutes=30)
         
         return len(df[df['last_seen'] >= limit])
     except: return 0
@@ -178,7 +166,7 @@ def delete_user_permanent(uid):
     except: return False
 
 # ##############################################################################
-# BAGIAN 3: ENGINE PINTAR (TEXT PROCESSING)
+# BAGIAN 3: ENGINE PINTAR
 # ##############################################################################
 COLUMN_ALIASES = {
     'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi'],
@@ -243,23 +231,23 @@ with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", width=220)
     st.caption("ONE ASPAL SYSTEM\nStatus: ONLINE 🟢")
 
-st.markdown("## ONE ASPAL COMMANDO v9.0")
+st.markdown("## ONE ASPAL COMMANDO v9.1")
 st.markdown("<span style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE INTELLIGENCE COMMAND CENTER</span>", unsafe_allow_html=True)
 st.markdown("---")
 
 df_u = get_all_users()
 m1, m2, m3, m4, m5 = st.columns(5)
 
-# TAMPILAN METRIC UTAMA
+# METRIC UTAMA
 m1.metric("ASSETS", f"{get_total_asset_count():,}", "DATABASE")
-m2.metric("LIVE USERS", f"{get_live_users_count()}", "ACTIVE < 5M") # <--- UPDATE REALTIME
+m2.metric("LIVE USERS", f"{get_live_users_count()}", "ACTIVE < 30M") # <--- UPDATE LABEL 30M
 m3.metric("MITRA", f"{len(df_u[df_u['role']!='pic']) if not df_u.empty else 0}", "REGISTERED")
 m4.metric("READY", f"{len(df_u[(df_u['status']=='active') & (pd.to_numeric(df_u['quota'], errors='coerce').fillna(0)>0)]) if not df_u.empty else 0}", "QUOTA > 0")
 m5.metric("PIC LEASING", f"{len(df_u[df_u['role']=='pic']) if not df_u.empty else 0}", "INTERNAL")
 st.write("")
 
 # ##############################################################################
-# BAGIAN 6: FITUR TABS (DITAMBAH TAB LIVE OPS)
+# BAGIAN 6: FITUR TABS
 # ##############################################################################
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 LEADERBOARD", "🛡️ PERSONIL", "📤 UPLOAD", "🗑️ HAPUS", "📡 LIVE OPS"])
 
@@ -356,7 +344,7 @@ with tab4:
                 pb.progress(min((i+batch)/len(t), 1.0))
             st.success("DELETED"); time.sleep(1); st.rerun()
 
-# --- [FITUR BARU] TAB 5: LIVE OPS MONITORING ---
+# --- [UPDATED] TAB 5: LIVE OPS MONITORING ---
 with tab5:
     st.markdown("### 📡 REALTIME OPERATIONS CENTER")
     
@@ -365,13 +353,12 @@ with tab5:
     if users_resp.data:
         df_live = pd.DataFrame(users_resp.data)
         
-        # Pastikan kolom last_seen ada
         if 'last_seen' in df_live.columns:
             # 2. Proses Waktu & Timezone
             TZ = pytz.timezone('Asia/Jakarta')
             df_live['last_seen'] = pd.to_datetime(df_live['last_seen'], errors='coerce')
             
-            # Konversi UTC ke Jakarta (Supabase simpan UTC)
+            # Konversi UTC ke Jakarta
             if df_live['last_seen'].dt.tz is None:
                 df_live['last_seen'] = df_live['last_seen'].dt.tz_localize('UTC').dt.tz_convert(TZ)
             else:
@@ -379,26 +366,27 @@ with tab5:
                 
             now = datetime.now(TZ)
             
-            # 3. FILTER LOGIC: HANYA YG AKTIF DALAM 30 MENIT TERAKHIR
-            # (User yang last_seen > 30 menit akan hilang dari tabel)
-            limit_30m = now - timedelta(minutes=30)
-            df_display = df_live[df_live['last_seen'] >= limit_30m].copy()
+            # 3. FILTER LOGIC: AKTIF DALAM 60 MENIT TERAKHIR
+            # [UPDATE: 60 MENIT VISIBILITY]
+            limit_60m = now - timedelta(minutes=60)
+            df_display = df_live[df_live['last_seen'] >= limit_60m].copy()
             
             if not df_display.empty:
-                # 4. STATUS COLOR LOGIC (5 MENIT)
-                limit_5m = now - timedelta(minutes=5)
+                # 4. STATUS COLOR LOGIC (30 MENIT)
+                # [UPDATE: 30 MENIT = ONLINE]
+                limit_30m = now - timedelta(minutes=30)
                 
                 def get_status_label(row):
                     t = row['last_seen']
                     if pd.isna(t): return "⚫ OFFLINE"
-                    # Jika aktif kurang dari 5 menit lalu -> ONLINE
-                    if t >= limit_5m: return "🟢 ONLINE"
-                    # Jika aktif 5-30 menit lalu -> IDLE
+                    # Jika aktif kurang dari 30 menit lalu -> ONLINE
+                    if t >= limit_30m: return "🟢 ONLINE"
+                    # Jika aktif 30-60 menit lalu -> IDLE
                     return "🟡 IDLE"
                 
                 df_display['STATUS'] = df_display.apply(get_status_label, axis=1)
                 
-                # Format Jam agar rapi
+                # Format Jam
                 df_display['TIME'] = df_display['last_seen'].dt.strftime('%H:%M:%S')
                 
                 # Pilih kolom & Sortir
@@ -417,10 +405,9 @@ with tab5:
                     }
                 )
             else:
-                st.info("💤 Tidak ada aktivitas user dalam 30 menit terakhir.")
+                st.info("💤 Tidak ada aktivitas user dalam 60 menit terakhir.")
         else:
             st.warning("⚠️ Database belum mencatat waktu (Kolom last_seen kosong).")
-
 
 # ##############################################################################
 # BAGIAN 7: FOOTER & CONTROLS
@@ -436,6 +423,6 @@ st.markdown("""
     <div class="footer-text">
         SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>
         COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>
-        OPERATIONAL COMMAND CENTER v9.0
+        OPERATIONAL COMMAND CENTER v9.1
     </div>
 """, unsafe_allow_html=True)
