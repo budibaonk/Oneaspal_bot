@@ -138,57 +138,47 @@ def update_user_status(uid, stat):
     try: supabase.table('users').update({'status': stat}).eq('user_id', uid).execute(); return True
     except: return False
 
-# [REVISI] UPDATE KUOTA LEBIH KUAT (ROBUST DATE PARSING)
+# [REVISI CTO] UPDATE KUOTA DENGAN FEEDBACK ERROR
 def add_user_quota(uid, days):
     try:
         # 1. Ambil data tanggal expired saat ini
         res = supabase.table('users').select('expiry_date').eq('user_id', uid).execute()
         
-        # Gunakan Waktu UTC agar standar
+        # Gunakan Waktu UTC
         now = datetime.now(timezone.utc)
         
         current_exp_str = None
         if res.data and len(res.data) > 0:
             current_exp_str = res.data[0].get('expiry_date')
 
-        # 2. Tentukan Base Date (Mulai hitung dari kapan?)
+        # 2. Tentukan Base Date
         base = now
         if current_exp_str:
             try:
-                # Normalisasi string tanggal dari Supabase
-                # Ganti 'Z' dengan '+00:00' agar fromisoformat tidak bingung
+                # Normalisasi string 'Z' jadi '+00:00'
                 clean_str = current_exp_str.replace('Z', '+00:00')
-                
-                # Parsing string ke object datetime
                 parsed_date = datetime.fromisoformat(clean_str)
-                
-                # Pastikan parsed_date punya timezone (aware)
                 if parsed_date.tzinfo is None:
                     parsed_date = parsed_date.replace(tzinfo=timezone.utc)
                 
-                # Logika: Jika user sudah expired, tambah dari HARI INI.
-                # Jika belum expired, tambah dari TANGGAL EXPIRED LAMA.
-                if parsed_date > now:
-                    base = parsed_date
-                else:
-                    base = now
-                    
+                if parsed_date > now: base = parsed_date
+                else: base = now
             except ValueError:
-                # Jika format tanggal database aneh/rusak, default ke NOW
                 base = now
 
         # 3. Hitung Tanggal Baru
         new_exp_dt = base + timedelta(days=days)
-        
-        # 4. Update ke Database (Format ISO String)
         new_exp_str = new_exp_dt.isoformat()
         
+        # 4. Eksekusi Update
         supabase.table('users').update({'expiry_date': new_exp_str}).eq('user_id', uid).execute()
-        return True
+        
+        # Sukses: Return True dan Pesan Sukses
+        return True, f"Sukses! Expired baru: {new_exp_dt.strftime('%d-%m-%Y')}"
 
     except Exception as e:
-        print(f"❌ ERROR ADD QUOTA: {e}") # Cek log jika masih error
-        return False
+        # Gagal: Return False dan Pesan Error Detail
+        return False, str(e)
     
 # [FUNGSI KIRIM PESAN TELEGRAM LANGSUNG]
 def send_telegram_message(user_id, text):
@@ -342,13 +332,19 @@ with tab2:
                 days_add = st.number_input("JUMLAH HARI", min_value=1, max_value=365, value=30, label_visibility="collapsed", key="num_days_add")
             
             b1, b2, b3 = st.columns(3)
+            # TOMBOL 1: TAMBAH KUOTA (UPDATED)
             with b1:
                 if st.button(f"➕ TAMBAH KUOTA", key="btn_add_quota", use_container_width=True):
-                    if add_user_quota(uid, days_add):
-                        st.toast(f"✅ Kuota {u['nama_lengkap']} ditambah {days_add} hari!", icon="🎉")
+                    # Panggil fungsi baru yang mengembalikan (Sukses, Pesan)
+                    is_success, msg_feedback = add_user_quota(uid, days_add)
+                    
+                    if is_success:
+                        st.toast(f"✅ {msg_feedback}", icon="🎉")
                         time.sleep(1)
                         st.rerun()
-                    else: st.error("Gagal update kuota.")
+                    else:
+                        # Tampilkan Error Asli di Layar
+                        st.error(f"❌ GAGAL UPDATE: {msg_feedback}")
 
             with b2:
                 btn_label = "⛔ FREEZE AKUN" if u['status']=='active' else "✅ BUKA FREEZE"

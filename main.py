@@ -1819,7 +1819,7 @@ async def callback_handler(update, context):
         else: 
             await query.edit_message_text("❌ Data unit sudah tidak tersedia.")
     
-    # 3. MANUAL TOPUP ADMIN
+    # 3. MANUAL TOPUP ADMIN (PERBAIKAN FEEDBACK)
     elif data.startswith("topup_") or data.startswith("adm_topup_"):
         parts = data.split("_")
         uid = int(parts[-2])
@@ -1831,12 +1831,38 @@ async def callback_handler(update, context):
         else:
             days = int(days_str)
             suc, new_exp = add_subscription_days(uid, days)
+            
             if suc:
                 exp_str = new_exp.strftime('%d %b %Y')
-                await context.bot.send_message(uid, f"✅ **TOPUP SUKSES!**\nPaket: {days} Hari\nAktif s/d: {exp_str}")
-                await query.edit_message_caption(f"✅ SUKSES (+{days} Hari)\nExp: {exp_str}")
+                
+                # 1. FEEDBACK KE USER (Notifikasi)
+                try:
+                    await context.bot.send_message(uid, f"✅ **TOPUP BERHASIL!**\n\nPaket: +{days} Hari\nAktif s/d: {exp_str}\n\nTerima kasih! 🦅")
+                except: pass
+
+                # 2. FEEDBACK KE ADMIN (Visual Alert & Laporan)
+                # Pop-up di layar (Toast)
+                await query.answer(f"✅ SUKSES! Kuota User +{days} Hari.", show_alert=True)
+                
+                # Update Caption Tombol (Agar ketahuan sudah diproses)
+                try:
+                    await query.edit_message_caption(f"✅ SUKSES (+{days} Hari)\nExp Baru: {exp_str}")
+                except Exception:
+                    pass # Abaikan jika pesan tidak berubah
+                
+                # Laporan Chat ke Admin (Sesuai Request)
+                try:
+                    user_info = get_user(uid)
+                    nama_user = user_info.get('nama_lengkap', 'Unknown')
+                    await context.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=f"👮‍♂️ **LAPORAN TOPUP MANUAL**\n━━━━━━━━━━━━━━━━━━\n👤 <b>User:</b> {nama_user}\n🆔 <b>ID:</b> <code>{uid}</code>\n➕ <b>Tambah:</b> {days} Hari\n📅 <b>Expired Baru:</b> {exp_str}\n━━━━━━━━━━━━━━━━━━\n✅ <i>Transaksi Berhasil Dicatat.</i>",
+                        parse_mode='HTML'
+                    )
+                except: pass
+                
             else: 
-                await query.edit_message_caption("❌ Gagal System.")
+                await query.answer("❌ GAGAL! Cek Log Server.", show_alert=True)
 
     # 4. MENU PEMBAYARAN
     elif data == "buy_manual":
