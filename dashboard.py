@@ -138,25 +138,58 @@ def update_user_status(uid, stat):
     try: supabase.table('users').update({'status': stat}).eq('user_id', uid).execute(); return True
     except: return False
 
+# [REVISI] UPDATE KUOTA LEBIH KUAT (ROBUST DATE PARSING)
 def add_user_quota(uid, days):
     try:
+        # 1. Ambil data tanggal expired saat ini
         res = supabase.table('users').select('expiry_date').eq('user_id', uid).execute()
-        now = datetime.utcnow()
-        current_exp_str = res.data[0]['expiry_date'] if res.data and res.data[0]['expiry_date'] else None
         
-        if current_exp_str:
-            base = datetime.fromisoformat(current_exp_str.replace('Z', ''))
-            if base < now: base = now 
-        else:
-            base = now
-            
-        new_exp = (base + timedelta(days=days)).isoformat()
-        supabase.table('users').update({'expiry_date': new_exp}).eq('user_id', uid).execute()
-        return True
-    except Exception as e:
-        print(e) 
-        return False
+        # Gunakan Waktu UTC agar standar
+        now = datetime.now(timezone.utc)
+        
+        current_exp_str = None
+        if res.data and len(res.data) > 0:
+            current_exp_str = res.data[0].get('expiry_date')
 
+        # 2. Tentukan Base Date (Mulai hitung dari kapan?)
+        base = now
+        if current_exp_str:
+            try:
+                # Normalisasi string tanggal dari Supabase
+                # Ganti 'Z' dengan '+00:00' agar fromisoformat tidak bingung
+                clean_str = current_exp_str.replace('Z', '+00:00')
+                
+                # Parsing string ke object datetime
+                parsed_date = datetime.fromisoformat(clean_str)
+                
+                # Pastikan parsed_date punya timezone (aware)
+                if parsed_date.tzinfo is None:
+                    parsed_date = parsed_date.replace(tzinfo=timezone.utc)
+                
+                # Logika: Jika user sudah expired, tambah dari HARI INI.
+                # Jika belum expired, tambah dari TANGGAL EXPIRED LAMA.
+                if parsed_date > now:
+                    base = parsed_date
+                else:
+                    base = now
+                    
+            except ValueError:
+                # Jika format tanggal database aneh/rusak, default ke NOW
+                base = now
+
+        # 3. Hitung Tanggal Baru
+        new_exp_dt = base + timedelta(days=days)
+        
+        # 4. Update ke Database (Format ISO String)
+        new_exp_str = new_exp_dt.isoformat()
+        
+        supabase.table('users').update({'expiry_date': new_exp_str}).eq('user_id', uid).execute()
+        return True
+
+    except Exception as e:
+        print(f"❌ ERROR ADD QUOTA: {e}") # Cek log jika masih error
+        return False
+    
 # [FUNGSI KIRIM PESAN TELEGRAM LANGSUNG]
 def send_telegram_message(user_id, text):
     if not BOT_TOKEN: return False

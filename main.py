@@ -25,7 +25,7 @@ import urllib.parse
 import shutil
 from dotenv import load_dotenv
 from collections import Counter
-from datetime import datetime, timedelta, time as dt_time
+from datetime import datetime, timedelta, timezone, time as dt_time
 
 from telegram import (
     Update, 
@@ -878,7 +878,7 @@ async def cek_user_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cek_kuota(update, context):
     u = get_user(update.effective_user.id)
-    if not u or u['status']!='active': return
+    if not u or u['status'] != 'active': return
     
     global GLOBAL_INFO
     info_banner = f"📢 <b>INFO PUSAT:</b> {clean_text(GLOBAL_INFO)}\n━━━━━━━━━━━━━━━━━━\n" if GLOBAL_INFO else ""
@@ -887,15 +887,41 @@ async def cek_kuota(update, context):
         msg = (f"{info_banner}📂 **DATABASE SAYA**\n━━━━━━━━━━━━━━━━━━\n👤 **User:** {u.get('nama_lengkap')}\n🏢 **Leasing:** {u.get('agency')}\n🔋 **Status Akses:** UNLIMITED (Enterprise)\n━━━━━━━━━━━━━━━━━━\n✅ Sinkronisasi data berjalan normal.")
     else:
         exp_date = u.get('expiry_date')
+        status_aktif = "❌ SUDAH EXPIRED" # Default state
+        
         if exp_date:
-            exp_dt = datetime.fromisoformat(exp_date.replace('Z', '+00:00')).astimezone(TZ_JAKARTA)
-            status_aktif = f"✅ AKTIF s/d {exp_dt.strftime('%d %b %Y %H:%M')}"
-            remaining = exp_dt - datetime.now(TZ_JAKARTA)
-            if remaining.days < 0: status_aktif = "❌ SUDAH EXPIRED"
-            else: status_aktif += f"\n⏳ Sisa Waktu: {remaining.days} Hari"
-        else: status_aktif = "❌ SUDAH EXPIRED"
+            try:
+                # [UPDATE CTO] Logika Parsing Tanggal Anti-Error
+                # 1. Bersihkan string dari format yang membingungkan
+                clean_date = str(exp_date).replace('Z', '+00:00')
+                
+                # 2. Coba parse (baca) tanggalnya
+                exp_dt = datetime.fromisoformat(clean_date)
+                
+                # 3. Pastikan ada Timezonenya (kalau dari SQL kadang polosan)
+                if exp_dt.tzinfo is None:
+                    exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+                
+                # 4. Konversi ke WIB (Jakarta)
+                exp_dt_wib = exp_dt.astimezone(TZ_JAKARTA)
+                
+                # 5. Hitung sisa waktu
+                now_wib = datetime.now(TZ_JAKARTA)
+                formatted_date = exp_dt_wib.strftime('%d %b %Y %H:%M')
+                
+                if exp_dt_wib > now_wib:
+                    remaining = exp_dt_wib - now_wib
+                    status_aktif = f"✅ AKTIF s/d {formatted_date}\n⏳ Sisa Waktu: {remaining.days} Hari"
+                else:
+                    status_aktif = f"❌ SUDAH EXPIRED (Sejak {formatted_date})"
+                    
+            except ValueError:
+                # Jika format database aneh banget, anggap expired (Fail Safe)
+                status_aktif = "❌ ERROR: Format Tanggal Invalid"
+
         role_msg = f"🎖️ **KORLAP {u.get('wilayah_korlap','')}**" if u.get('role')=='korlap' else f"🛡️ **MITRA LAPANGAN**"
         msg = (f"{info_banner}💳 **INFO LANGGANAN**\n━━━━━━━━━━━━━━━━━━\n{role_msg}\n👤 {u.get('nama_lengkap')}\n\n{status_aktif}\n📊 <b>Cek Hari Ini:</b> {u.get('daily_usage', 0)}x\n━━━━━━━━━━━━━━━━━━\n<i>Perpanjang? Ketik /infobayar</i>")
+    
     await update.message.reply_text(msg, parse_mode='HTML')
 
 async def info_bayar(update, context):
