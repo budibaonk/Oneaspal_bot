@@ -161,7 +161,8 @@ VALID_DB_COLUMNS = ['nopol', 'type', 'finance', 'tahun', 'warna', 'noka', 'nosin
 # BAGIAN 3: DEFINISI STATE CONVERSATION
 # ##############################################################################
 
-R_ROLE_CHOICE, R_NAMA, R_HP, R_EMAIL, R_KOTA, R_AGENCY, R_CONFIRM = range(7)
+# Ubah range jadi 8, dan tambahkan R_PHOTO_ID sebelum R_CONFIRM
+R_ROLE_CHOICE, R_NAMA, R_HP, R_EMAIL, R_KOTA, R_AGENCY, R_PHOTO_ID, R_CONFIRM = range(8)
 # Definisi State untuk Percakapan Tambah Manual
 ADD_NOPOL, ADD_UNIT, ADD_LEASING, ADD_PHONE, ADD_NOTE, ADD_CONFIRM = range(6)
 L_NOPOL, L_REASON, L_CONFIRM = range(14, 17) 
@@ -1298,29 +1299,120 @@ async def register_kota(update, context):
 
 async def register_agency(update, context):
     if update.message.text == "❌ BATAL": return await cancel(update, context)
+    
+    # Simpan Input Agency/Finance
     context.user_data['r_agency'] = update.message.text
-    d = context.user_data; role = d.get('reg_role', 'matel')
-    if role == 'pic': lbl_lokasi = "🏢 Cabang"; lbl_pt = "🏦 Finance"
-    else: lbl_lokasi = "📍 Domisili"; lbl_pt = "🛡️ Agency"
-    summary = (f"📝 **KONFIRMASI PENDAFTARAN**\n━━━━━━━━━━━━━━━━━━\n👤 **Nama:** {d['r_nama']}\n📱 **HP:** {d['r_hp']}\n📧 **Email:** {d['r_email']}\n{lbl_lokasi}: {d['r_kota']}\n{lbl_pt}: {d['r_agency']}\n━━━━━━━━━━━━━━━━━━\nApakah data di atas sudah benar?")
-    await update.message.reply_text(summary, reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True), parse_mode='Markdown'); return R_CONFIRM
+    role = context.user_data.get('reg_role', 'matel')
+    
+    # --- LOGIKA BARU ---
+    if role == 'pic':
+        # Jika PIC, Minta Foto ID Card
+        await update.message.reply_text(
+            "📸 **VERIFIKASI IDENTITAS (WAJIB)**\n\n"
+            "Sesuai prosedur keamanan, silakan **Kirim Foto ID CARD / NAMETAG KANTOR** Anda sekarang.\n\n"
+            "⚠️ _Foto harus jelas untuk diverifikasi Admin._",
+            parse_mode='Markdown',
+            reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)
+        )
+        return R_PHOTO_ID
+    else:
+        # Jika Matel, Langsung Konfirmasi (Seperti Dulu)
+        d = context.user_data
+        summary = (f"📝 **KONFIRMASI PENDAFTARAN**\n━━━━━━━━━━━━━━━━━━\n👤 **Nama:** {d['r_nama']}\n📱 **HP:** {d['r_hp']}\n📧 **Email:** {d['r_email']}\n📍 **Domisili:** {d['r_kota']}\n🛡️ **Agency:** {d['r_agency']}\n━━━━━━━━━━━━━━━━━━\nApakah data di atas sudah benar?")
+        await update.message.reply_text(summary, reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True), parse_mode='Markdown')
+        return R_CONFIRM
+    
+async def register_photo_id(update, context):
+    # Cek apakah user mengirim foto
+    if not update.message.photo:
+        await update.message.reply_text("⚠️ Mohon kirimkan **FOTO** ID Card, bukan dokumen/teks.", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
+        return R_PHOTO_ID
+
+    # Ambil ID file foto resolusi terbesar
+    photo_file_id = update.message.photo[-1].file_id
+    context.user_data['r_photo_proof'] = photo_file_id
+    
+    d = context.user_data
+    # Tampilkan Konfirmasi Akhir untuk PIC
+    summary = (
+        f"📝 **KONFIRMASI REGISTRASI (PIC)**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **Nama:** {d['r_nama']}\n"
+        f"📱 **HP:** {d['r_hp']}\n"
+        f"📧 **Email:** {d['r_email']}\n"
+        f"🏢 **Cabang:** {d['r_kota']}\n"
+        f"🏦 **Finance:** {d['r_agency']}\n"
+        f"📸 **ID Card:** [Terlampir]\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"Kirim data ke Admin untuk verifikasi?"
+    )
+    await update.message.reply_text(summary, reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True), parse_mode='Markdown')
+    return R_CONFIRM
 
 async def register_confirm(update, context):
     if update.message.text != "✅ KIRIM": return await cancel(update, context)
-    role_db = context.user_data.get('reg_role', 'matel')
+    
+    d = context.user_data
+    role_db = d.get('reg_role', 'matel')
     quota_init = 5000 if role_db == 'pic' else 1000
-    d = {"user_id": update.effective_user.id, "nama_lengkap": context.user_data['r_nama'], "no_hp": context.user_data['r_hp'], "email": context.user_data['r_email'], "alamat": context.user_data['r_kota'], "agency": context.user_data['r_agency'], "quota": quota_init, "status": "pending", "role": role_db, "ref_korlap": None}
+    
+    # Masukkan ke Database
+    data_user = {
+        "user_id": update.effective_user.id, "nama_lengkap": d['r_nama'], 
+        "no_hp": d['r_hp'], "email": d['r_email'], "alamat": d['r_kota'], 
+        "agency": d['r_agency'], "quota": quota_init, "status": "pending", 
+        "role": role_db, "ref_korlap": None
+    }
+    
     try:
-        supabase.table('users').insert(d).execute()
-        if role_db == 'pic': await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nAkses Enterprise Workspace sedang diverifikasi Admin.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
-        else: await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nData Mitra sedang diverifikasi Admin Pusat.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
-        wa_link = format_wa_link(d['no_hp']) 
-        msg_admin = (f"🔔 <b>REGISTRASI BARU ({role_db.upper()})</b>\n━━━━━━━━━━━━━━━━━━\n👤 <b>Nama:</b> {clean_text(d['nama_lengkap'])}\n🆔 <b>User ID:</b> <code>{d['user_id']}</code>\n🏢 <b>Agency:</b> {clean_text(d['agency'])}\n📍 <b>Domisili:</b> {clean_text(d['alamat'])}\n📱 <b>HP/WA:</b> {wa_link}\n📧 <b>Email:</b> {clean_text(d['email'])}\n━━━━━━━━━━━━━━━━━━\n<i>Silakan validasi data mitra ini.</i>")
-        kb = [[InlineKeyboardButton("✅ TERIMA (AKTIFKAN)", callback_data=f"appu_{d['user_id']}")], [InlineKeyboardButton("❌ TOLAK (HAPUS)", callback_data=f"reju_{d['user_id']}")]]
-        await context.bot.send_message(ADMIN_ID, msg_admin, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML', link_preview_options=LinkPreviewOptions(is_disabled=True))
+        supabase.table('users').insert(data_user).execute()
+        
+        # Balasan ke User
+        if role_db == 'pic': 
+            await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nAkses Enterprise Workspace sedang diverifikasi Admin.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
+        else: 
+            await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nData Mitra sedang diverifikasi Admin Pusat.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
+        
+        # Siapkan Pesan Admin
+        wa_link = format_wa_link(d['r_hp']) 
+        msg_admin = (
+            f"🔔 <b>REGISTRASI BARU ({role_db.upper()})</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Nama:</b> {clean_text(d['r_nama'])}\n"
+            f"🆔 <b>User ID:</b> <code>{update.effective_user.id}</code>\n"
+            f"🏢 <b>Agency/Fin:</b> {clean_text(d['r_agency'])}\n"
+            f"📍 <b>Area:</b> {clean_text(d['r_kota'])}\n"
+            f"📱 <b>HP/WA:</b> {wa_link}\n"
+            f"📧 <b>Email:</b> {clean_text(d['r_email'])}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+        )
+        
+        kb = [[InlineKeyboardButton("✅ TERIMA (AKTIFKAN)", callback_data=f"appu_{update.effective_user.id}")], [InlineKeyboardButton("❌ TOLAK (HAPUS)", callback_data=f"reju_{update.effective_user.id}")]]
+        
+        # --- LOGIKA KIRIM KE ADMIN ---
+        # Jika PIC dan ada Foto -> Kirim Foto + Caption
+        if role_db == 'pic' and 'r_photo_proof' in d:
+            await context.bot.send_photo(
+                chat_id=ADMIN_ID, 
+                photo=d['r_photo_proof'], 
+                caption=msg_admin + "📸 <i>Bukti ID Card terlampir.</i>", 
+                reply_markup=InlineKeyboardMarkup(kb), 
+                parse_mode='HTML'
+            )
+        # Jika Matel -> Kirim Teks Biasa
+        else:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID, 
+                text=msg_admin + "<i>Silakan validasi data mitra ini.</i>", 
+                reply_markup=InlineKeyboardMarkup(kb), 
+                parse_mode='HTML', 
+                link_preview_options=LinkPreviewOptions(is_disabled=True)
+            )
+            
     except Exception as e: 
         logger.error(f"Reg Error: {e}")
-        await update.message.reply_text("❌ Gagal Terkirim. User ID Anda mungkin sudah terdaftar sebelumnya.", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text("❌ Gagal Terkirim. User ID Anda mungkin sudah terdaftar.", reply_markup=ReplyKeyboardRemove())
+        
     return ConversationHandler.END
 
 
@@ -1861,7 +1953,25 @@ if __name__ == '__main__':
     app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(reject_start, pattern='^reju_')], states={REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, reject_complete)]}, fallbacks=[CommandHandler('cancel', cancel)]))
     app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(val_reject_start, pattern='^v_rej_')], states={VAL_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, val_reject_complete)]}, fallbacks=[CommandHandler('cancel', cancel)]))
     
-    app.add_handler(ConversationHandler(entry_points=[CommandHandler('register', register_start)], states={R_ROLE_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_role_choice)], R_NAMA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_nama)], R_HP: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_hp)], R_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_email)], R_KOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], R_CONFIRM:[MessageHandler(filters.TEXT & ~filters.COMMAND, register_confirm)]}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]))
+    # [UPDATE] REGISTER HANDLER DENGAN FOTO ID
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('register', register_start)], 
+        states={
+            R_ROLE_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_role_choice)], 
+            R_NAMA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_nama)], 
+            R_HP: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_hp)], 
+            R_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_email)], 
+            R_KOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], 
+            R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], 
+            
+            # --- STATE BARU: HANDLER FOTO ID CARD ---
+            R_PHOTO_ID: [MessageHandler(filters.PHOTO, register_photo_id)],
+            # ----------------------------------------
+
+            R_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_confirm)]
+        }, 
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+    ))
     
     conv_add_manual = ConversationHandler(entry_points=[CommandHandler('tambah', add_manual_start)], states={ADD_NOPOL: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_nopol)], ADD_UNIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_unit)], ADD_LEASING: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_leasing)], ADD_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_phone)], ADD_NOTE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_note)], ADD_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_save)],}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex("^❌ BATAL$"), cancel)])
     app.add_handler(conv_add_manual)
