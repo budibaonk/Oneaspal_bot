@@ -1722,66 +1722,106 @@ async def cancel(update, context):
     await update.message.reply_text("🚫 Batal.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-# --- MASTER CALLBACK HANDLER ---
+# --- MASTER CALLBACK HANDLER (CLEAN VERSION) ---
 async def callback_handler(update, context):
-    query = update.callback_query; await query.answer(); data = query.data 
+    query = update.callback_query
+    await query.answer() # Wajib agar loading di tombol hilang
+    data = query.data 
     
+    # [DEBUG] Cek tombol apa yang ditekan di Terminal
+    print(f"🔘 Tombol Ditekan: {data}")
+
+    # 1. STOP UPLOAD
     if data == "stop_upload_task":
         context.user_data['stop_signal'] = True
         await query.edit_message_text("🛑 <b>BERHENTI!</b>\nMenunggu proses batch terakhir selesai...", parse_mode='HTML')
 
+    # 2. VIEW DETAIL UNIT
     elif data.startswith("view_"):
-        nopol_target = data.replace("view_", ""); u = get_user(update.effective_user.id)
+        nopol_target = data.replace("view_", "")
+        u = get_user(update.effective_user.id)
         res = supabase.table('kendaraan').select("*").eq('nopol', nopol_target).execute()
-        if res.data: await show_unit_detail_original(update, context, res.data[0], u)
-        else: await query.edit_message_text("❌ Data unit sudah tidak tersedia.")
+        if res.data: 
+            await show_unit_detail_original(update, context, res.data[0], u)
+        else: 
+            await query.edit_message_text("❌ Data unit sudah tidak tersedia.")
     
+    # 3. MANUAL TOPUP ADMIN
     elif data.startswith("topup_") or data.startswith("adm_topup_"):
         parts = data.split("_")
-        uid = int(parts[len(parts)-2])
-        days = parts[len(parts)-1] 
-        if days == "rej":
+        uid = int(parts[-2])
+        days_str = parts[-1] 
+        
+        if days_str == "rej":
             await context.bot.send_message(uid, "❌ Permintaan Topup DITOLAK Admin.")
             await query.edit_message_caption("❌ DITOLAK.")
         else:
-            suc, new_exp = add_subscription_days(uid, int(days))
+            days = int(days_str)
+            suc, new_exp = add_subscription_days(uid, days)
             if suc:
                 exp_str = new_exp.strftime('%d %b %Y')
                 await context.bot.send_message(uid, f"✅ **TOPUP SUKSES!**\nPaket: {days} Hari\nAktif s/d: {exp_str}")
                 await query.edit_message_caption(f"✅ SUKSES (+{days} Hari)\nExp: {exp_str}")
-            else: await query.edit_message_caption("❌ Gagal System.")
+            else: 
+                await query.edit_message_caption("❌ Gagal System.")
+
+    # 4. MENU PEMBAYARAN
+    elif data == "buy_manual":
+        msg = (
+            f"🏦 <b>TRANSFER MANUAL</b>\n━━━━━━━━━━━━━━━━━━\n"
+            f"<b>BCA:</b> 1234-5678-900 (Budi Baonk)\n"
+            f"<b>DANA:</b> 0812-3456-7890\n\n"
+            f"👇 <b>LANGKAH SELANJUTNYA:</b>\n"
+            f"1. Transfer sesuai nominal.\n"
+            f"2. <b>FOTO</b> bukti transfer.\n"
+            f"3. <b>KIRIM FOTO</b> ke bot ini."
+        )
+        await query.message.reply_text(msg, parse_mode='HTML')
+
+    elif data.startswith("buy_"):
+        await query.message.reply_text("⚠️ Fitur QRIS Otomatis sedang maintenance. Silakan gunakan Transfer Manual.")
 
     elif data.startswith("man_topup_"):
         uid = data.split("_")[2]
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f"ℹ️ **MODE MANUAL**\n\nSilakan ketik perintah berikut:\n<code>/topup {uid} [JUMLAH_HARI]</code>", parse_mode='HTML')
 
+    # 5. ADMIN USER MANAGEMENT
     elif data.startswith("adm_promote_"):
-        uid = int(data.split("_")[2]); supabase.table('users').update({'role': 'korlap'}).eq('user_id', uid).execute()
+        uid = int(data.split("_")[2])
+        supabase.table('users').update({'role': 'korlap'}).eq('user_id', uid).execute()
         await query.edit_message_text(f"✅ User {uid} DIPROMOSIKAN jadi KORLAP.")
         try: await context.bot.send_message(uid, "🎉 **SELAMAT!** Anda telah diangkat menjadi **KORLAP**.")
         except: pass
-    elif data.startswith("adm_demote_"): uid = int(data.split("_")[2]); supabase.table('users').update({'role': 'matel'}).eq('user_id', uid).execute(); await query.edit_message_text(f"⬇️ User {uid} DITURUNKAN jadi MATEL.")
-    elif data == "close_panel": await query.delete_message()
+        
+    elif data.startswith("adm_demote_"): 
+        uid = int(data.split("_")[2])
+        supabase.table('users').update({'role': 'matel'}).eq('user_id', uid).execute()
+        await query.edit_message_text(f"⬇️ User {uid} DITURUNKAN jadi MATEL.")
+        
+    elif data == "close_panel": 
+        await query.delete_message()
     
+    # 6. APPROVE REGISTER (appu_)
     elif data.startswith("appu_"): 
         target_uid = int(data.split("_")[1])
         # Update status jadi active
         update_user_status(target_uid, 'active')
         
-        # Ambil data user terbaru
+        # Feedback ke Admin (PENTING: Pakai edit_message_text atau caption tergantung konten asli)
+        try:
+            await query.edit_message_caption(f"✅ User {target_uid} telah Diaktifkan.")
+        except:
+            await query.edit_message_text(f"✅ User {target_uid} telah Diaktifkan.")
+        
+        # Ambil data user
         target_user = get_user(target_uid)
         
-        # Feedback ke Admin
-        await query.edit_message_text(f"✅ User {target_uid} telah Diaktifkan.")
-        
-        # --- LOGIKA SAMBUTAN (SESUAI REQUEST) ---
-        
-        # 1. JIKA USER ADALAH PIC (Kode dari Anda - TIDAK DIUBAH)
+        # LOGIKA SAMBUTAN (PIC vs MATEL)
         if target_user and target_user.get('role') == 'pic':
             nama_pic = clean_text(target_user.get('nama_lengkap', 'Partner'))
             msg_pic = (
                 f"Selamat Pagi, Pak {nama_pic}.\n\n"
-                f"Izin memperkenalkan fitur <b>Private Enterprise</b> di OneAspal Bot.\n\n"
+                f"Izin memperkenalkan fitur <b>Private Enterprise</b> di OneAspal Bot.\n"
                 f"Kami menyediakan <b>Private Cloud</b> agar Bapak bisa menyimpan data kendaraan dengan aman menggunakan <b>Blind Check System</b>.\n\n"
                 f"🔐 <b>Keamanan Data:</b>\n"
                 f"Di sistem ini, Bapak <b>TIDAK</b> dikategorikan menyebarkan data kepada orang lain (Aman secara SOP). Bapak hanya mengarsipkan data digital untuk menunjang <b>Performance Pekerjaan</b> Bapak sendiri.\n\n"
@@ -1792,9 +1832,9 @@ async def callback_handler(update, context):
             try: await context.bot.send_message(target_uid, msg_pic, parse_mode='HTML')
             except: pass
 
-        # 2. JIKA USER ADALAH MITRA/MATEL (Update Baru: Hemat Kuota & Cepat)
         else:
-            nama_user = target_user.get('full_name', 'Mitra')
+            # PESAN UNTUK MATEL
+            nama_user = target_user.get('nama_lengkap', 'Mitra')
             msg_mitra = (
                 f"🦅 **SELAMAT BERGABUNG DI ONE ASPAL BOT** 🦅\n"
                 f"Halo, {nama_user}! Akun Anda telah **DISETUJUI** ✅.\n\n"
@@ -1813,15 +1853,21 @@ async def callback_handler(update, context):
             try: await context.bot.send_message(target_uid, msg_mitra, parse_mode='Markdown')
             except: pass
             
+    # 7. REJECT REGISTER (reju_)
     elif data.startswith("reju_"):
         target_uid = int(data.split("_")[1])
-        # Hapus dari database (Sesuai label tombol)
+        # Hapus User
         supabase.table('users').delete().eq('user_id', target_uid).execute()
         
-        await query.edit_message_text("❌ User DITOLAK & DIHAPUS.")
+        try:
+            await query.edit_message_caption(f"❌ User {target_uid} DITOLAK & DIHAPUS.")
+        except:
+            await query.edit_message_text(f"❌ User {target_uid} DITOLAK & DIHAPUS.")
+            
         try: await context.bot.send_message(target_uid, "⛔ Pendaftaran Ditolak. Silakan daftar ulang dengan data yang benar.")
         except: pass
     
+    # 8. COPY TEXT BUTTON
     elif data.startswith("cp_"):
         nopol_target = data.replace("cp_", "")
         u = get_user(update.effective_user.id)
@@ -1839,47 +1885,32 @@ async def callback_handler(update, context):
         except Exception as e:
             await query.answer("❌ Gagal Copy.", show_alert=True)
 
+    # 9. APPROVE / REJECT INPUT MANUAL
     elif data.startswith("v_acc_"): 
-        # Format data: v_acc_NOPOL_USERID
         parts = data.split("_")
         nopol = parts[2]
         user_id_sender = parts[3]
-        
-        # Ambil data dari memory bot_data
         item = context.bot_data.get(f"prop_{nopol}")
-        
         if item:
             try:
-                # Insert ke Database
                 supabase.table('kendaraan').upsert(item).execute()
-                
-                # Hapus dari memory agar hemat RAM
                 del context.bot_data[f"prop_{nopol}"]
-                
                 await query.edit_message_text(f"✅ Data `{nopol}` DISETUJUI & Sudah Tayang di Database.")
-                
-                # Kabari User Pengirim
                 try:
                     await context.bot.send_message(user_id_sender, f"✅ **DATA DISETUJUI!**\nUnit `{nopol}` yang Anda input sudah tayang di database.", parse_mode='Markdown')
                 except: pass
-                
             except Exception as e:
                 await query.edit_message_text(f"❌ Error Database: {e}")
         else:
             await query.edit_message_text("⚠️ Data kadaluwarsa (Bot sempat restart). Minta user input ulang.")
 
     elif data.startswith("v_rej_"):
-        # Format data: v_rej_NOPOL_USERID
         parts = data.split("_")
         nopol = parts[2]
         user_id_sender = parts[3]
-        
-        # Hapus dari memory (kalau ada)
         if f"prop_{nopol}" in context.bot_data:
             del context.bot_data[f"prop_{nopol}"]
-            
-        # Panggil form alasan penolakan (Reuse logic val_reject yang sudah ada)
-        # Kita set state agar admin bisa ketik alasan
+        
         context.user_data['val_rej_nopol'] = nopol
         context.user_data['val_rej_uid'] = user_id_sender
         
@@ -1888,43 +1919,26 @@ async def callback_handler(update, context):
             text=f"❌ **TOLAK PENGAJUAN MANUAL**\nUnit: {nopol}\n\nKetik ALASAN Penolakan:",
             reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)
         )
-        # Return state ConversationHandler (Pastikan ini sesuai dengan definisi state Anda)
         return VAL_REJECT_REASON
-    
-    # --- [REVISI FIX: FITUR LAPOR DELETE] ---
+
+    # 10. APPROVE / REJECT LAPOR DELETE
     elif data.startswith("del_acc_"):
-        # Format data dari tombol: del_acc_NOPOL_USERID
         parts = data.split("_")
         nopol_target = parts[2]
         user_id_pelapor = parts[3]
         
         try:
-            # 1. Hapus dari Database Supabase
             supabase.table('kendaraan').delete().eq('nopol', nopol_target).execute()
-            
-            # 2. Ubah pesan Admin jadi "Sukses"
-            await query.edit_message_text(
-                text=f"✅ <b>DISETUJUI & DIHAPUS</b>\nUnit: {nopol_target} telah dibersihkan dari database.", 
-                parse_mode='HTML'
-            )
-            
-            # 3. Beri Notifikasi ke User Pelapor (Feedback)
+            await query.edit_message_caption(f"✅ <b>DISETUJUI & DIHAPUS</b>\nUnit: {nopol_target} telah dibersihkan dari database.", parse_mode='HTML')
             try: 
                 await context.bot.send_message(user_id_pelapor, f"✅ <b>LAPORAN DISETUJUI</b>\nUnit <code>{nopol_target}</code> telah kami hapus dari database. Terima kasih kontribusinya.", parse_mode='HTML')
             except: pass
-            
         except Exception as e:
-            # Jika error (misal unit sudah dihapus duluan)
             await query.answer(f"❌ Gagal Hapus: {e}", show_alert=True)
 
     elif data.startswith("del_rej_"):
-        # Format data dari tombol: del_rej_USERID
         user_id_pelapor = data.split("_")[2]
-        
-        # 1. Ubah pesan Admin jadi "Ditolak"
-        await query.edit_message_text(text="❌ <b>LAPORAN DITOLAK</b>\nData unit dipertahankan.", parse_mode='HTML')
-        
-        # 2. Beri Notifikasi ke User Pelapor
+        await query.edit_message_caption("❌ <b>LAPORAN DITOLAK</b>", parse_mode='HTML')
         try: 
             await context.bot.send_message(user_id_pelapor, "⚠️ Laporan penghapusan unit Anda ditolak oleh Admin. Data dinilai masih valid.", parse_mode='HTML')
         except: pass
