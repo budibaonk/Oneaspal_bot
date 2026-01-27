@@ -1908,6 +1908,7 @@ async def callback_handler(update, context):
         except: pass
     
     # 8. COPY TEXT BUTTON
+    # COPY TEXT BUTTON (Clean Version)
     elif data.startswith("cp_"):
         nopol_target = data.replace("cp_", "")
         u = get_user(update.effective_user.id)
@@ -1918,10 +1919,34 @@ async def callback_handler(update, context):
                 await query.answer("❌ Data unit tidak ditemukan.", show_alert=True)
                 return
             d = res.data[0]
-            share_text = (f"*LAPORAN TEMUAN UNIT (ONE ASPAL)*\n----------------------------------\n🚙 Unit: {d.get('type', '-')}\n🔢 Nopol: {d.get('nopol', '-')}\n🎨 Warna: {d.get('warna', '-')}\n📅 Tahun: {d.get('tahun', '-')}\n🔧 Noka: {d.get('noka', '-')}\n⚙️ Nosin: {d.get('nosin', '-')}\n🏦 Finance: {d.get('finance', '-')}\n⚠️ OVD: {d.get('ovd', '-')}\n🏢 Branch: {d.get('branch', '-')}\n📍 Lokasi: {u.get('alamat', '-')}\n👤 Penemu: {u.get('nama_lengkap', '-')} ({u.get('agency', '-')})\n----------------------------------\n⚠️ *PENTING & DISCLAIMER:*\nInformasi ini BUKAN alat yang SAH untuk penarikan unit (Eksekusi).\nMohon untuk konfirmasi ke Pic Leasing atau Kantor.")
-            msg_copy = (f"📋 **TEKS LAPORAN SIAP COPY**\n_(Sentuh teks di bawah untuk menyalin)_\n\n<code>{share_text}</code>")
+            
+            # Format Text (Sudah sesuai standar WA)
+            share_text = (
+                f"*LAPORAN TEMUAN UNIT (ONE ASPAL)*\n"
+                f"----------------------------------\n"
+                f"🚙 Unit: {d.get('type', '-')}\n"
+                f"🔢 Nopol: {d.get('nopol', '-')}\n"
+                f"🎨 Warna: {d.get('warna', '-')}\n"
+                f"📅 Tahun: {d.get('tahun', '-')}\n"
+                f"🔧 Noka: {d.get('noka', '-')}\n"
+                f"⚙️ Nosin: {d.get('nosin', '-')}\n"
+                f"🏦 Finance: {d.get('finance', '-')}\n"
+                f"⚠️ OVD: {d.get('ovd', '-')}\n"
+                f"🏢 Branch: {d.get('branch', '-')}\n"
+                f"📍 Lokasi: {u.get('alamat', '-')}\n"
+                f"👤 Penemu: {u.get('nama_lengkap', '-')} ({u.get('agency', '-')})\n"
+                f"----------------------------------\n"
+                f"⚠️ *PENTING & DISCLAIMER:*\n"
+                f"Informasi ini BUKAN alat yang SAH untuk penarikan unit (Eksekusi).\n"
+                f"Mohon untuk konfirmasi ke Pic Leasing atau Kantor."
+            )
+            
+            # [REVISI] Langsung Code Block (Tanpa Kata-Kata Pengantar)
+            msg_copy = f"<code>{share_text}</code>"
+            
             await query.message.reply_text(msg_copy, parse_mode='HTML')
-            await query.answer("✅ Teks disiapkan!")
+            await query.answer("✅ Teks siap disalin!")
+            
         except Exception as e:
             await query.answer("❌ Gagal Copy.", show_alert=True)
 
