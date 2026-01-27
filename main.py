@@ -235,7 +235,14 @@ def check_subscription_access(user):
 
 def increment_daily_usage(user_id, current_usage):
     try:
-        supabase.table('users').update({'daily_usage': current_usage + 1}).eq('user_id', user_id).execute()
+        # Ambil waktu sekarang format ISO lengkap (Jam:Menit:Detik)
+        now_iso = datetime.now(TZ_JAKARTA).isoformat()
+        
+        # Update daily usage DAN last_seen
+        supabase.table('users').update({
+            'daily_usage': current_usage + 1,
+            'last_seen': now_iso  # <--- INI KUNCINYA
+        }).eq('user_id', user_id).execute()
     except: pass
 
 def add_subscription_days(user_id, days_to_add):
