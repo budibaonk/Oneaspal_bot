@@ -1,7 +1,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL COMMAND CENTER                        #
-#                      VERSION: 8.9.2 (TEXT FIX: PIC LEASING)                  #
+#                      VERSION: 9.0 (LIVE OPS MONITORING)                      #
 #                      ROLE:    ADMIN DASHBOARD CORE                           #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -17,6 +17,7 @@ import re
 import numpy as np
 import io
 import zipfile
+import pytz  # [PENTING] Library Timezone untuk Live Monitoring
 from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -31,7 +32,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CSS MASTER (MOBILE COMPATIBLE FIX) ---
+# --- CSS MASTER (TAMPILAN CYBERPUNK) ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Orbitron:wght@500;700;900&display=swap');
@@ -39,12 +40,10 @@ st.markdown("""
     /* BACKGROUND UTAMA */
     .stApp { background-color: #0e1117 !important; font-family: 'Inter', sans-serif; font-size: 14px; }
     
-    /* PAKSA SEMUA TEKS JADI PUTIH (FIX UNTUK HP) */
-    p, span, div, li {
-        color: #e0e0e0;
-    }
+    /* FIX WARNA TEXT UNTUK HP */
+    p, span, div, li { color: #e0e0e0; }
 
-    /* JUDUL & HEADER - PAKSA PUTIH */
+    /* HEADER & JUDUL */
     h1, h2, h3, h4, h5, h6 { 
         font-family: 'Orbitron', sans-serif !important; 
         color: #ffffff !important; 
@@ -52,25 +51,9 @@ st.markdown("""
         letter-spacing: 1px; 
     }
     
-    /* WARNA LABEL METRIC (ASSETS, LIVE USERS, DLL) */
-    div[data-testid="stMetricLabel"] {
-        color: #a0a0a0 !important; /* Abu terang agar terbaca */
-        font-size: 0.9rem !important;
-    }
-
-    /* WARNA ANGKA METRIC (4,978,995) */
-    div[data-testid="stMetricValue"] {
-        color: #00f2ff !important; /* Cyan Neon */
-        font-family: 'Orbitron', sans-serif; 
-        font-size: 1.6rem !important;
-    }
-
-    /* WARNA DELTA/PANAH KECIL */
-    div[data-testid="stMetricDelta"] {
-        color: #00ff00 !important; /* Hijau */
-    }
-    
-    /* KOTAK STATISTIK (METRIC CARDS) */
+    /* DESIGN METRIC (ANGKA STATISTIK) */
+    div[data-testid="stMetricLabel"] { color: #a0a0a0 !important; font-size: 0.9rem !important; }
+    div[data-testid="stMetricValue"] { color: #00f2ff !important; font-family: 'Orbitron', sans-serif; font-size: 1.6rem !important; }
     div[data-testid="metric-container"] {
         background: rgba(255, 255, 255, 0.05) !important;
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
@@ -82,86 +65,30 @@ st.markdown("""
     /* TOMBOL NEON */
     .stButton>button {
         background: linear-gradient(90deg, #0061ff 0%, #60efff 100%) !important;
-        color: #000000 !important; 
-        border: none; 
-        border-radius: 8px; 
-        height: 45px;
-        font-weight: 800; 
-        font-family: 'Orbitron', sans-serif; 
-        width: 100%;
-        transition: all 0.3s;
+        color: #000000 !important; border: none; border-radius: 8px; height: 45px;
+        font-weight: 800; font-family: 'Orbitron', sans-serif; width: 100%; transition: all 0.3s;
     }
 
-    /* LEADERBOARD DESIGN */
+    /* BARIS LEADERBOARD */
     .leaderboard-row {
-        background: rgba(0, 242, 255, 0.04);
-        padding: 15px; 
-        margin-bottom: 8px;
-        border-radius: 8px;
-        border-left: 4px solid #00f2ff;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
+        background: rgba(0, 242, 255, 0.04); padding: 15px; margin-bottom: 8px;
+        border-radius: 8px; border-left: 4px solid #00f2ff;
+        display: flex; justify-content: space-between; align-items: center;
     }
-    .leaderboard-val { 
-        font-family: 'Orbitron'; 
-        color: #00f2ff !important; 
-        font-weight: bold; 
-        font-size: 1.1rem;
-    }
+    .leaderboard-val { font-family: 'Orbitron'; color: #00f2ff !important; font-weight: bold; font-size: 1.1rem; }
 
-    /* TECH BOX & GRID PERSONIL */
-    .tech-box { 
-        background: rgba(0, 242, 255, 0.05); 
-        border-left: 4px solid #00f2ff; 
-        padding: 20px; 
-        border-radius: 8px; 
-        color: #ddd; 
-        margin-bottom: 20px; 
-    }
-    .info-grid { 
-        display: grid; 
-        grid-template-columns: repeat(2, 1fr); 
-        gap: 12px; 
-        margin-top: 15px; 
-    }
-    .info-item { 
-        background: rgba(255,255,255,0.05); 
-        padding: 12px; 
-        border-radius: 6px; 
-    }
-    .info-label { 
-        color: #aaa !important; 
-        font-size: 0.8rem; 
-        display: block; 
-        margin-bottom: 4px;
-        text-transform: uppercase;
-    }
-    .info-value { 
-        color: #ffffff !important; 
-        font-weight: bold; 
-        font-family: 'Orbitron'; 
-        font-size: 1.1rem; 
-    }
+    /* DETAIL PERSONIL */
+    .tech-box { background: rgba(0, 242, 255, 0.05); border-left: 4px solid #00f2ff; padding: 20px; border-radius: 8px; color: #ddd; margin-bottom: 20px; }
+    .info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 15px; }
+    .info-item { background: rgba(255,255,255,0.05); padding: 12px; border-radius: 6px; }
+    .info-label { color: #aaa !important; font-size: 0.8rem; display: block; margin-bottom: 4px; text-transform: uppercase; }
+    .info-value { color: #ffffff !important; font-weight: bold; font-family: 'Orbitron'; font-size: 1.1rem; }
     
     header {visibility: hidden;} 
     
-    /* CUSTOM FOOTER STYLE */
-    .footer-text {
-        text-align: center;
-        color: #888;
-        font-family: 'Orbitron', sans-serif;
-        font-size: 0.8rem;
-        margin-top: 20px;
-        opacity: 0.7;
-    }
-    .footer-quote {
-        text-align: center;
-        color: #00f2ff;
-        font-style: italic;
-        font-size: 0.9rem;
-        margin-bottom: 10px;
-    }
+    /* FOOTER */
+    .footer-text { text-align: center; color: #888; font-family: 'Orbitron', sans-serif; font-size: 0.8rem; margin-top: 20px; opacity: 0.7; }
+    .footer-quote { text-align: center; color: #00f2ff; font-style: italic; font-size: 0.9rem; margin-bottom: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -180,13 +107,15 @@ def init_connection():
 
 supabase = init_connection()
 
+# Session State Init
 if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
 if 'upload_stage' not in st.session_state: st.session_state['upload_stage'] = 'idle'
 if 'upload_data_cache' not in st.session_state: st.session_state['upload_data_cache'] = None
 if 'upload_found_cols' not in st.session_state: st.session_state['upload_found_cols'] = []
 if 'upload_result' not in st.session_state: st.session_state['upload_result'] = None
 
-# --- DATABASE CRUD ---
+# --- DATABASE CRUD FUNCTIONS ---
+
 def get_total_asset_count():
     try: return supabase.table('kendaraan').select('*', count='exact', head=True).execute().count
     except: return 0
@@ -206,12 +135,30 @@ def get_hit_counts():
         return df['user_id'].astype(str).value_counts() if not df.empty else pd.Series()
     except: return pd.Series()
 
-# [REVISI] LIVE USER JADI 5 MENIT AGAR LEBIH PRESISI
-def get_active_hunters_5m():
+# [REVISI] LIVE USER COUNT (BERDASARKAN LAST_SEEN < 5 MENIT)
+def get_live_users_count():
     try:
-        t = datetime.now(timezone.utc) - timedelta(minutes=5)
-        res = supabase.table('finding_logs').select('user_id').gte('created_at', t.isoformat()).execute()
-        return pd.DataFrame(res.data)['user_id'].nunique() if res.data else 0
+        # Ambil kolom last_seen
+        res = supabase.table('users').select('last_seen').execute()
+        df = pd.DataFrame(res.data)
+        
+        if 'last_seen' not in df.columns: return 0
+        
+        # Konversi Timezone
+        TZ = pytz.timezone('Asia/Jakarta')
+        df['last_seen'] = pd.to_datetime(df['last_seen'], errors='coerce')
+        
+        # Handle yang timezone-naive
+        if df['last_seen'].dt.tz is None:
+            df['last_seen'] = df['last_seen'].dt.tz_localize('UTC').dt.tz_convert(TZ)
+        else:
+            df['last_seen'] = df['last_seen'].dt.tz_convert(TZ)
+            
+        # Hitung User Aktif < 5 Menit
+        now = datetime.now(TZ)
+        limit = now - timedelta(minutes=5)
+        
+        return len(df[df['last_seen'] >= limit])
     except: return 0
 
 def update_user_status(uid, stat):
@@ -231,7 +178,7 @@ def delete_user_permanent(uid):
     except: return False
 
 # ##############################################################################
-# BAGIAN 3: ENGINE PINTAR
+# BAGIAN 3: ENGINE PINTAR (TEXT PROCESSING)
 # ##############################################################################
 COLUMN_ALIASES = {
     'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi'],
@@ -290,31 +237,33 @@ if not st.session_state['authenticated']:
     st.stop()
 
 # ##############################################################################
-# BAGIAN 5: SIDEBAR & HEADER
+# BAGIAN 5: SIDEBAR & HEADER (METRICS UPDATE)
 # ##############################################################################
 with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", width=220)
     st.caption("ONE ASPAL SYSTEM\nStatus: ONLINE 🟢")
 
-st.markdown("## ONE ASPAL COMMANDO v8.8")
+st.markdown("## ONE ASPAL COMMANDO v9.0")
 st.markdown("<span style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE INTELLIGENCE COMMAND CENTER</span>", unsafe_allow_html=True)
 st.markdown("---")
 
 df_u = get_all_users()
 m1, m2, m3, m4, m5 = st.columns(5)
+
+# TAMPILAN METRIC UTAMA
 m1.metric("ASSETS", f"{get_total_asset_count():,}", "DATABASE")
-# [REVISI] Menggunakan fungsi get_active_hunters_5m
-m2.metric("LIVE USERS", f"{get_active_hunters_5m()}", "5M ACTIVE")
+m2.metric("LIVE USERS", f"{get_live_users_count()}", "ACTIVE < 5M") # <--- UPDATE REALTIME
 m3.metric("MITRA", f"{len(df_u[df_u['role']!='pic']) if not df_u.empty else 0}", "REGISTERED")
 m4.metric("READY", f"{len(df_u[(df_u['status']=='active') & (pd.to_numeric(df_u['quota'], errors='coerce').fillna(0)>0)]) if not df_u.empty else 0}", "QUOTA > 0")
 m5.metric("PIC LEASING", f"{len(df_u[df_u['role']=='pic']) if not df_u.empty else 0}", "INTERNAL")
 st.write("")
 
 # ##############################################################################
-# BAGIAN 6: FITUR TABS
+# BAGIAN 6: FITUR TABS (DITAMBAH TAB LIVE OPS)
 # ##############################################################################
-tab1, tab2, tab3, tab4 = st.tabs(["🏆 LEADERBOARD", "🛡️ PERSONIL", "📤 UPLOAD", "🗑️ HAPUS"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 LEADERBOARD", "🛡️ PERSONIL", "📤 UPLOAD", "🗑️ HAPUS", "📡 LIVE OPS"])
 
+# --- TAB 1: LEADERBOARD ---
 with tab1:
     hits = get_hit_counts()
     if not df_u.empty and not hits.empty:
@@ -322,60 +271,32 @@ with tab1:
         for i, r in enumerate(df_r[df_r['role']!='pic'].sort_values('h', ascending=False).head(10).iterrows(), 1):
             st.markdown(f'<div class="leaderboard-row"><div><b>#{i} {r[1]["nama_lengkap"]}</b><br><small>{r[1]["agency"]}</small></div><div class="leaderboard-val">{r[1]["h"]} HITS</div></div>', unsafe_allow_html=True)
 
-# [REVISI] BAGIAN PERSONIL (SORT & DETAILS)
+# --- TAB 2: MANAJEMEN PERSONIL ---
 with tab2:
     if not df_u.empty:
         div = st.radio("DIV", ["🛡️ MATEL", "🏦 PIC LEASING"], horizontal=True, label_visibility="collapsed")
         target = df_u[df_u['role']!='pic'] if "MATEL" in div else df_u[df_u['role']=='pic']
-        
-        # [REVISI] Sortir Berdasarkan Abjad Nama (Case Insensitive)
         target = target.sort_values(by="nama_lengkap", key=lambda col: col.str.lower())
-        
-        # Dropdown Search
         sel = st.selectbox("SEARCH AGENT", [f"{r['nama_lengkap']} | {r['agency']}" for i, r in target.iterrows()], label_visibility="collapsed")
         
         if sel:
             uid = target[target['nama_lengkap']==sel.split(' | ')[0]].iloc[0]['user_id']
             u = target[target['user_id']==uid].iloc[0]
-            
-            # [REVISI] Format Tampilan Detail (Nama, HP, PT, Domisili)
             st.markdown(f'''
                 <div class="tech-box">
                     <h3>{u["nama_lengkap"]}</h3>
                     <hr style="border-color:rgba(255,255,255,0.1); margin:15px 0;">
                     <div class="info-grid">
-                        <div class="info-item">
-                            <span class="info-label">STATUS</span>
-                            <span class="info-value" style="color:{'#0f0' if u["status"]=="active" else "#f00"}">{u["status"].upper()}</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">NO HP / WA</span>
-                            <span class="info-value">{u.get("no_hp", "-")}</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">PT / AGENCY</span>
-                            <span class="info-value">{u.get("agency", "-")}</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">DOMISILI</span>
-                            <span class="info-value">{u.get("alamat", "-")}</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">EXPIRY</span>
-                            <span class="info-value">{str(u["expiry_date"])[:10]}</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">QUOTA</span>
-                            <span class="info-value">{u.get("quota",0)}</span>
-                        </div>
-                        <div class="info-item" style="grid-column:span 2;border:1px solid #00f2ff;">
-                            <span class="info-label">LIFETIME HITS</span>
-                            <span class="info-value" style="color:#00f2ff;">{hits.get(uid,0)} FOUND</span>
-                        </div>
+                        <div class="info-item"><span class="info-label">STATUS</span><span class="info-value" style="color:{'#0f0' if u["status"]=="active" else "#f00"}">{u["status"].upper()}</span></div>
+                        <div class="info-item"><span class="info-label">NO HP / WA</span><span class="info-value">{u.get("no_hp", "-")}</span></div>
+                        <div class="info-item"><span class="info-label">PT / AGENCY</span><span class="info-value">{u.get("agency", "-")}</span></div>
+                        <div class="info-item"><span class="info-label">DOMISILI</span><span class="info-value">{u.get("alamat", "-")}</span></div>
+                        <div class="info-item"><span class="info-label">EXPIRY</span><span class="info-value">{str(u["expiry_date"])[:10]}</span></div>
+                        <div class="info-item"><span class="info-label">QUOTA</span><span class="info-value">{u.get("quota",0)}</span></div>
+                        <div class="info-item" style="grid-column:span 2;border:1px solid #00f2ff;"><span class="info-label">LIFETIME HITS</span><span class="info-value" style="color:#00f2ff;">{hits.get(uid,0)} FOUND</span></div>
                     </div>
                 </div>
             ''', unsafe_allow_html=True)
-            
             d = st.number_input("DAYS", 1, 365, 30, label_visibility="collapsed")
             if st.button(f"➕ EXTEND (+{d} DAYS)"): add_user_quota(uid, d); st.success("OK"); st.rerun()
             b1, b2 = st.columns(2)
@@ -384,6 +305,7 @@ with tab2:
             with b2:
                 if st.button("🗑️ DELETE"): delete_user_permanent(uid); st.rerun()
 
+# --- TAB 3: UPLOAD FILE ---
 with tab3:
     if st.session_state['upload_stage'] == 'idle':
         up = st.file_uploader("DROP FILE", type=['xlsx','csv','txt','zip'], label_visibility="collapsed")
@@ -421,6 +343,7 @@ with tab3:
         st.success(f"SUCCESS: {r['suc']} | FAIL: {r['fail']}")
         if st.button("BACK"): st.session_state['upload_stage']='idle'; st.rerun()
 
+# --- TAB 4: HAPUS MASSAL ---
 with tab4:
     up = st.file_uploader("PURGE LIST", type=['xlsx','csv'])
     if up and st.button("🔥 EXECUTE"):
@@ -432,6 +355,72 @@ with tab4:
                 supabase.table('kendaraan').delete().in_('nopol', t[i:i+batch]).execute()
                 pb.progress(min((i+batch)/len(t), 1.0))
             st.success("DELETED"); time.sleep(1); st.rerun()
+
+# --- [FITUR BARU] TAB 5: LIVE OPS MONITORING ---
+with tab5:
+    st.markdown("### 📡 REALTIME OPERATIONS CENTER")
+    
+    # 1. Tarik Data User (termasuk last_seen)
+    users_resp = supabase.table('users').select('nama_lengkap, agency, role, last_seen, status').execute()
+    if users_resp.data:
+        df_live = pd.DataFrame(users_resp.data)
+        
+        # Pastikan kolom last_seen ada
+        if 'last_seen' in df_live.columns:
+            # 2. Proses Waktu & Timezone
+            TZ = pytz.timezone('Asia/Jakarta')
+            df_live['last_seen'] = pd.to_datetime(df_live['last_seen'], errors='coerce')
+            
+            # Konversi UTC ke Jakarta (Supabase simpan UTC)
+            if df_live['last_seen'].dt.tz is None:
+                df_live['last_seen'] = df_live['last_seen'].dt.tz_localize('UTC').dt.tz_convert(TZ)
+            else:
+                df_live['last_seen'] = df_live['last_seen'].dt.tz_convert(TZ)
+                
+            now = datetime.now(TZ)
+            
+            # 3. FILTER LOGIC: HANYA YG AKTIF DALAM 30 MENIT TERAKHIR
+            # (User yang last_seen > 30 menit akan hilang dari tabel)
+            limit_30m = now - timedelta(minutes=30)
+            df_display = df_live[df_live['last_seen'] >= limit_30m].copy()
+            
+            if not df_display.empty:
+                # 4. STATUS COLOR LOGIC (5 MENIT)
+                limit_5m = now - timedelta(minutes=5)
+                
+                def get_status_label(row):
+                    t = row['last_seen']
+                    if pd.isna(t): return "⚫ OFFLINE"
+                    # Jika aktif kurang dari 5 menit lalu -> ONLINE
+                    if t >= limit_5m: return "🟢 ONLINE"
+                    # Jika aktif 5-30 menit lalu -> IDLE
+                    return "🟡 IDLE"
+                
+                df_display['STATUS'] = df_display.apply(get_status_label, axis=1)
+                
+                # Format Jam agar rapi
+                df_display['TIME'] = df_display['last_seen'].dt.strftime('%H:%M:%S')
+                
+                # Pilih kolom & Sortir
+                final_view = df_display[['STATUS', 'TIME', 'nama_lengkap', 'agency', 'role']]
+                final_view.columns = ['STATUS', 'LAST ACTIVE', 'USER', 'AGENCY', 'ROLE']
+                final_view = final_view.sort_values(by='LAST ACTIVE', ascending=False)
+                
+                # Tampilkan Tabel
+                st.dataframe(
+                    final_view, 
+                    hide_index=True, 
+                    use_container_width=True,
+                    column_config={
+                        "STATUS": st.column_config.TextColumn("STATUS", width="small"),
+                        "LAST ACTIVE": st.column_config.TextColumn("JAM (WIB)", width="small"),
+                    }
+                )
+            else:
+                st.info("💤 Tidak ada aktivitas user dalam 30 menit terakhir.")
+        else:
+            st.warning("⚠️ Database belum mencatat waktu (Kolom last_seen kosong).")
+
 
 # ##############################################################################
 # BAGIAN 7: FOOTER & CONTROLS
@@ -447,6 +436,6 @@ st.markdown("""
     <div class="footer-text">
         SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>
         COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>
-        OPERATIONAL COMMAND CENTER v8.9.2
+        OPERATIONAL COMMAND CENTER v9.0
     </div>
 """, unsafe_allow_html=True)
