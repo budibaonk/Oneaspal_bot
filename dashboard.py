@@ -1,7 +1,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL COMMAND CENTER                        #
-#                      VERSION: 9.2 (FIX: DUPLICATE ID ERROR)                  #
+#                      VERSION: 9.4 (AUTO REFRESH ENABLED)                     #
 #                      ROLE:    ADMIN DASHBOARD CORE                           #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -32,6 +32,17 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# --- AUTO REFRESH LOGIC (30 MENIT) ---
+# Fitur ini butuh library: streamlit-autorefresh
+# Jika tidak ada, dashboard tetap jalan tapi manual refresh
+try:
+    from streamlit_autorefresh import st_autorefresh
+    # Interval: 30 Menit = 1800 detik * 1000 ms
+    count = st_autorefresh(interval=30 * 60 * 1000, key="auto_refresh_radar")
+    auto_refresh_status = "🟢 AUTO (30m)"
+except ImportError:
+    auto_refresh_status = "⚪ MANUAL"
+
 # --- CSS MASTER ---
 st.markdown("""
 <style>
@@ -39,9 +50,9 @@ st.markdown("""
     .stApp { background-color: #0e1117 !important; font-family: 'Inter', sans-serif; font-size: 14px; }
     p, span, div, li { color: #e0e0e0; }
     h1, h2, h3, h4, h5, h6 { font-family: 'Orbitron', sans-serif !important; color: #ffffff !important; text-transform: uppercase; letter-spacing: 1px; }
-    div[data-testid="stMetricLabel"] { color: #a0a0a0 !important; font-size: 0.9rem !important; }
-    div[data-testid="stMetricValue"] { color: #00f2ff !important; font-family: 'Orbitron', sans-serif; font-size: 1.6rem !important; }
-    div[data-testid="metric-container"] { background: rgba(255, 255, 255, 0.05) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 12px; padding: 15px; backdrop-filter: blur(10px); }
+    div[data-testid="stMetricLabel"] { color: #a0a0a0 !important; font-size: 0.8rem !important; }
+    div[data-testid="stMetricValue"] { color: #00f2ff !important; font-family: 'Orbitron', sans-serif; font-size: 1.5rem !important; }
+    div[data-testid="metric-container"] { background: rgba(255, 255, 255, 0.05) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 12px; padding: 10px; backdrop-filter: blur(10px); }
     .stButton>button { background: linear-gradient(90deg, #0061ff 0%, #60efff 100%) !important; color: #000000 !important; border: none; border-radius: 8px; height: 45px; font-weight: 800; font-family: 'Orbitron', sans-serif; width: 100%; transition: all 0.3s; }
     .leaderboard-row { background: rgba(0, 242, 255, 0.04); padding: 15px; margin-bottom: 8px; border-radius: 8px; border-left: 4px solid #00f2ff; display: flex; justify-content: space-between; align-items: center; }
     .leaderboard-val { font-family: 'Orbitron'; color: #00f2ff !important; font-weight: bold; font-size: 1.1rem; }
@@ -109,6 +120,19 @@ def get_live_users_count():
         now = datetime.now(TZ)
         limit = now - timedelta(minutes=30)
         return len(df[df['last_seen'] >= limit])
+    except: return 0
+
+def get_daily_active_users():
+    try:
+        res = supabase.table('users').select('last_seen').execute()
+        df = pd.DataFrame(res.data)
+        if 'last_seen' not in df.columns: return 0
+        TZ = pytz.timezone('Asia/Jakarta')
+        df['last_seen'] = pd.to_datetime(df['last_seen'], errors='coerce')
+        if df['last_seen'].dt.tz is None: df['last_seen'] = df['last_seen'].dt.tz_localize('UTC').dt.tz_convert(TZ)
+        else: df['last_seen'] = df['last_seen'].dt.tz_convert(TZ)
+        today_start = datetime.now(TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+        return len(df[df['last_seen'] >= today_start])
     except: return 0
 
 def update_user_status(uid, stat):
@@ -191,19 +215,23 @@ if not st.session_state['authenticated']:
 # ##############################################################################
 with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", width=220)
-    st.caption("ONE ASPAL SYSTEM\nStatus: ONLINE 🟢")
+    st.caption(f"ONE ASPAL SYSTEM\nStatus: {auto_refresh_status}")
+    if auto_refresh_status == "⚪ MANUAL":
+        st.info("⚠️ Pasang 'streamlit-autorefresh' untuk fitur auto-update.")
 
-st.markdown("## ONE ASPAL COMMANDO v9.2")
+st.markdown("## ONE ASPAL COMMANDO v9.4")
 st.markdown("<span style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE INTELLIGENCE COMMAND CENTER</span>", unsafe_allow_html=True)
 st.markdown("---")
 
 df_u = get_all_users()
-m1, m2, m3, m4, m5 = st.columns(5)
+m1, m2, m3, m4, m5, m6 = st.columns(6)
+
 m1.metric("ASSETS", f"{get_total_asset_count():,}", "DATABASE")
 m2.metric("LIVE USERS", f"{get_live_users_count()}", "ACTIVE < 30M")
-m3.metric("MITRA", f"{len(df_u[df_u['role']!='pic']) if not df_u.empty else 0}", "REGISTERED")
-m4.metric("READY", f"{len(df_u[(df_u['status']=='active') & (pd.to_numeric(df_u['quota'], errors='coerce').fillna(0)>0)]) if not df_u.empty else 0}", "QUOTA > 0")
-m5.metric("PIC LEASING", f"{len(df_u[df_u['role']=='pic']) if not df_u.empty else 0}", "INTERNAL")
+m3.metric("DAILY ACTIVE", f"{get_daily_active_users()}", "24H VISITOR") 
+m4.metric("MITRA", f"{len(df_u[df_u['role']!='pic']) if not df_u.empty else 0}", "REGISTERED")
+m5.metric("READY", f"{len(df_u[(df_u['status']=='active') & (pd.to_numeric(df_u['quota'], errors='coerce').fillna(0)>0)]) if not df_u.empty else 0}", "QUOTA > 0")
+m6.metric("PIC LEASING", f"{len(df_u[df_u['role']=='pic']) if not df_u.empty else 0}", "INTERNAL")
 st.write("")
 
 # ##############################################################################
@@ -219,17 +247,13 @@ with tab1:
         for i, r in enumerate(df_r[df_r['role']!='pic'].sort_values('h', ascending=False).head(10).iterrows(), 1):
             st.markdown(f'<div class="leaderboard-row"><div><b>#{i} {r[1]["nama_lengkap"]}</b><br><small>{r[1]["agency"]}</small></div><div class="leaderboard-val">{r[1]["h"]} HITS</div></div>', unsafe_allow_html=True)
 
-# --- TAB 2: MANAJEMEN PERSONIL (FIX KEY ERROR) ---
+# --- TAB 2: MANAJEMEN PERSONIL ---
 with tab2:
     if not df_u.empty:
-        # [FIX] Ditambahkan Key Unik
         div = st.radio("DIV", ["🛡️ MATEL", "🏦 PIC LEASING"], horizontal=True, label_visibility="collapsed", key="radio_role_select")
         target = df_u[df_u['role']!='pic'] if "MATEL" in div else df_u[df_u['role']=='pic']
         target = target.sort_values(by="nama_lengkap", key=lambda col: col.str.lower())
-        
-        # [FIX] Ditambahkan Key Unik
         sel = st.selectbox("SEARCH AGENT", [f"{r['nama_lengkap']} | {r['agency']}" for i, r in target.iterrows()], label_visibility="collapsed", key="select_agent_search")
-        
         if sel:
             uid = target[target['nama_lengkap']==sel.split(' | ')[0]].iloc[0]['user_id']
             u = target[target['user_id']==uid].iloc[0]
@@ -248,8 +272,6 @@ with tab2:
                     </div>
                 </div>
             ''', unsafe_allow_html=True)
-            
-            # [FIX] Ditambahkan Key Unik
             d = st.number_input("DAYS", 1, 365, 30, label_visibility="collapsed", key="num_input_days")
             if st.button(f"➕ EXTEND (+{d} DAYS)", key="btn_extend"): add_user_quota(uid, d); st.success("OK"); st.rerun()
             b1, b2 = st.columns(2)
@@ -258,7 +280,7 @@ with tab2:
             with b2:
                 if st.button("🗑️ DELETE", key="btn_delete"): delete_user_permanent(uid); st.rerun()
 
-# --- TAB 3: UPLOAD FILE (FIX KEY ERROR) ---
+# --- TAB 3: UPLOAD FILE ---
 with tab3:
     if st.session_state['upload_stage'] == 'idle':
         up = st.file_uploader("DROP FILE", type=['xlsx','csv','txt','zip'], label_visibility="collapsed", key="file_up_analyze")
@@ -296,7 +318,7 @@ with tab3:
         st.success(f"SUCCESS: {r['suc']} | FAIL: {r['fail']}")
         if st.button("BACK", key="btn_back"): st.session_state['upload_stage']='idle'; st.rerun()
 
-# --- TAB 4: HAPUS MASSAL (FIX KEY ERROR) ---
+# --- TAB 4: HAPUS MASSAL ---
 with tab4:
     up = st.file_uploader("PURGE LIST", type=['xlsx','csv'], key="file_up_purge")
     if up and st.button("🔥 EXECUTE", key="btn_purge"):
@@ -348,4 +370,4 @@ with cf1:
     if st.button("🔄 REFRESH SYSTEM", key="footer_refresh"): st.cache_data.clear(); st.rerun()
 with cf3:
     if st.button("🚪 LOGOUT SESSION", key="footer_logout"): st.session_state['authenticated'] = False; st.rerun()
-st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v9.2</div>""", unsafe_allow_html=True)
+st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v9.4</div>""", unsafe_allow_html=True)
