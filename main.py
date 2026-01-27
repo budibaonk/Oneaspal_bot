@@ -866,7 +866,7 @@ async def cek_user_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
 
 # ##############################################################################
-# BAGIAN 9: USER FEATURES & NOTIFIKASI
+# BAGIAN 9: USER FEATURES & NOTIFIKASI (UPDATE: SHARE WA & COPY BUTTON)
 # ##############################################################################
 
 async def cek_kuota(update, context):
@@ -906,6 +906,48 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await context.bot.send_photo(ADMIN_ID, update.message.photo[-1].file_id, caption=msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
 
 
+# --- [BARU] HELPER: TOMBOL AKSI GRUP (HUBUNGI + SHARE WA + SALIN) ---
+def get_action_buttons(matel_user, unit_data):
+    # 1. Link WA Penemu
+    user_hp = matel_user.get('no_hp', '-')
+    clean_num = re.sub(r'[^0-9]', '', str(user_hp))
+    if clean_num.startswith('0'): clean_num = '62' + clean_num[1:]
+    wa_penemu = f"https://wa.me/{clean_num}"
+    
+    # 2. Format Teks Share WA (SAMA PERSIS DENGAN FORMAT LAPORAN)
+    share_text = (
+        f"*LAPORAN TEMUAN UNIT (ONE ASPAL)*\n"
+        f"----------------------------------\n"
+        f"🚙 Unit: {unit_data.get('type', '-')}\n"
+        f"🔢 Nopol: {unit_data.get('nopol', '-')}\n"
+        f"🎨 Warna: {unit_data.get('warna', '-')}\n"
+        f"📅 Tahun: {unit_data.get('tahun', '-')}\n"
+        f"🔧 Noka: {unit_data.get('noka', '-')}\n"
+        f"⚙️ Nosin: {unit_data.get('nosin', '-')}\n"
+        f"🏦 Finance: {unit_data.get('finance', '-')}\n"
+        f"⚠️ OVD: {unit_data.get('ovd', '-')}\n"
+        f"🏢 Branch: {unit_data.get('branch', '-')}\n"
+        f"📍 Lokasi: {matel_user.get('alamat', '-')}\n"
+        f"👤 Penemu: {matel_user.get('nama_lengkap', '-')} ({matel_user.get('agency', '-')})\n"
+        f"----------------------------------\n"
+        f"⚠️ *PENTING & DISCLAIMER:*\n"
+        f"Informasi ini BUKAN alat yang SAH untuk penarikan unit (Eksekusi).\n"
+        f"Mohon untuk konfirmasi ke Pic Leasing atau Kantor."
+    )
+    encoded_share = urllib.parse.quote(share_text)
+    share_link = f"https://wa.me/?text={encoded_share}"
+    
+    # 3. Callback Copy (Safe Nopol)
+    nopol_safe = str(unit_data.get('nopol', '-')).replace(" ", "")
+    
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📞 Hubungi Penemu", url=wa_penemu)],
+        [
+            InlineKeyboardButton("📲 Share WA", url=share_link), 
+            InlineKeyboardButton("📋 Salin Data", callback_data=f"cp_{nopol_safe}")
+        ]
+    ])
+
 # --- FUNGSI FORMAT PESAN NOTIFIKASI (PUSAT) ---
 def create_notification_text(matel_user, unit_data, header_title):
     clean_nopol = clean_text(unit_data.get('nopol'))
@@ -934,10 +976,8 @@ async def notify_hit_to_group(context, u, d):
     try:
         if LOG_GROUP_ID == 0: return
         msg = create_notification_text(u, d, "🚨 <b>UNIT DITEMUKAN! (LOG PUSAT)</b>")
-        clean_num = re.sub(r'[^0-9]', '', str(u.get('no_hp')))
-        if clean_num.startswith('0'): clean_num = '62' + clean_num[1:]
-        kb = [[InlineKeyboardButton("📞 Hubungi Penemu (WA)", url=f"https://wa.me/{clean_num}")]]
-        await context.bot.send_message(LOG_GROUP_ID, msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+        kb = get_action_buttons(u, d) # Pakai Helper Baru
+        await context.bot.send_message(LOG_GROUP_ID, msg, reply_markup=kb, parse_mode='HTML')
     except Exception as e: print(f"❌ Gagal Kirim Notif Admin Pusat: {e}")
 
 # 2. NOTIFIKASI KE GROUP LEASING (PIC)
@@ -953,14 +993,14 @@ async def notify_leasing_group(context, matel_user, unit_data):
             if g_name in leasing_unit or leasing_unit in g_name:
                 target_group_ids.append(g['group_id'])
         if not target_group_ids: return
+        
         msg = create_notification_text(matel_user, unit_data, "🚨 <b>UNIT DITEMUKAN! (HIT LEASING)</b>")
-        clean_num = re.sub(r'[^0-9]', '', str(matel_user.get('no_hp')))
-        if clean_num.startswith('0'): clean_num = '62' + clean_num[1:]
-        kb = [[InlineKeyboardButton("📞 Hubungi Penemu (WA)", url=f"https://wa.me/{clean_num}")]]
+        kb = get_action_buttons(matel_user, unit_data) # Pakai Helper Baru
+        
         for gid in target_group_ids:
             if int(gid) == int(LOG_GROUP_ID): continue 
-            try: await context.bot.send_message(gid, msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
-            except Exception as e: logger.error(f"Gagal kirim grup leasing {gid}: {e}")
+            try: await context.bot.send_message(gid, msg, reply_markup=kb, parse_mode='HTML')
+            except: pass
     except Exception as e: logger.error(f"Error Notify Leasing: {e}")
 
 # 3. NOTIFIKASI KE GROUP AGENCY (MONITORING)
@@ -980,14 +1020,14 @@ async def notify_agency_group(context, matel_user, unit_data):
             if is_match:
                 target_group_ids.append(g['group_id'])
         if not target_group_ids: return
+        
         msg = create_notification_text(matel_user, unit_data, f"👮‍♂️ <b>LAPORAN ANGGOTA ({user_agency})</b>")
-        clean_num = re.sub(r'[^0-9]', '', str(matel_user.get('no_hp')))
-        if clean_num.startswith('0'): clean_num = '62' + clean_num[1:]
-        kb = [[InlineKeyboardButton("📞 Hubungi Anggota", url=f"https://wa.me/{clean_num}")]]
+        kb = get_action_buttons(matel_user, unit_data) # Pakai Helper Baru
+        
         for gid in target_group_ids:
             if int(gid) == int(LOG_GROUP_ID): continue
-            try: await context.bot.send_message(gid, msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
-            except Exception as e: logger.error(f"Gagal kirim grup agency {gid}: {e}")
+            try: await context.bot.send_message(gid, msg, reply_markup=kb, parse_mode='HTML')
+            except: pass
     except Exception as e: logger.error(f"Error Notify Agency: {e}")
 
 # [V5.5] REGISTER LEASING GROUP
