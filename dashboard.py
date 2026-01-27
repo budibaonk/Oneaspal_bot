@@ -1,7 +1,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL COMMAND CENTER                        #
-#                      VERSION: 9.4 (AUTO REFRESH ENABLED)                     #
+#                      VERSION: 9.5 (REVISI: MATCHING ENV TOKEN)               #
 #                      ROLE:    ADMIN DASHBOARD CORE                           #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -18,6 +18,7 @@ import numpy as np
 import io
 import zipfile
 import pytz  
+import requests 
 from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -32,12 +33,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- AUTO REFRESH LOGIC (30 MENIT) ---
-# Fitur ini butuh library: streamlit-autorefresh
-# Jika tidak ada, dashboard tetap jalan tapi manual refresh
+# --- AUTO REFRESH LOGIC ---
 try:
     from streamlit_autorefresh import st_autorefresh
-    # Interval: 30 Menit = 1800 detik * 1000 ms
     count = st_autorefresh(interval=30 * 60 * 1000, key="auto_refresh_radar")
     auto_refresh_status = "🟢 AUTO (30m)"
 except ImportError:
@@ -74,6 +72,7 @@ load_dotenv()
 URL = os.getenv("SUPABASE_URL")
 KEY = os.getenv("SUPABASE_KEY")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") # [FIX] Sesuai .env Anda
 
 @st.cache_resource
 def init_connection():
@@ -143,12 +142,41 @@ def add_user_quota(uid, days):
     try:
         res = supabase.table('users').select('expiry_date').eq('user_id', uid).execute()
         now = datetime.utcnow()
-        base = datetime.fromisoformat(res.data[0]['expiry_date'].replace('Z', '')) if res.data and res.data[0]['expiry_date'] and datetime.fromisoformat(res.data[0]['expiry_date'].replace('Z', '')) > now else now
-        supabase.table('users').update({'expiry_date': (base + timedelta(days=days)).isoformat()}).eq('user_id', uid).execute(); return True
+        current_exp_str = res.data[0]['expiry_date'] if res.data and res.data[0]['expiry_date'] else None
+        
+        if current_exp_str:
+            base = datetime.fromisoformat(current_exp_str.replace('Z', ''))
+            if base < now: base = now 
+        else:
+            base = now
+            
+        new_exp = (base + timedelta(days=days)).isoformat()
+        supabase.table('users').update({'expiry_date': new_exp}).eq('user_id', uid).execute()
+        return True
+    except Exception as e:
+        print(e) 
+        return False
+
+# [FUNGSI KIRIM PESAN TELEGRAM LANGSUNG]
+def send_telegram_message(user_id, text):
+    if not BOT_TOKEN: return False
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": user_id, "text": text, "parse_mode": "HTML"}
+    try:
+        requests.post(url, json=payload)
+        return True
     except: return False
 
-def delete_user_permanent(uid):
-    try: supabase.table('users').delete().eq('user_id', uid).execute(); return True
+# [HAPUS USER DENGAN PESAN]
+def delete_user_with_reason(uid, reason):
+    try:
+        # 1. Kirim Pesan
+        msg = f"⛔ <b>AKUN DINONAKTIFKAN</b>\n\nMaaf, akun One Aspal Anda telah dihapus oleh Admin.\n\n📝 <b>Alasan:</b>\n{reason}\n\nTerima kasih."
+        send_telegram_message(uid, msg)
+        
+        # 2. Hapus Data
+        supabase.table('users').delete().eq('user_id', uid).execute()
+        return True
     except: return False
 
 # ##############################################################################
@@ -216,10 +244,8 @@ if not st.session_state['authenticated']:
 with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", width=220)
     st.caption(f"ONE ASPAL SYSTEM\nStatus: {auto_refresh_status}")
-    if auto_refresh_status == "⚪ MANUAL":
-        st.info("⚠️ Pasang 'streamlit-autorefresh' untuk fitur auto-update.")
 
-st.markdown("## ONE ASPAL COMMANDO v9.4")
+st.markdown("## ONE ASPAL COMMANDO v9.5")
 st.markdown("<span style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE INTELLIGENCE COMMAND CENTER</span>", unsafe_allow_html=True)
 st.markdown("---")
 
@@ -247,7 +273,7 @@ with tab1:
         for i, r in enumerate(df_r[df_r['role']!='pic'].sort_values('h', ascending=False).head(10).iterrows(), 1):
             st.markdown(f'<div class="leaderboard-row"><div><b>#{i} {r[1]["nama_lengkap"]}</b><br><small>{r[1]["agency"]}</small></div><div class="leaderboard-val">{r[1]["h"]} HITS</div></div>', unsafe_allow_html=True)
 
-# --- TAB 2: MANAJEMEN PERSONIL ---
+# --- TAB 2: MANAJEMEN PERSONIL (UPDATED) ---
 with tab2:
     if not df_u.empty:
         div = st.radio("DIV", ["🛡️ MATEL", "🏦 PIC LEASING"], horizontal=True, label_visibility="collapsed", key="radio_role_select")
@@ -257,6 +283,8 @@ with tab2:
         if sel:
             uid = target[target['nama_lengkap']==sel.split(' | ')[0]].iloc[0]['user_id']
             u = target[target['user_id']==uid].iloc[0]
+            
+            # --- INFO BOX ---
             st.markdown(f'''
                 <div class="tech-box">
                     <h3>{u["nama_lengkap"]}</h3>
@@ -272,13 +300,55 @@ with tab2:
                     </div>
                 </div>
             ''', unsafe_allow_html=True)
-            d = st.number_input("DAYS", 1, 365, 30, label_visibility="collapsed", key="num_input_days")
-            if st.button(f"➕ EXTEND (+{d} DAYS)", key="btn_extend"): add_user_quota(uid, d); st.success("OK"); st.rerun()
-            b1, b2 = st.columns(2)
-            with b1: 
-                if st.button("⛔ FREEZE" if u['status']=='active' else "✅ ACTIVATE", key="btn_status"): update_user_status(uid, 'banned' if u['status']=='active' else 'active'); st.rerun()
+            
+            st.write("---")
+            
+            # --- LAYOUT TOMBOL & INPUT ---
+            c_day, c_btn = st.columns([1, 2])
+            with c_day:
+                days_add = st.number_input("JUMLAH HARI", min_value=1, max_value=365, value=30, label_visibility="collapsed", key="num_days_add")
+            
+            b1, b2, b3 = st.columns(3)
+            with b1:
+                if st.button(f"➕ TAMBAH KUOTA", key="btn_add_quota", use_container_width=True):
+                    if add_user_quota(uid, days_add):
+                        st.toast(f"✅ Kuota {u['nama_lengkap']} ditambah {days_add} hari!", icon="🎉")
+                        time.sleep(1)
+                        st.rerun()
+                    else: st.error("Gagal update kuota.")
+
             with b2:
-                if st.button("🗑️ DELETE", key="btn_delete"): delete_user_permanent(uid); st.rerun()
+                btn_label = "⛔ FREEZE AKUN" if u['status']=='active' else "✅ BUKA FREEZE"
+                if st.button(btn_label, key="btn_freeze", use_container_width=True):
+                    new_stat = 'banned' if u['status']=='active' else 'active'
+                    update_user_status(uid, new_stat)
+                    st.toast(f"Status user diubah menjadi: {new_stat.upper()}", icon="🔄")
+                    time.sleep(1)
+                    st.rerun()
+
+            with b3:
+                if st.button("🗑️ HAPUS AKUN", key="btn_del_req", use_container_width=True):
+                    st.session_state[f'del_confirm_{uid}'] = True
+
+            # --- KONFIRMASI HAPUS ---
+            if st.session_state.get(f'del_confirm_{uid}', False):
+                st.warning("⚠️ KONFIRMASI PENGHAPUSAN")
+                del_reason = st.text_input("📝 ALASAN MENGHAPUS (Wajib Diisi):", key=f"reason_{uid}")
+                cd1, cd2 = st.columns(2)
+                with cd1:
+                    if st.button("❌ BATAL", key=f"cancel_{uid}"):
+                        st.session_state[f'del_confirm_{uid}'] = False
+                        st.rerun()
+                with cd2:
+                    if st.button("✅ KONFIRMASI HAPUS", key=f"confirm_{uid}"):
+                        if del_reason.strip():
+                            if delete_user_with_reason(uid, del_reason):
+                                st.success("User dihapus & Notifikasi terkirim.")
+                                st.session_state[f'del_confirm_{uid}'] = False
+                                time.sleep(1)
+                                st.rerun()
+                            else: st.error("Gagal menghapus user.")
+                        else: st.error("Mohon isi alasan penghapusan.")
 
 # --- TAB 3: UPLOAD FILE ---
 with tab3:
@@ -370,4 +440,4 @@ with cf1:
     if st.button("🔄 REFRESH SYSTEM", key="footer_refresh"): st.cache_data.clear(); st.rerun()
 with cf3:
     if st.button("🚪 LOGOUT SESSION", key="footer_logout"): st.session_state['authenticated'] = False; st.rerun()
-st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v9.4</div>""", unsafe_allow_html=True)
+st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v9.5</div>""", unsafe_allow_html=True)
