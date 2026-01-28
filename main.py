@@ -2056,24 +2056,43 @@ async def callback_handler(update, context):
         )
         return VAL_REJECT_REASON
 
-    # 10. APPROVE / REJECT LAPOR DELETE
+    # 10. APPROVE / REJECT LAPOR DELETE (FIX: Text Message Handling)
     elif data.startswith("del_acc_"):
         parts = data.split("_")
         nopol_target = parts[2]
         user_id_pelapor = parts[3]
         
         try:
+            # 1. Hapus dari Database
             supabase.table('kendaraan').delete().eq('nopol', nopol_target).execute()
-            await query.edit_message_caption(f"✅ <b>DISETUJUI & DIHAPUS</b>\nUnit: {nopol_target} telah dibersihkan dari database.", parse_mode='HTML')
+            
+            # 2. Feedback Visual ke Admin (Pop-up)
+            await query.answer("✅ Unit Berhasil Dihapus!", show_alert=True)
+            
+            # 3. Update Pesan Admin (GANTI JADI edit_message_text)
+            await query.edit_message_text(
+                f"✅ <b>DISETUJUI & DIHAPUS</b>\nUnit: {nopol_target} telah dibersihkan dari database.", 
+                parse_mode='HTML'
+            )
+            
+            # 4. Notifikasi ke Pelapor
             try: 
                 await context.bot.send_message(user_id_pelapor, f"✅ <b>LAPORAN DISETUJUI</b>\nUnit <code>{nopol_target}</code> telah kami hapus dari database. Terima kasih kontribusinya.", parse_mode='HTML')
             except: pass
+            
         except Exception as e:
             await query.answer(f"❌ Gagal Hapus: {e}", show_alert=True)
 
     elif data.startswith("del_rej_"):
         user_id_pelapor = data.split("_")[2]
-        await query.edit_message_caption("❌ <b>LAPORAN DITOLAK</b>", parse_mode='HTML')
+        
+        # 1. Feedback Visual
+        await query.answer("❌ Laporan Ditolak.", show_alert=True)
+        
+        # 2. Update Pesan Admin (GANTI JADI edit_message_text)
+        await query.edit_message_text("❌ <b>LAPORAN DITOLAK</b>", parse_mode='HTML')
+        
+        # 3. Notifikasi ke Pelapor
         try: 
             await context.bot.send_message(user_id_pelapor, "⚠️ Laporan penghapusan unit Anda ditolak oleh Admin. Data dinilai masih valid.", parse_mode='HTML')
         except: pass
