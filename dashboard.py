@@ -1,7 +1,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL COMMAND CENTER                        #
-#                      VERSION: 9.8 (REVISI: LIVE OPS TODAY ONLY)              #
+#                      VERSION: 9.9 (FIX: BATCH SIZE 100 ANTI-TIMEOUT)         #
 #                      ROLE:    ADMIN DASHBOARD CORE                           #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
-# [FIX] Import ClientOptions untuk menangani Timeout
+# [FIX] Import ClientOptions untuk menangani Timeout Client
 try:
     from supabase.lib.client_options import ClientOptions
 except ImportError:
@@ -83,7 +83,7 @@ BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 @st.cache_resource
 def init_connection():
     try:
-        # [FIX] Set Timeout 300 detik
+        # [FIX] Timeout Client diperpanjang jadi 300s
         opts = ClientOptions(postgrest_client_timeout=300)
         return create_client(URL, KEY, options=opts)
     except Exception as e:
@@ -259,7 +259,7 @@ with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", width=220)
     st.caption(f"ONE ASPAL SYSTEM\nStatus: {auto_refresh_status}")
 
-st.markdown("## ONE ASPAL COMMANDO v9.8")
+st.markdown("## ONE ASPAL COMMANDO v9.9")
 st.markdown("<span style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE INTELLIGENCE COMMAND CENTER</span>", unsafe_allow_html=True)
 st.markdown("---")
 
@@ -326,7 +326,7 @@ with tab2:
                             else: st.error("Gagal menghapus user.")
                         else: st.error("Isi alasan dulu.")
 
-# --- TAB 3: UPLOAD FILE ---
+# --- TAB 3: UPLOAD FILE (BATCH 100 ANTI-TIMEOUT) ---
 with tab3:
     if st.session_state['upload_stage'] == 'idle':
         up = st.file_uploader("DROP FILE", type=['xlsx','csv','txt','zip'], label_visibility="collapsed", key="file_up_analyze")
@@ -353,18 +353,25 @@ with tab3:
                     if c not in df.columns: df[c] = None 
                     else: df[c] = df[c].replace({np.nan: None, "": None})
                 recs = df[['nopol','type','finance','tahun','warna','noka','nosin','ovd','branch']].to_dict('records')
+                
+                # [CRITICAL FIX] BATCH SIZE 100 (Ringan & Cepat)
+                BATCH_SIZE = 100 
+                
                 s, f, pb = 0, 0, st.progress(0, "Uploading...")
                 total_recs = len(recs)
                 last_error = ""
-                for i in range(0, total_recs, 1000):
-                    batch = recs[i:i+1000]
+                
+                for i in range(0, total_recs, BATCH_SIZE):
+                    batch = recs[i:i+BATCH_SIZE]
                     try: 
                         supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
                         s += len(batch)
                     except Exception as e: 
                         f += len(batch)
                         last_error = str(e)
-                    pb.progress(min((i+1000)/total_recs, 1.0))
+                    pb.progress(min((i+BATCH_SIZE)/total_recs, 1.0))
+                    # time.sleep(0.05) # Optional: Pause sebentar biar DB napas
+                
                 st.session_state['upload_result'] = {'suc': s, 'fail': f, 'err': last_error}
                 st.session_state['upload_stage'] = 'complete'; st.rerun()
     elif st.session_state['upload_stage'] == 'complete':
@@ -388,7 +395,7 @@ with tab4:
                 pb.progress(min((i+batch)/len(t), 1.0))
             st.success("DELETED"); time.sleep(1); st.rerun()
 
-# --- TAB 5: LIVE OPS MONITORING (REVISI: SHOW ALL TODAY'S USERS) ---
+# --- TAB 5: LIVE OPS MONITORING (TODAY ONLY) ---
 with tab5:
     st.markdown("### 📡 REALTIME OPERATIONS CENTER (TODAY'S ACTIVITY)")
     users_resp = supabase.table('users').select('nama_lengkap, agency, role, last_seen, status').execute()
@@ -400,11 +407,9 @@ with tab5:
             if df_live['last_seen'].dt.tz is None: df_live['last_seen'] = df_live['last_seen'].dt.tz_localize('UTC').dt.tz_convert(TZ)
             else: df_live['last_seen'] = df_live['last_seen'].dt.tz_convert(TZ)
             
-            # [FIX] TAMPILKAN USER YANG AKTIF HARI INI SAJA (Mulai 00:00 WIB)
             now = datetime.now(TZ)
             today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
             
-            # Filter: Hapus yg last_seen kosong DAN ambil yang >= jam 00:00 hari ini
             df_display = df_live.dropna(subset=['last_seen']).copy()
             df_display = df_display[df_display['last_seen'] >= today_start]
             
@@ -415,10 +420,10 @@ with tab5:
                     t = row['last_seen']
                     if pd.isna(t): return "⚫ OFFLINE"
                     if t >= limit_30m: return "🟢 ONLINE"
-                    return "🟡 IDLE" # IDLE = Lebih dari 30 menit yg lalu tapi masih hari ini
+                    return "🟡 IDLE"
                     
                 df_display['STATUS'] = df_display.apply(get_status_label, axis=1)
-                df_display['TIME'] = df_display['last_seen'].dt.strftime('%H:%M:%S') # Cukup jam saja karena sudah pasti hari ini
+                df_display['TIME'] = df_display['last_seen'].dt.strftime('%H:%M:%S')
                 
                 final_view = df_display[['STATUS', 'TIME', 'nama_lengkap', 'agency', 'role']]
                 final_view.columns = ['STATUS', 'LAST ACTIVE', 'USER', 'AGENCY', 'ROLE']
@@ -434,4 +439,4 @@ with cf1:
     if st.button("🔄 REFRESH SYSTEM", key="footer_refresh"): st.cache_data.clear(); st.rerun()
 with cf3:
     if st.button("🚪 LOGOUT SESSION", key="footer_logout"): st.session_state['authenticated'] = False; st.rerun()
-st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v9.8</div>""", unsafe_allow_html=True)
+st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v9.9</div>""", unsafe_allow_html=True)
