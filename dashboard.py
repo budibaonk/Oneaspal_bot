@@ -1,7 +1,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL COMMAND CENTER                        #
-#                      VERSION: 9.9 (FIX: BATCH SIZE 100 ANTI-TIMEOUT)         #
+#                      VERSION: 10.0 (ADD: PHONE NUMBER ON LIVE OPS)           #
 #                      ROLE:    ADMIN DASHBOARD CORE                           #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -259,7 +259,7 @@ with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", width=220)
     st.caption(f"ONE ASPAL SYSTEM\nStatus: {auto_refresh_status}")
 
-st.markdown("## ONE ASPAL COMMANDO v9.9")
+st.markdown("## ONE ASPAL COMMANDO v10.0")
 st.markdown("<span style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE INTELLIGENCE COMMAND CENTER</span>", unsafe_allow_html=True)
 st.markdown("---")
 
@@ -395,10 +395,11 @@ with tab4:
                 pb.progress(min((i+batch)/len(t), 1.0))
             st.success("DELETED"); time.sleep(1); st.rerun()
 
-# --- TAB 5: LIVE OPS MONITORING (TODAY ONLY) ---
+# --- TAB 5: LIVE OPS MONITORING (TODAY ONLY + PHONE NUMBER) ---
 with tab5:
     st.markdown("### 📡 REALTIME OPERATIONS CENTER (TODAY'S ACTIVITY)")
-    users_resp = supabase.table('users').select('nama_lengkap, agency, role, last_seen, status').execute()
+    # [FIX] Added 'no_hp' to select query
+    users_resp = supabase.table('users').select('nama_lengkap, agency, role, last_seen, status, no_hp').execute()
     if users_resp.data:
         df_live = pd.DataFrame(users_resp.data)
         if 'last_seen' in df_live.columns:
@@ -425,8 +426,9 @@ with tab5:
                 df_display['STATUS'] = df_display.apply(get_status_label, axis=1)
                 df_display['TIME'] = df_display['last_seen'].dt.strftime('%H:%M:%S')
                 
-                final_view = df_display[['STATUS', 'TIME', 'nama_lengkap', 'agency', 'role']]
-                final_view.columns = ['STATUS', 'LAST ACTIVE', 'USER', 'AGENCY', 'ROLE']
+                # [FIX] ADDED 'no_hp' to columns
+                final_view = df_display[['STATUS', 'TIME', 'nama_lengkap', 'agency', 'role', 'no_hp']]
+                final_view.columns = ['STATUS', 'LAST ACTIVE', 'USER', 'AGENCY', 'ROLE', 'NO. HP']
                 final_view = final_view.sort_values(by='LAST ACTIVE', ascending=False)
                 
                 st.dataframe(final_view, hide_index=True, use_container_width=True, column_config={"STATUS": st.column_config.TextColumn("STATUS", width="small"), "LAST ACTIVE": st.column_config.TextColumn("JAM (WIB)", width="small")})
@@ -439,4 +441,4 @@ with cf1:
     if st.button("🔄 REFRESH SYSTEM", key="footer_refresh"): st.cache_data.clear(); st.rerun()
 with cf3:
     if st.button("🚪 LOGOUT SESSION", key="footer_logout"): st.session_state['authenticated'] = False; st.rerun()
-st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v9.9</div>""", unsafe_allow_html=True)
+st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v10.0</div>""", unsafe_allow_html=True)
