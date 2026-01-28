@@ -1903,20 +1903,29 @@ async def callback_handler(update, context):
     # 6. APPROVE REGISTER (appu_)
     elif data.startswith("appu_"): 
         target_uid = int(data.split("_")[1])
-        # Update status jadi active
-        update_user_status(target_uid, 'active')
         
-        # Feedback ke Admin (PENTING: Pakai edit_message_text atau caption tergantung konten asli)
+        # [LOGIKA TRIAL 3 HARI]
+        now = datetime.now(TZ_JAKARTA)
+        trial_end = now + timedelta(days=3)
+        
+        # Update Database
+        supabase.table('users').update({
+            'status': 'active',
+            'expiry_date': trial_end.isoformat()
+        }).eq('user_id', target_uid).execute()
+        
+        # Feedback ke Admin
+        exp_display = trial_end.strftime('%d %b %Y')
         try:
-            await query.edit_message_caption(f"✅ User {target_uid} telah Diaktifkan.")
+            await query.edit_message_caption(f"✅ User {target_uid} DIAKTIFKAN.\n🎁 Trial: 3 Hari (s/d {exp_display})")
         except:
-            await query.edit_message_text(f"✅ User {target_uid} telah Diaktifkan.")
+            await query.edit_message_text(f"✅ User {target_uid} DIAKTIFKAN.\n🎁 Trial: 3 Hari (s/d {exp_display})")
         
-        # Ambil data user
+        # Ambil data user untuk notifikasi
         target_user = get_user(target_uid)
         
-        # LOGIKA SAMBUTAN (PIC vs MATEL)
         if target_user and target_user.get('role') == 'pic':
+            # PESAN UNTUK PIC (Tetap)
             nama_pic = clean_text(target_user.get('nama_lengkap', 'Partner'))
             msg_pic = (
                 f"Selamat Pagi, Pak {nama_pic}.\n\n"
@@ -1932,20 +1941,22 @@ async def callback_handler(update, context):
             except: pass
 
         else:
-            # PESAN UNTUK MATEL
+            # PESAN UNTUK MATEL (Trial 3 Hari + Ikon Petir ⚡)
             nama_user = target_user.get('nama_lengkap', 'Mitra')
             msg_mitra = (
                 f"🦅 **SELAMAT BERGABUNG DI ONE ASPAL BOT** 🦅\n"
                 f"Halo, {nama_user}! Akun Anda telah **DISETUJUI** ✅.\n\n"
-                f"Anda kini memegang akses ke database **Terlengkap & Terupdate**.\n"
+                f"🎁 **BONUS PENDAFTARAN:**\n"
+                f"Anda mendapatkan akses <b>TRIAL GRATIS 3 HARI</b>.\n"
+                f"📅 <b>Aktif s/d:</b> {exp_display}\n\n"
                 f"Fitur kami dirancang **Super Cepat** ⚡ dan **Hemat Kuota** 📉 "
                 f"untuk menunjang kinerja Anda di lapangan.\n\n"
                 f"🔎 **CARA PENCARIAN:**\n"
                 f"Cukup ketik NOPOL, NOKA, atau NOSIN langsung di sini.\n"
                 f"Contoh: `B1234ABC` (Tanpa spasi lebih baik)\n\n"
                 f"💡 **MENU UTAMA:**\n"
-                f"/cekkuota - Cek paket langganan\n"
-                f"/lapor - Lapor unit diamankan\n"
+                f"/cekkuota - Cek masa aktif\n"
+                f"/infobayar - Perpanjang Langganan\n"
                 f"/admin - Bantuan Teknis\n\n"
                 f"Selamat bekerja! Salam Satu Aspal. 🏴‍☠️"
             )
