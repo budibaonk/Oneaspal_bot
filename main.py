@@ -1653,101 +1653,161 @@ async def show_multi_choice(update, context, data_list, keyword):
 # ==============================================================================
 
 async def add_manual_start(update, context):
-    await update.message.reply_text("📝 **TAMBAH DATA MANUAL**\nMode ini untuk memasukkan data unit satu per satu.\n\n1️⃣ **Silakan Ketik NOPOL:**\n_(Contoh: B 1234 ABC)_", parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)); return ADD_NOPOL
+    u = get_user(update.effective_user.id)
+    if not u or u['status'] != 'active': return
+    
+    await update.message.reply_text(
+        "📝 **TAMBAH DATA MANUAL (DIRECT)**\n"
+        "Data yang Anda input akan **LANGSUNG TAYANG** di database.\n"
+        "Pastikan data valid!\n\n"
+        "1️⃣ **Ketik NOPOL Kendaraan:**\n"
+        "_(Contoh: B 1234 ABC)_", 
+        parse_mode='Markdown', 
+        reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)
+    )
+    return ADD_NOPOL
+
 async def add_nopol(update, context):
     text = update.message.text
     if text == "❌ BATAL": return await cancel(update, context)
+    
+    # Bersihkan Nopol
     nopol_clean = re.sub(r'[^a-zA-Z0-9]', '', text).upper()
-    if len(nopol_clean) < 3: await update.message.reply_text("⚠️ Nopol terlalu pendek. Silakan ketik ulang:"); return ADD_NOPOL
+    if len(nopol_clean) < 3: 
+        await update.message.reply_text("⚠️ Nopol terlalu pendek. Ketik ulang:")
+        return ADD_NOPOL
+        
     context.user_data['new_nopol'] = nopol_clean
-    await update.message.reply_text(f"✅ Nopol: **{nopol_clean}**\n\n2️⃣ **Ketik Tipe / Merk Mobil:**", parse_mode='Markdown'); return ADD_UNIT
+    await update.message.reply_text(f"✅ Nopol: **{nopol_clean}**\n\n2️⃣ **Ketik Tipe / Merk Unit:**", parse_mode='Markdown')
+    return ADD_UNIT
+
 async def add_unit(update, context):
-    text = update.message.text
-    if text == "❌ BATAL": return await cancel(update, context)
-    context.user_data['new_unit'] = text.upper()
-    await update.message.reply_text(f"✅ Unit: **{text.upper()}**\n\n3️⃣ **Ketik Nama Leasing / Finance:**", parse_mode='Markdown'); return ADD_LEASING
+    if update.message.text == "❌ BATAL": return await cancel(update, context)
+    context.user_data['new_unit'] = update.message.text.upper()
+    await update.message.reply_text(f"✅ Unit: **{context.user_data['new_unit']}**\n\n3️⃣ **Ketik Nama Leasing / Finance:**", parse_mode='Markdown')
+    return ADD_LEASING
+
 async def add_leasing(update, context):
-    text = update.message.text
-    if text == "❌ BATAL": return await cancel(update, context)
-    context.user_data['new_finance'] = text.upper()
-    await update.message.reply_text(f"✅ Leasing: **{text.upper()}**\n\n4️⃣ **Ketik No HP Kiriman / Pelapor:**", parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["⏩ LEWATI", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)); return ADD_PHONE
+    if update.message.text == "❌ BATAL": return await cancel(update, context)
+    context.user_data['new_finance'] = update.message.text.upper()
+    
+    # [REVISI] No HP Wajib Diisi (Tidak ada tombol SKIP)
+    await update.message.reply_text(
+        f"✅ Leasing: **{context.user_data['new_finance']}**\n\n"
+        "4️⃣ **Ketik No HP / Kontak Pelapor:**\n"
+        "⚠️ _Wajib diisi agar rekan lain bisa menghubungi Anda._", 
+        parse_mode='Markdown',
+        reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)
+    )
+    return ADD_PHONE
+
 async def add_phone(update, context):
-    text = update.message.text
-    if text == "❌ BATAL": return await cancel(update, context)
-    phone_info = "-" if text == "⏩ LEWATI" else text
-    context.user_data['new_phone'] = phone_info
-    await update.message.reply_text("5️⃣ **Keterangan Tambahan (Opsional):**", parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["⏩ LEWATI", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)); return ADD_NOTE
+    if update.message.text == "❌ BATAL": return await cancel(update, context)
+    
+    # Validasi Panjang No HP
+    hp = update.message.text
+    if len(hp) < 5:
+        await update.message.reply_text("⚠️ Nomor HP tidak valid. Masukkan nomor yang benar:")
+        return ADD_PHONE
+        
+    context.user_data['new_phone'] = hp
+    
+    # Keterangan Boleh Skip
+    await update.message.reply_text(
+        "5️⃣ **Keterangan Tambahan (Opsional):**\n"
+        "_(Lokasi, Kondisi, Warna, dll)_", 
+        parse_mode='Markdown', 
+        reply_markup=ReplyKeyboardMarkup([["⏩ LEWATI", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)
+    )
+    return ADD_NOTE
+
 async def add_note(update, context):
     text = update.message.text
     if text == "❌ BATAL": return await cancel(update, context)
+    
     note = "-" if text == "⏩ LEWATI" else text
     context.user_data['new_note'] = note
+    
     d = context.user_data
-    msg = (f"📋 **KONFIRMASI DATA BARU**\n━━━━━━━━━━━━━━━━━━\n🔢 **Nopol:** {d['new_nopol']}\n🚙 **Unit:** {d['new_unit']}\n🏦 **Leasing:** {d['new_finance']}\n📱 **Info HP:** {d['new_phone']}\n📝 **Ket:** {d['new_note']}\n━━━━━━━━━━━━━━━━━━\nApakah data sudah benar?")
-    await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["✅ SIMPAN", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)); return ADD_CONFIRM
-async def add_save(update, context):
-    if update.message.text != "✅ SIMPAN": return await cancel(update, context)
+    msg = (
+        f"📋 **KONFIRMASI UPLOAD**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🔢 **Nopol:** {d['new_nopol']}\n"
+        f"🚙 **Unit:** {d['new_unit']}\n"
+        f"🏦 **Leasing:** {d['new_finance']}\n"
+        f"📱 **Kontak:** {d['new_phone']}\n"
+        f"📝 **Ket:** {d['new_note']}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"Data akan langsung ditayangkan. Lanjut?"
+    )
+    await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup([["✅ UPLOAD SEKARANG", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True))
+    return ADD_CONFIRM
+
+async def add_save(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Cek konfirmasi user
+    if update.message.text != "✅ UPLOAD SEKARANG": 
+        return await cancel(update, context)
     
     d = context.user_data
     user = update.effective_user
     u_db = get_user(user.id)
     
-    # Simpan data sementara di memory bot (via context_data) untuk diambil saat Admin klik tombol
-    # Kita pakai prefix 'prop_' (proposal) + nopol agar unik
-    prop_id = d['new_nopol']
-    
-    # Siapkan paket data yang akan di-insert nanti
-    final_ovd = f"{d['new_note']} (Info: {d['new_phone']})"
+    # 1. SIAPKAN DATA UTAMA
+    # Mapping: Branch -> No HP, OVD -> Keterangan
     payload = {
         "nopol": d['new_nopol'], 
         "type": d['new_unit'], 
         "finance": d['new_finance'], 
-        "ovd": final_ovd, 
-        "branch": "-", 
-        "tahun": "-", 
+        "ovd": f"{d['new_note']} (Manual Input)", 
+        "branch": d['new_phone'], 
+        "tahun": str(datetime.now().year), 
         "warna": "-", 
         "noka": "-", 
         "nosin": "-"
     }
     
-    # Simpan di memory bot sementara (akan hilang jika bot restart, tapi cukup untuk verifikasi cepat)
-    context.bot_data[f"prop_{prop_id}"] = payload
-    
-    # 1. Info ke User
-    await update.message.reply_text(
-        f"⏳ **DATA TERKIRIM UNTUK VERIFIKASI**\n"
-        f"Data Nopol `{d['new_nopol']}` sedang ditinjau Admin sebelum ditayangkan.", 
-        parse_mode='Markdown', 
-        reply_markup=ReplyKeyboardRemove()
-    )
-    
-    # 2. Info ke Admin (Minta Persetujuan)
-    msg_admin = (
-        f"📝 **PENGAJUAN DATA BARU (MANUAL)**\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"👤 **Pengirim:** {clean_text(u_db.get('nama_lengkap', user.full_name))}\n"
-        f"🏢 **Agency:** {clean_text(u_db.get('agency', '-'))}\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"🔢 **Nopol:** `{d['new_nopol']}`\n"
-        f"🚙 **Unit:** {d['new_unit']}\n"
-        f"🏦 **Leasing:** {d['new_finance']}\n"
-        f"📱 **Info HP:** {d['new_phone']}\n"
-        f"📝 **Ket:** {d['new_note']}\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"⚠️ _Data belum masuk database sebelum Anda setujui._"
-    )
-    
-    # Tombol Terima / Tolak
-    # Callback data: v_acc_NOPOL_USERID (Acc) atau v_rej_NOPOL_USERID (Reject)
-    kb = [
-        [InlineKeyboardButton("✅ SETUJUI (TAYANGKAN)", callback_data=f"v_acc_{prop_id}_{user.id}")],
-        [InlineKeyboardButton("❌ TOLAK", callback_data=f"v_rej_{prop_id}_{user.id}")]
-    ]
+    msg_wait = await update.message.reply_text("⏳ **Sedang menyimpan ke database...**", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
     
     try:
-        await context.bot.send_message(ADMIN_ID, msg_admin, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+        # 2. EKSEKUSI LANGSUNG KE DATABASE (Tanpa Approval)
+        supabase.table('kendaraan').upsert(payload).execute()
+        
+        # 3. INFO SUKSES KE USER
+        await msg_wait.edit_text(
+            f"✅ **SUKSES! DATA TAYANG**\n\n"
+            f"Unit `{d['new_nopol']}` berhasil disimpan & aktif.\n"
+            f"Terima kasih atas kontribusi Anda! 🦅",
+            parse_mode='Markdown'
+        )
+        
+        # 4. NOTIFIKASI KE ADMIN (HANYA INFO)
+        sender_name = clean_text(u_db.get('nama_lengkap', user.full_name))
+        sender_agency = clean_text(u_db.get('agency', '-'))
+        
+        msg_admin = (
+            f"🔔 <b>INFO: DATA BARU MASUK (MANUAL)</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Penginput:</b> {sender_name}\n"
+            f"🏢 <b>Agency:</b> {sender_agency}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🔢 <b>Nopol:</b> <code>{d['new_nopol']}</code>\n"
+            f"🚙 <b>Unit:</b> {d['new_unit']}\n"
+            f"🏦 <b>Leasing:</b> {d['new_finance']}\n"
+            f"📱 <b>Kontak:</b> {d['new_phone']}\n"
+            f"📝 <b>Ket:</b> {d['new_note']}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"✅ <i>Data sudah otomatis tayang di database.</i>"
+        )
+        
+        # Kirim ke Admin tanpa tombol Approval
+        try:
+            await context.bot.send_message(ADMIN_ID, msg_admin, parse_mode='HTML')
+        except Exception as e:
+            logger.error(f"Gagal lapor admin: {e}")
+
     except Exception as e:
-        logger.error(f"Gagal kirim ke admin: {e}")
+        logger.error(f"Manual Upload Error: {e}")
+        await msg_wait.edit_text(f"❌ **GAGAL SIMPAN:** {e}")
         
     return ConversationHandler.END
 
