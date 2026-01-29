@@ -1,7 +1,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL COMMAND CENTER                        #
-#                      VERSION: 10.1 (FIX: DROP NULL NOPOL TO PREVENT CRASH)   #
+#                      VERSION: 10.2 (FIX: LIVE OPS COLUMN NAME ERROR)         #
 #                      ROLE:    ADMIN DASHBOARD CORE                           #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -259,7 +259,7 @@ with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", width=220)
     st.caption(f"ONE ASPAL SYSTEM\nStatus: {auto_refresh_status}")
 
-st.markdown("## ONE ASPAL COMMANDO v10.1")
+st.markdown("## ONE ASPAL COMMANDO v10.2")
 st.markdown("<span style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE INTELLIGENCE COMMAND CENTER</span>", unsafe_allow_html=True)
 st.markdown("---")
 
@@ -347,33 +347,18 @@ with tab3:
         with c2:
             if st.button("🚀 UPDATE DATABASE", key="btn_update"):
                 if l_in: df['finance'] = standardize_leasing_name(l_in)
-                
-                # [CRITICAL FIX] 1. BERSIHKAN NOPOL
                 df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
-                
-                # [CRITICAL FIX] 2. HAPUS YANG KOSONG (Agar tidak jadi NULL di database)
-                # Ubah string kosong, 'NAN', 'NONE' jadi NaN asli pandas
                 df['nopol'] = df['nopol'].replace({'': np.nan, 'NAN': np.nan, 'NONE': np.nan})
-                # Buang semua baris yang Nopol-nya NaN
                 df = df.dropna(subset=['nopol'])
-                
-                # 3. Drop Duplicates
                 df = df.drop_duplicates(subset=['nopol'])
-                
-                # 4. Fill sisa kolom (Selain Nopol boleh kosong)
                 for c in ['type','finance','tahun','warna','noka','nosin','ovd','branch']:
                     if c not in df.columns: df[c] = None 
                     else: df[c] = df[c].replace({np.nan: None, "": None})
-                
                 recs = df[['nopol','type','finance','tahun','warna','noka','nosin','ovd','branch']].to_dict('records')
-                
-                # BATCH SIZE 100
                 BATCH_SIZE = 100 
-                
                 s, f, pb = 0, 0, st.progress(0, "Uploading...")
                 total_recs = len(recs)
                 last_error = ""
-                
                 for i in range(0, total_recs, BATCH_SIZE):
                     batch = recs[i:i+BATCH_SIZE]
                     try: 
@@ -383,7 +368,6 @@ with tab3:
                         f += len(batch)
                         last_error = str(e)
                     pb.progress(min((i+BATCH_SIZE)/total_recs, 1.0))
-                
                 st.session_state['upload_result'] = {'suc': s, 'fail': f, 'err': last_error}
                 st.session_state['upload_stage'] = 'complete'; st.rerun()
     elif st.session_state['upload_stage'] == 'complete':
@@ -437,7 +421,8 @@ with tab5:
                 df_display['STATUS'] = df_display.apply(get_status_label, axis=1)
                 df_display['TIME'] = df_display['last_seen'].dt.strftime('%H:%M:%S')
                 
-                final_view = df_display[['STATUS', 'TIME', 'nama_lengkap', 'agency', 'role', 'NO. HP']] # [FIX] Use NO. HP alias
+                # [CRITICAL FIX V10.2] Gunakan nama kolom asli 'no_hp' sebelum rename
+                final_view = df_display[['STATUS', 'TIME', 'nama_lengkap', 'agency', 'role', 'no_hp']]
                 final_view.columns = ['STATUS', 'LAST ACTIVE', 'USER', 'AGENCY', 'ROLE', 'NO. HP']
                 final_view = final_view.sort_values(by='LAST ACTIVE', ascending=False)
                 
@@ -451,4 +436,4 @@ with cf1:
     if st.button("🔄 REFRESH SYSTEM", key="footer_refresh"): st.cache_data.clear(); st.rerun()
 with cf3:
     if st.button("🚪 LOGOUT SESSION", key="footer_logout"): st.session_state['authenticated'] = False; st.rerun()
-st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v10.1</div>""", unsafe_allow_html=True)
+st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v10.2</div>""", unsafe_allow_html=True)
