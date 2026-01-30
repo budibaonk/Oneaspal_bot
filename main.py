@@ -1227,14 +1227,13 @@ async def process_upload_file(update, context, is_pic=False):
     
     # --- 1. DOWNLOAD & PREPARE ---
     if is_pic:
-        # PIC Defaultnya UPSERT (Kecuali nanti kita buat menu khusus hapus untuk PIC)
-        # Untuk sekarang PIC masuk jalur Update Database dulu
         mode = 'UPSERT' 
         fname = context.user_data.get('upload_file_name', 'data.xlsx')
         path = f"temp_{uid}_{int(time.time())}_{fname}"
         status_msg = await update.message.reply_text("⏳ **[1/3] Mendownload File...**", reply_markup=ReplyKeyboardRemove())
         try:
-            new_file = await context.bot.get_file(context.user_data.get('upload_file_id'))
+            file_id = context.user_data.get('upload_file_id')
+            new_file = await context.bot.get_file(file_id)
             await new_file.download_to_drive(path)
         except Exception as e:
             await status_msg.edit_text(f"❌ Gagal Download: {e}")
@@ -1256,7 +1255,8 @@ async def process_upload_file(update, context, is_pic=False):
         
         # Standardisasi
         if target_leasing and target_leasing != 'SKIP':
-            df['finance'] = standardize_leasing_name(target_leasing)
+            clean_leasing = standardize_leasing_name(target_leasing)
+            df['finance'] = clean_leasing
         else:
             if 'finance' in df.columns: df['finance'] = df['finance'].apply(standardize_leasing_name)
             else: df['finance'] = 'UNKNOWN'
@@ -1264,9 +1264,9 @@ async def process_upload_file(update, context, is_pic=False):
         df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
         df = df.dropna(subset=['nopol'])
         df = df[df['nopol'].str.len() > 2]
-        df = df.drop_duplicates(subset=['nopol'], keep='last') # Ambil update terbaru
+        df = df.drop_duplicates(subset=['nopol'], keep='last')
         
-        # Isi kolom wajib (Untuk Upsert)
+        # Isi kolom wajib
         for c in VALID_DB_COLUMNS:
             if c not in df.columns: df[c] = None
         df = df.replace({np.nan: None})
@@ -1283,10 +1283,10 @@ async def process_upload_file(update, context, is_pic=False):
         action_text = "MENGHAPUS" if mode == 'DELETE' else "MENGUPDATE"
         
         await status_msg.edit_text(
-            f"🚀 **[3/3] MULAI {action_text}...**\n"
+            f"🚀 <b>[3/3] MULAI {action_text}...</b>\n"
             f"📊 Total Data: {total_data:,}\n"
             f"⏳ Mohon tunggu...",
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
         
         # Helper Bar Generator
@@ -1297,19 +1297,18 @@ async def process_upload_file(update, context, is_pic=False):
         for i in range(0, total_data, BATCH_SIZE):
             if context.user_data.get('stop_signal'): break
             
+            # [FIX ANTI-STUCK] Bernafas sejenak agar Telegram tidak timeout
+            await asyncio.sleep(0.01) 
+            
             batch = recs[i:i+BATCH_SIZE]
             try:
                 if mode == 'DELETE':
-                    # Logika Hapus Massal (Berdasarkan Nopol di Batch)
                     nopol_list = [d['nopol'] for d in batch]
-                    # Hapus data dimana nopol ada di list DAN (jika ada target leasing) finance cocok
                     q = supabase.table('kendaraan').delete().in_('nopol', nopol_list)
-                    # Jika admin set leasing spesifik, filter delete biar aman
                     if target_leasing and target_leasing != 'SKIP':
                         q = q.eq('finance', standardize_leasing_name(target_leasing))
                     q.execute()
                 else:
-                    # Logika Upsert (Default)
                     supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
                 
                 suc += len(batch)
@@ -1317,18 +1316,18 @@ async def process_upload_file(update, context, is_pic=False):
                 fail += len(batch)
                 print(f"Batch Error: {e}")
             
-            # Update Loading Bar tiap 10% atau tiap batch (agar responsif)
             percent = int(((i + len(batch)) / total_data) * 100)
             if percent % 10 == 0 or (i + BATCH_SIZE) >= total_data:
                 try: 
                     bar = get_bar(percent)
+                    # [FIX] Format konsisten HTML agar tidak error parse
                     await status_msg.edit_text(
-                        f"🔄 **PROSES {action_text}**\n"
-                        f"`[{bar}] {percent}%`\n\n"
+                        f"🔄 <b>PROSES {action_text}</b>\n"
+                        f"<code>[{bar}] {percent}%</code>\n\n"
                         f"✅ Sukses: {suc:,}\n"
                         f"❌ Gagal: {fail:,}\n"
                         f"⏱️ Berjalan...",
-                        parse_mode='Markdown'
+                        parse_mode='HTML'
                     )
                 except: pass
                 
@@ -1336,12 +1335,15 @@ async def process_upload_file(update, context, is_pic=False):
         
         # --- 4. LAPORAN FINAL ---
         if mode == 'DELETE':
-            header = "🗑️ **HAPUS DATA SELESAI**"
+            header = "🗑️ <b>HAPUS DATA SELESAI</b>"
             desc = "Data di atas telah dihapus dari database."
         else:
-            header = "✅ **UPDATE DATA SELESAI**"
+            header = "✅ <b>UPDATE DATA SELESAI</b>"
             desc = "Data baru telah ditayangkan."
 
+        # [FIX] Gunakan HTML untuk mengatasi karakter aneh pada nama leasing
+        leasing_info = clean_text(target_leasing or 'MIX')
+        
         report = (
             f"{header}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
@@ -1350,13 +1352,14 @@ async def process_upload_file(update, context, is_pic=False):
             f"❌ Gagal: {fail:,}\n"
             f"⏱️ Waktu: {duration} detik\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"{desc}"
+            f"Data <b>{leasing_info}</b> sudah diproses.\n"
+            f"<i>{desc}</i>"
         )
-        await status_msg.edit_text(report, parse_mode='Markdown')
+        await status_msg.edit_text(report, parse_mode='HTML')
         
     except Exception as e:
         logger.error(f"Upload Error: {e}")
-        await status_msg.edit_text(f"❌ **ERROR:** {str(e)[:100]}")
+        await status_msg.edit_text(f"❌ <b>ERROR:</b> {clean_text(str(e)[:100])}", parse_mode='HTML')
         
     finally:
         if os.path.exists(path): 
