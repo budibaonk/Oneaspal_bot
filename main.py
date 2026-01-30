@@ -1261,68 +1261,77 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
 async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     u = get_user(uid)
-    if not u or u['status'] != 'active': return await update.message.reply_text("⛔ Akses Ditolak.")
+    if not u or u['status'] != 'active': 
+        return await update.message.reply_text("⛔ Akses Ditolak.")
     
+    # Simpan File ID untuk diproses nanti
     context.user_data['upload_file_id'] = update.message.document.file_id
     context.user_data['upload_file_name'] = update.message.document.file_name
     
-    # === JALUR PIC ===
+    # === JALUR 1: PIC LEASING (MENU SIMPEL) ===
     if u.get('role') == 'pic':
+        # 1. Otomatis Deteksi Leasing
         my_leasing = standardize_leasing_name(u.get('agency'))
-        chat_id = update.effective_chat.id
+        context.user_data['target_leasing'] = my_leasing
         
-        safe_ctx = {
-            'upload_mode': 'UPSERT',
-            'upload_path': None, 
-            'upload_file_name': update.message.document.file_name,
-            'upload_file_id': update.message.document.file_id,
-            'target_leasing': my_leasing
-        }
-        
-        msg = await update.message.reply_text(
-            f"📥 **FILE DITERIMA!**\n"
-            f"🏦 Target: <b>{my_leasing}</b>\n\n"
-            f"🚀 **MEMULAI PROSES...**\n"
-            f"Mohon tunggu notifikasi berikutnya.",
-            parse_mode='HTML',
-            reply_markup=ReplyKeyboardRemove()
+        # 2. Tampilkan Menu Pilihan (Update / Hapus)
+        msg = (
+            f"📥 **FILE DITERIMA (PIC MODE)**\n"
+            f"👤 User: {clean_text(u.get('nama_lengkap'))}\n"
+            f"🏦 Target: <b>{my_leasing}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"Silakan pilih tindakan untuk file ini:"
         )
         
-        # JALANKAN TASK
-        task = context.application.create_task(
-            run_background_upload(context.application, chat_id, uid, msg.message_id, safe_ctx)
-        )
-        BACKGROUND_TASKS.add(task)
-        task.add_done_callback(BACKGROUND_TASKS.discard)
+        # Keyboard Pilihan
+        keyboard = [
+            ["📂 UPDATE DATA", "🗑️ HAPUS DATA"],
+            ["❌ BATAL"]
+        ]
         
-        return ConversationHandler.END
+        await update.message.reply_text(
+            msg, 
+            parse_mode='HTML', 
+            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        )
+        
+        # Langsung lompat ke konfirmasi (Skip Preview Admin)
+        return U_CONFIRM_UPLOAD
 
-    # === JALUR ADMIN ===
+    # === JALUR 2: ADMIN (FULL PREVIEW) ===
     is_admin = (uid == ADMIN_ID) or (str(uid) in ADMIN_IDS)
     if is_admin:
-        # ... (KODE ADMIN SAMA SEPERTI SEBELUMNYA, TIDAK PERLU DIUBAH) ...
-        # (Copy bagian Admin dari code sebelumnya jika perlu, atau biarkan jika sudah benar)
         path = f"temp_{uid}_{int(time.time())}_{update.message.document.file_name}"
         msg = await update.message.reply_text("⏳ **Analisa File (Admin Mode)...**")
         try:
             f = await update.message.document.get_file()
             await f.download_to_drive(path)
+            
             with open(path, 'rb') as fr: content = fr.read()
             df = read_file_robust(content, path)
             df = fix_header_position(df)
             df, found = smart_rename_columns(df)
+            
             if 'nopol' not in df.columns: 
-                os.remove(path); return await msg.edit_text("❌ Kolom NOPOL tidak ditemukan.")
+                os.remove(path)
+                return await msg.edit_text("❌ Kolom NOPOL tidak ditemukan.")
+                
             context.user_data['upload_path'] = path
             context.user_data['preview'] = df.head(1).to_dict('records')
             context.user_data['cols'] = df.columns.tolist()
             await msg.delete()
-            await update.message.reply_text(f"✅ **SCAN OK**\nCols: {', '.join(found)}\nTotal: {len(df):,}\n\n👉 Nama Leasing:", reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True))
+            
+            await update.message.reply_text(
+                f"✅ **SCAN OK**\nCols: {', '.join(found)}\nTotal: {len(df):,}\n\n👉 Nama Leasing (atau SKIP):", 
+                reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True)
+            )
             return U_LEASING_ADMIN
         except Exception as e:
             if os.path.exists(path): os.remove(path)
-            await msg.edit_text(f"❌ Error: {e}"); return ConversationHandler.END
+            await msg.edit_text(f"❌ Error: {e}")
+            return ConversationHandler.END
 
+    # === JALUR 3: USER BIASA (LAPOR) ===
     else:
         await update.message.reply_text("📄 File diterima. Leasing?", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
         return U_LEASING_USER
@@ -1378,32 +1387,52 @@ async def upload_leasing_admin(update: Update, context: ContextTypes.DEFAULT_TYP
 # Digunakan oleh Admin (setelah konfirmasi) DAN PIC (Langsung)
 async def upload_confirm_admin(update, context):
     choice = update.message.text
-    if choice == "❌ BATAL": return await cancel(update, context)
     
-    mode = 'DELETE' if choice == "🗑️ HAPUS DATA" else 'UPSERT'
-    
+    # 1. Tentukan Mode
+    if choice == "📂 UPDATE DATA":
+        mode = 'UPSERT'
+        action_msg = "MENGUPDATE"
+    elif choice == "🗑️ HAPUS DATA":
+        mode = 'DELETE'
+        action_msg = "MENGHAPUS"
+    elif choice == "❌ BATAL":
+        return await cancel(update, context)
+    else:
+        # Jika user ketik aneh-aneh
+        return await cancel(update, context)
+        
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
     
-    safe_ctx = {
+    # 2. Siapkan Context Data (Aman untuk Background)
+    # PIC tidak punya 'upload_path' (karena belum download), tapi punya 'upload_file_id'
+    safe_context = {
         'upload_mode': mode,
-        'upload_path': context.user_data.get('upload_path'),
+        'upload_path': context.user_data.get('upload_path'), 
+        'upload_file_name': context.user_data.get('upload_file_name'),
+        'upload_file_id': context.user_data.get('upload_file_id'),
         'target_leasing': context.user_data.get('target_leasing')
     }
     
+    # 3. Kirim Pesan Konfirmasi Awal
     msg = await update.message.reply_text(
-        "🚀 **PERINTAH DITERIMA!**\nSistem berjalan di background. Mohon tunggu notifikasi hasil.",
-        parse_mode='HTML', reply_markup=ReplyKeyboardRemove()
+        f"🚀 **PERINTAH DITERIMA!**\n"
+        f"⚙️ Mode: {action_msg}\n"
+        f"⏳ <i>Menyiapkan antrean proses...</i>",
+        parse_mode='HTML',
+        reply_markup=ReplyKeyboardRemove()
     )
     
-    # JALANKAN TASK
+    # 4. JALANKAN BACKGROUND TASK (Anti-Stuck & Anti-Kill)
     task = context.application.create_task(
-        run_background_upload(context.application, chat_id, user_id, msg.message_id, safe_ctx)
+        run_background_upload(context.application, chat_id, user_id, msg.message_id, safe_context)
     )
     BACKGROUND_TASKS.add(task)
     task.add_done_callback(BACKGROUND_TASKS.discard)
     
+    # Bersihkan memori user
     context.user_data.clear()
+    
     return ConversationHandler.END
 
 async def upload_leasing_user(update, context):
