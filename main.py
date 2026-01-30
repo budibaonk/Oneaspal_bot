@@ -1100,44 +1100,66 @@ async def set_agency_group(update, context):
 # BAGIAN 10:[UPDATE v2.0] UPLOAD ENGINE: CHUNKING + BACKGROUND PROCESS + ANTI-STUCK
 # ==============================================================================
 
-async def upload_start(update, context):
+async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     u = get_user(uid)
-    if not u or u['status'] != 'active': return await update.message.reply_text("⛔ Akses Ditolak.")
+    if not u or u['status'] != 'active': 
+        return await update.message.reply_text("⛔ Akses Ditolak.")
     
     # Simpan File ID
     context.user_data['upload_file_id'] = update.message.document.file_id
     context.user_data['upload_file_name'] = update.message.document.file_name
     
-    # Cek Role
+    # === JALUR 1: PIC LEASING (MANDIRI & BACKGROUND) ===
     if u.get('role') == 'pic':
-        # JALUR KHUSUS PIC LEASING (MANDIRI)
-        # Otomatis deteksi leasing dari profil user
         my_leasing = standardize_leasing_name(u.get('agency'))
-        context.user_data['target_leasing'] = my_leasing
         
-        # Langsung proses (Skip tanya nama leasing)
-        await update.message.reply_text(
+        # [FIX ERROR] Siapkan Data Context manual untuk Background Task
+        # Karena kita tidak lagi memanggil process_upload_file langsung
+        chat_id = update.effective_chat.id
+        safe_context = {
+            'upload_mode': 'UPSERT',  # Default update data
+            'upload_path': None,      # Nanti didownload di bg task
+            'upload_file_name': update.message.document.file_name,
+            'upload_file_id': update.message.document.file_id,
+            'target_leasing': my_leasing,
+            'stop_signal': False
+        }
+        
+        # Kirim pesan konfirmasi awal
+        msg = await update.message.reply_text(
             f"📥 **UPLOAD MANDIRI (PIC)**\n"
             f"👤 User: {clean_text(u.get('nama_lengkap'))}\n"
-            f"🏦 Target Leasing: <b>{my_leasing}</b>\n\n"
-            f"⏳ <i>Sedang menganalisa file...</i>",
-            parse_mode='HTML'
+            f"🏦 Target: <b>{my_leasing}</b>\n\n"
+            f"🚀 **MEMPROSES DI BACKGROUND...**\n"
+            f"Bot tidak akan stuck/diam. Silakan lanjut aktivitas lain, saya kabari jika selesai.",
+            parse_mode='HTML',
+            reply_markup=ReplyKeyboardRemove()
         )
-        return await process_upload_file(update, context, is_pic=True)
+        
+        # JALANKAN BACKGROUND TASK (Anti-Stuck)
+        asyncio.create_task(run_background_upload(context.application, chat_id, uid, msg.message_id, safe_context))
+        
+        # Tutup percakapan agar user tidak nyangkut
+        return ConversationHandler.END
 
-    # JALUR ADMIN (Bisa pilih leasing)
+    # === JALUR 2: ADMIN (MANUAL FLOW) ===
     is_admin = (uid == ADMIN_ID) or (str(uid) in ADMIN_IDS)
     if is_admin:
         path = f"temp_{uid}_{int(time.time())}_{update.message.document.file_name}"
         msg = await update.message.reply_text("⏳ **Analisa File (Admin Mode)...**")
         try:
-            f = await update.message.document.get_file(); await f.download_to_drive(path)
+            f = await update.message.document.get_file()
+            await f.download_to_drive(path)
+            
             with open(path, 'rb') as fr: content = fr.read()
-            df = read_file_robust(content, path); df = fix_header_position(df); df, found = smart_rename_columns(df)
+            df = read_file_robust(content, path)
+            df = fix_header_position(df)
+            df, found = smart_rename_columns(df)
             
             if 'nopol' not in df.columns: 
-                os.remove(path); return await msg.edit_text("❌ Kolom NOPOL tidak ditemukan.")
+                os.remove(path)
+                return await msg.edit_text("❌ Kolom NOPOL tidak ditemukan.")
                 
             context.user_data['upload_path'] = path
             context.user_data['preview'] = df.head(1).to_dict('records')
@@ -1151,11 +1173,13 @@ async def upload_start(update, context):
             return U_LEASING_ADMIN
         except Exception as e:
             if os.path.exists(path): os.remove(path)
-            await msg.edit_text(f"❌ Error: {e}"); return ConversationHandler.END
+            await msg.edit_text(f"❌ Error: {e}")
+            return ConversationHandler.END
 
     else:
-        # JALUR USER BIASA (Lapor Upload)
-        await update.message.reply_text("📄 File diterima. Leasing?", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True)); return U_LEASING_USER
+        # Jalur User Biasa (Lapor Upload ke Admin)
+        await update.message.reply_text("📄 File diterima. Leasing?", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
+        return U_LEASING_USER
 
 async def upload_leasing_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nm = update.message.text.upper()
@@ -1216,175 +1240,184 @@ async def upload_confirm_admin(update, context):
     elif choice == "❌ BATAL":
         return await cancel(update, context)
     else:
-        # Jika user ketik aneh-aneh
         return await cancel(update, context)
         
-    # Panggil Engine Utama
-    return await process_upload_file(update, context, is_pic=False)
-
-async def process_upload_file(update, context, is_pic=False):
-    uid = update.effective_user.id
-    mode = context.user_data.get('upload_mode', 'UPSERT') # Default Upsert
+    # [FIX] JANGAN DITUNGGU (AWAIT).
+    # Lempar ke Background Task agar bot tidak stuck/timeout.
+    # Kita kirim chat_id dan user_data yang diperlukan.
     
-    # --- 1. DOWNLOAD & PREPARE ---
-    if is_pic:
-        mode = 'UPSERT' 
-        fname = context.user_data.get('upload_file_name', 'data.xlsx')
-        path = f"temp_{uid}_{int(time.time())}_{fname}"
-        status_msg = await update.message.reply_text("⏳ **[1/3] Mendownload File...**", reply_markup=ReplyKeyboardRemove())
-        try:
-            file_id = context.user_data.get('upload_file_id')
-            new_file = await context.bot.get_file(file_id)
-            await new_file.download_to_drive(path)
-        except Exception as e:
-            await status_msg.edit_text(f"❌ Gagal Download: {e}")
-            return ConversationHandler.END
-    else:
-        path = context.user_data.get('upload_path')
-        status_msg = await update.message.reply_text("⏳ **[1/3] Mempersiapkan...**", reply_markup=ReplyKeyboardRemove())
+    # Ambil data penting sebelum context dibersihkan/ditutup
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    # Copy data agar tidak hilang saat conversation end
+    safe_context = {
+        'upload_mode': context.user_data.get('upload_mode'),
+        'upload_path': context.user_data.get('upload_path'),
+        'upload_file_name': context.user_data.get('upload_file_name'),
+        'upload_file_id': context.user_data.get('upload_file_id'),
+        'target_leasing': context.user_data.get('target_leasing'),
+        'stop_signal': False
+    }
+    
+    # Kirim pesan awal
+    msg = await update.message.reply_text(
+        "🚀 **PERINTAH DITERIMA!**\n\n"
+        "Sistem akan memproses data di **Latar Belakang**.\n"
+        "Bot tidak akan stuck, Anda bisa menggunakan fitur lain sambil menunggu.\n"
+        "<i>Menyiapkan mesin...</i>",
+        parse_mode='HTML',
+        reply_markup=ReplyKeyboardRemove()
+    )
+    
+    # JALANKAN DI BACKGROUND
+    asyncio.create_task(run_background_upload(context.application, chat_id, user_id, msg.message_id, safe_context))
+    
+    # Tutup Percakapan agar user bisa chat yang lain
+    return ConversationHandler.END
 
-    target_leasing = context.user_data.get('target_leasing')
+async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
+    """
+    Berjalan di background tanpa membebani Main Loop Telegram.
+    """
+    mode = data_ctx.get('upload_mode', 'UPSERT')
+    path = data_ctx.get('upload_path')
+    is_pic = False
+    
+    # Setup Ulang Path jika PIC (karena PIC download dadakan)
+    if not path:
+        is_pic = True
+        fname = data_ctx.get('upload_file_name', 'data.xlsx')
+        path = f"temp_{user_id}_{int(time.time())}_{fname}"
 
     try:
-        await status_msg.edit_text("⏳ **[2/3] Membaca Data...**")
+        # Helper untuk edit pesan (dibatasi try-except agar tidak crash task)
+        async def safe_edit(text):
+            try: await app.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode='HTML')
+            except: pass
+
+        # 1. DOWNLOAD (Khusus PIC)
+        if is_pic:
+            try:
+                new_file = await app.bot.get_file(data_ctx.get('upload_file_id'))
+                await new_file.download_to_drive(path)
+            except Exception as e:
+                await safe_edit(f"❌ Gagal Download File: {e}")
+                return
+
+        # 2. BACA DATA
+        await safe_edit("⏳ <b>[2/3] Membaca & Validasi Data...</b>")
         
-        # --- 2. BACA FILE ---
-        # Gunakan asyncio sleep agar bot sempat update status sebelum loading berat
-        await asyncio.sleep(0.1) 
-        
-        with open(path, 'rb') as fr: content = fr.read()
-        df = read_file_robust(content, path)
-        df = fix_header_position(df)
-        df, found = smart_rename_columns(df) 
-        
-        # Standardisasi
-        if target_leasing and target_leasing != 'SKIP':
-            clean_leasing = standardize_leasing_name(target_leasing)
-            df['finance'] = clean_leasing
-        else:
-            if 'finance' in df.columns: df['finance'] = df['finance'].apply(standardize_leasing_name)
-            else: df['finance'] = 'UNKNOWN'
+        # Jalankan pembacaan file di Thread terpisah agar bot tidak lag
+        def read_data_sync():
+            with open(path, 'rb') as fr: content = fr.read()
+            df = read_file_robust(content, path)
+            df = fix_header_position(df)
+            df, _ = smart_rename_columns(df)
             
-        df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
-        df = df.dropna(subset=['nopol'])
-        df = df[df['nopol'].str.len() > 2]
-        df = df.drop_duplicates(subset=['nopol'], keep='last')
-        
-        # Isi kolom wajib
-        for c in VALID_DB_COLUMNS:
-            if c not in df.columns: df[c] = None
-        df = df.replace({np.nan: None})
-        
-        recs = json.loads(json.dumps(df[VALID_DB_COLUMNS].to_dict('records'), default=str))
+            target = data_ctx.get('target_leasing')
+            if target and target != 'SKIP':
+                df['finance'] = standardize_leasing_name(target)
+            else:
+                if 'finance' in df.columns: df['finance'] = df['finance'].apply(standardize_leasing_name)
+                else: df['finance'] = 'UNKNOWN'
+                
+            df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
+            df = df.dropna(subset=['nopol'])
+            df = df[df['nopol'].str.len() > 2]
+            df = df.drop_duplicates(subset=['nopol'], keep='last')
+            
+            for c in VALID_DB_COLUMNS:
+                if c not in df.columns: df[c] = None
+            df = df.replace({np.nan: None})
+            return json.loads(json.dumps(df[VALID_DB_COLUMNS].to_dict('records'), default=str))
+
+        # Eksekusi fungsi berat di thread pool
+        recs = await asyncio.to_thread(read_data_sync)
         total_data = len(recs)
         
-        # [FIX] CEK DATA KOSONG (Anti ZeroDivisionError)
         if total_data == 0:
-            await status_msg.edit_text("⚠️ **FILE KOSONG / TIDAK VALID.**\nTidak ada Nopol yang bisa dibaca.", parse_mode='Markdown')
+            await safe_edit("⚠️ <b>FILE KOSONG / TIDAK VALID.</b>")
             if os.path.exists(path): os.remove(path)
-            return ConversationHandler.END
+            return
 
-        # --- 3. EKSEKUSI BATCH (VISUAL LOADING) ---
-        # [FIX] BATCH SIZE DINAMIS (Delete harus lebih kecil agar URL tidak kepanjangan)
-        if mode == 'DELETE':
-            BATCH_SIZE = 150 
-        else:
-            BATCH_SIZE = 500
-
+        # 3. UPLOAD BATCH
+        # [OPTIMASI] Batch kecil agar Supabase tidak timeout
+        BATCH_SIZE = 200 
         suc = 0
         fail = 0
         start_time = time.time()
+        last_update_time = time.time() # Untuk throttling
         
         action_text = "MENGHAPUS" if mode == 'DELETE' else "MENGUPDATE"
         
-        await status_msg.edit_text(
-            f"🚀 <b>[3/3] MULAI {action_text}...</b>\n"
-            f"📊 Total Data: {total_data:,}\n"
-            f"⏳ Mohon tunggu...",
-            parse_mode='HTML'
-        )
-        
-        # Helper Bar Generator
+        # Helper Bar
         def get_bar(pct):
             filled = int(pct / 10)
             return "█" * filled + "░" * (10 - filled)
 
         for i in range(0, total_data, BATCH_SIZE):
-            if context.user_data.get('stop_signal'): break
+            # Cek Stop Signal (Harus implementasi cara cek global variable atau database flag jika mau stop real-time)
+            # Disini kita skip dulu signal stop kompleks agar simpel
             
-            # Anti-Stuck: Bernafas sejenak
-            await asyncio.sleep(0.01) 
+            # Anti-Stuck CPU
+            await asyncio.sleep(0.05) 
             
             batch = recs[i:i+BATCH_SIZE]
             try:
                 if mode == 'DELETE':
                     nopol_list = [d['nopol'] for d in batch]
                     q = supabase.table('kendaraan').delete().in_('nopol', nopol_list)
-                    if target_leasing and target_leasing != 'SKIP':
-                        # Pastikan format leasing aman
-                        q = q.eq('finance', standardize_leasing_name(target_leasing))
+                    t_lease = data_ctx.get('target_leasing')
+                    if t_lease and t_lease != 'SKIP':
+                        q = q.eq('finance', standardize_leasing_name(t_lease))
                     q.execute()
                 else:
                     supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
-                
                 suc += len(batch)
             except Exception as e:
                 fail += len(batch)
-                print(f"Batch Error: {e}")
-            
-            # Hitung Persen
-            percent = int(((i + len(batch)) / total_data) * 100)
-            
-            # Update Status UI (Tiap 10% atau Batch Terakhir)
-            if percent % 10 == 0 or (i + BATCH_SIZE) >= total_data:
-                try: 
-                    bar = get_bar(percent)
-                    await status_msg.edit_text(
-                        f"🔄 <b>PROSES {action_text}</b>\n"
-                        f"<code>[{bar}] {percent}%</code>\n\n"
-                        f"✅ Sukses: {suc:,}\n"
-                        f"❌ Gagal: {fail:,}\n"
-                        f"⏱️ Berjalan...",
-                        parse_mode='HTML'
-                    )
-                except: pass
-                
-        duration = int(time.time() - start_time)
-        
-        # --- 4. LAPORAN FINAL ---
-        if mode == 'DELETE':
-            header = "🗑️ <b>HAPUS DATA SELESAI</b>"
-            desc = "Data di atas telah dihapus dari database."
-        else:
-            header = "✅ <b>UPDATE DATA SELESAI</b>"
-            desc = "Data baru telah ditayangkan."
+                print(f"Batch Err: {e}")
 
-        leasing_info = clean_text(target_leasing or 'MIX')
+            # [THROTTLING] Hanya update pesan setiap 4 detik sekali
+            # Agar Telegram tidak memblokir bot karena "Too Many Requests"
+            now = time.time()
+            if (now - last_update_time) > 4 or (i + BATCH_SIZE) >= total_data:
+                percent = int(((i + len(batch)) / total_data) * 100)
+                bar = get_bar(percent)
+                msg_stat = (
+                    f"🔄 <b>PROSES {action_text}...</b>\n"
+                    f"<code>[{bar}] {percent}%</code>\n"
+                    f"✅ Sukses: {suc:,}\n"
+                    f"❌ Gagal: {fail:,}\n"
+                    f"⏱️ Berjalan..."
+                )
+                await safe_edit(msg_stat)
+                last_update_time = now
+
+        duration = int(time.time() - start_time)
+        leasing_info = clean_text(data_ctx.get('target_leasing') or 'MIX')
         
-        report = (
-            f"{header}\n"
+        final_rpt = (
+            f"✅ <b>PROSES SELESAI!</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"📂 Total File: {total_data:,}\n"
+            f"📂 Total Data: {total_data:,}\n"
             f"✅ Sukses: {suc:,}\n"
             f"❌ Gagal: {fail:,}\n"
             f"⏱️ Waktu: {duration} detik\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"Data <b>{leasing_info}</b> sudah diproses.\n"
-            f"<i>{desc}</i>"
+            f"Data <b>{leasing_info}</b> berhasil diproses."
         )
-        await status_msg.edit_text(report, parse_mode='HTML')
-        
+        await safe_edit(final_rpt)
+
     except Exception as e:
-        logger.error(f"Upload Error: {e}")
-        await status_msg.edit_text(f"❌ <b>ERROR:</b> {clean_text(str(e)[:100])}", parse_mode='HTML')
-        
+        logger.error(f"BG Upload Error: {e}")
+        try: await app.bot.send_message(chat_id, f"❌ <b>ERROR FATAL:</b> {str(e)[:100]}", parse_mode='HTML')
+        except: pass
+
     finally:
-        if os.path.exists(path): 
+        if os.path.exists(path):
             try: os.remove(path)
             except: pass
-        context.user_data.clear()
-        
-    return ConversationHandler.END
 
 async def upload_leasing_user(update, context):
     nm = update.message.text
