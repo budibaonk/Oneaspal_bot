@@ -1093,7 +1093,7 @@ async def download_finding_report(update, context):
     if not (is_pic or is_admin): 
         return await query.answer("⛔ Akses Ditolak.", show_alert=True)
 
-    # 2. SET FILTER LEASING
+    # 2. SET FILTER
     if is_admin: 
         leasing_filter = "GLOBAL"
         display_name = "DATA GLOBAL (ADMIN)"
@@ -1103,7 +1103,7 @@ async def download_finding_report(update, context):
 
     await query.answer("⏳ Menyiapkan Laporan...", show_alert=False)
     
-    # 3. RANGE WAKTU (BULAN BERJALAN FULL)
+    # 3. RANGE WAKTU
     now = datetime.now(TZ_JAKARTA)
     start_date = now.replace(day=1, hour=0, minute=0, second=0)
     end_date_str = now.strftime('%d %B %Y')
@@ -1112,52 +1112,69 @@ async def download_finding_report(update, context):
         query.message.chat_id, 
         f"⏳ <b>GENERATING REPORT: {display_name}</b>\n"
         f"📅 Periode: 1 {now.strftime('%B')} - {end_date_str}\n"
-        f"🔄 <i>Sinkronisasi Data Profil (Schema Validated)...</i>", 
+        f"🔄 <i>Mengambil SEMUA data (Teknik Looping)...</i>", 
         parse_mode='HTML'
     )
     
     try:
         def generate_report():
-            # --- STEP A: QUERY LOGS (MAX 100.000 DATA - BULAN INI) ---
-            # Kolom di finding_logs: id, user_id, nama_matel, leasing, nopol, unit, created_at, no_hp, nama_pt
-            q = supabase.table('finding_logs').select('*')
+            # --- STEP A: QUERY LOGS DENGAN LOOPING (PAGINATION) ---
+            all_logs = []
+            batch_size = 1000 # Tarik per 1000 baris
+            start_row = 0
             
-            if not is_admin: 
-                q = q.ilike('leasing', f"%{leasing_filter}%")
-            
-            # Filter Waktu: Dari Tanggal 1 sampai detik ini
-            q = q.gte('created_at', start_date.isoformat())
-            
-            # LIMIT BESAR agar semua data terambil (Unlimited feel)
-            res_logs = q.order('created_at', desc=True).limit(100000).execute()
-            logs = res_logs.data
-            
-            if not logs: return None
+            while True:
+                # 1. Bangun Query Dasar
+                q = supabase.table('finding_logs').select('*')
+                if not is_admin: q = q.ilike('leasing', f"%{leasing_filter}%")
+                q = q.gte('created_at', start_date.isoformat())
+                q = q.order('created_at', desc=True)
+                
+                # 2. Pakai Range untuk ambil batch tertentu
+                # (Misal: 0-999, lalu 1000-1999, dst)
+                res = q.range(start_row, start_row + batch_size - 1).execute()
+                data = res.data
+                
+                if not data:
+                    break # Stop jika data habis
+                
+                all_logs.extend(data) # Gabungkan ke list utama
+                
+                # Cek apakah data yg ditarik kurang dari batch (artinya ini halaman terakhir)
+                if len(data) < batch_size:
+                    break
+                    
+                start_row += batch_size # Lanjut ke halaman berikutnya
+                
+                # Safety Limit (Misal max 100rb baris biar gak crash memori)
+                if len(all_logs) >= 100000:
+                    break
 
-            # --- STEP B: AMBIL DATA PROFIL USER (UNTUK LOKASI 'alamat' & NAMA) ---
-            # Kumpulkan user_id dari logs untuk di-lookup ke tabel users
-            list_user_ids = list(set([log['user_id'] for log in logs if log.get('user_id')]))
-            
+            if not all_logs: return None
+
+            # --- STEP B: AMBIL DATA PROFIL USER (BATCH LOOKUP) ---
+            # Kita juga harus batching lookup user-nya agar URL tidak kepanjangan error
+            all_user_ids = list(set([log['user_id'] for log in all_logs if log.get('user_id')]))
             users_map = {}
-            if list_user_ids:
+            
+            # Pecah ID user jadi chunk kecil (misal per 100 ID)
+            chunk_size = 100
+            for i in range(0, len(all_user_ids), chunk_size):
+                chunk_ids = all_user_ids[i:i + chunk_size]
                 try:
-                    # QUERY TABEL USERS (Sesuai Schema Anda)
-                    # PK: user_id | Kolom: nama_lengkap, alamat, agency, no_hp
                     res_users = supabase.table('users')\
                         .select('user_id, nama_lengkap, alamat, agency, no_hp')\
-                        .in_('user_id', list_user_ids)\
+                        .in_('user_id', chunk_ids)\
                         .execute()
-                        
                     for usr in res_users.data:
-                        # Map menggunakan str(user_id) agar aman
                         users_map[str(usr['user_id'])] = usr
                 except Exception as e:
-                    logger.error(f"Gagal fetch user profiles: {e}")
+                    logger.error(f"Error fetching user chunk: {e}")
 
-            # --- STEP C: MAPPING DATA (FIX KOLOM) ---
+            # --- STEP C: MAPPING DATA ---
             report_data = []
-            for item in logs:
-                # 1. Format Waktu
+            for item in all_logs:
+                # Format Waktu
                 raw_time = item.get('created_at', '')
                 try: 
                     dt_obj = datetime.fromisoformat(raw_time.replace('Z', '+00:00')).astimezone(TZ_JAKARTA)
@@ -1167,35 +1184,29 @@ async def download_finding_report(update, context):
                     tgl_temuan = raw_time
                     jam_temuan = ""
                 
-                # 2. Ambil Profil User Terkait
+                # Profil User
                 uid_str = str(item.get('user_id', ''))
                 profile = users_map.get(uid_str, {})
                 
-                # 3. LOGIKA PENGISIAN DATA (FALLBACK)
-                
-                # A. NAMA PENEMU
-                # Cek 'nama_matel' (Log) -> 'nama_lengkap' (User)
+                # Logic Fallback Data
+                # 1. Nama
                 finder_name = item.get('nama_matel')
                 if not finder_name or finder_name in ['-', '']:
                     finder_name = profile.get('nama_lengkap', 'Unknown User')
                 
-                # B. LOKASI / DOMISILI
-                # Finding logs tidak punya lokasi, ambil 'alamat' dari User
+                # 2. Lokasi (Alamat)
                 lokasi = profile.get('alamat', '-')
                     
-                # C. AGENCY / PT
-                # Cek 'nama_pt' (Log) -> 'agency' (User)
+                # 3. Agency
                 pt_matel = item.get('nama_pt')
                 if not pt_matel or pt_matel in ['-', '']:
                     pt_matel = profile.get('agency', '-')
 
-                # D. NO HP
-                # Cek 'no_hp' (Log) -> 'no_hp' (User)
+                # 4. No HP
                 hp = item.get('no_hp')
                 if not hp or hp in ['-', '']:
                     hp = profile.get('no_hp', '-')
 
-                # Masukkan ke baris Excel
                 report_data.append({
                     'TANGGAL': tgl_temuan,
                     'JAM': jam_temuan,
@@ -1205,23 +1216,23 @@ async def download_finding_report(update, context):
                     'NAMA PENEMU': finder_name,
                     'NO HP MATEL': hp,
                     'AGENCY / PT MATEL': pt_matel,
-                    'LOKASI / DOMISILI': lokasi     # <-- Diambil dari users.alamat
+                    'LOKASI / DOMISILI': lokasi,
+                    'INPUT PENCARIAN': item.get('query_text', '-') # Tambahan info
                 })
 
-            # --- STEP D: BIKIN EXCEL ---
+            # --- STEP D: BUAT EXCEL ---
             df = pd.DataFrame(report_data)
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 df.to_excel(writer, index=False, sheet_name='Laporan Temuan')
-                
                 ws = writer.sheets['Laporan Temuan']
-                format_header = writer.book.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
                 
-                # Header
+                # Style Header
+                format_header = writer.book.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
                 for col_num, value in enumerate(df.columns.values):
                     ws.write(0, col_num, value, format_header)
                 
-                # Width
+                # Lebar Kolom
                 ws.set_column('A:A', 12) 
                 ws.set_column('B:B', 10) 
                 ws.set_column('C:C', 12) 
@@ -1231,15 +1242,15 @@ async def download_finding_report(update, context):
                 ws.set_column('G:G', 15) 
                 ws.set_column('H:H', 25) 
                 ws.set_column('I:I', 35) 
+                ws.set_column('J:J', 15)
 
             output.seek(0)
             return output
 
-        # Gunakan thread agar bot tidak freeze saat download besar
         excel_file = await asyncio.to_thread(generate_report)
         
         if not excel_file:
-            await sts.edit_text(f"⚠️ <b>DATA KOSONG.</b>\nTidak ada temuan pada periode ini.")
+            await sts.edit_text(f"⚠️ <b>DATA KOSONG.</b>")
             return
             
         timestamp = datetime.now().strftime('%Y%m%d_%H%M')
@@ -1248,7 +1259,7 @@ async def download_finding_report(update, context):
             f"📈 <b>LAPORAN KINERJA BULANAN</b>\n"
             f"🏢 User: {leasing_filter}\n"
             f"📅 Periode: 1 - {end_date_str}\n"
-            f"✅ Schema Fixed: Nama, Alamat, HP Terisi."
+            f"📊 Status: FULL DATA (Looping Mode)"
         )
         
         await context.bot.send_document(
