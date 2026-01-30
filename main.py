@@ -1180,7 +1180,7 @@ async def upload_confirm_admin(update, context):
 async def process_upload_file(update, context, is_pic=False):
     uid = update.effective_user.id
     
-    # 1. SETUP AWAL
+    # --- 1. SETUP & DOWNLOAD ---
     if is_pic:
         fname = context.user_data.get('upload_file_name', 'data.xlsx')
         path = f"temp_{uid}_{int(time.time())}_{fname}"
@@ -1201,28 +1201,37 @@ async def process_upload_file(update, context, is_pic=False):
     try:
         await status_msg.edit_text("⏳ **[2/3] Membaca & Membersihkan Data...**")
         
-        # 2. BACA FILE & DETEKSI KOLOM
+        # --- 2. BACA FILE ---
         with open(path, 'rb') as fr: content = fr.read()
         df = read_file_robust(content, path)
         df = fix_header_position(df)
         df, found = smart_rename_columns(df) 
         
-        # [FITUR BARU] AMBIL PREVIEW BARIS 1 (Sebelum Cleaning)
+        # --- [FITUR BARU] PREVIEW KOMPLIT (NOPOL, TYPE, FINANCE, NOKA) ---
         preview_str = "(Data Kosong)"
         if not df.empty:
             first_row = df.iloc[0]
-            preview_items = []
-            # Hanya tampilkan kolom yang dikenali sistem (Found)
-            for col in found:
-                val = str(first_row[col]).strip()
-                # Potong jika teks terlalu panjang biar rapi
-                if len(val) > 15: val = val[:12] + "..." 
-                preview_items.append(f"{col.upper()}: {val}")
             
-            # Gabungkan jadi string (Contoh: NOPOL: B1234 | TYPE: AVANZA...)
-            preview_str = " | ".join(preview_items)
+            # Helper kecil untuk ambil data aman (Anti-Error)
+            def get_val(col_name):
+                if col_name in df.columns:
+                    val = str(first_row[col_name]).strip()
+                    return clean_text(val) # Pakai clean_text agar aman HTML
+                return "-"
 
-        # 3. STANDARDISASI DATA
+            # Susun Preview sesuai Request Komandan
+            # Format: NOPOL | UNIT | LEASING | NOKA
+            p_nopol = get_val('nopol')
+            p_unit = get_val('type')
+            p_fin = get_val('finance')
+            p_noka = get_val('noka') # <-- REQUEST ADDED
+            
+            # Potong jika terlalu panjang
+            if len(p_unit) > 15: p_unit = p_unit[:12] + ".."
+            
+            preview_str = f"🔢 {p_nopol} | 🚙 {p_unit} | 🏦 {p_fin} | 🔧 {p_noka}"
+
+        # --- 3. STANDARDISASI DATA ---
         if target_leasing and target_leasing != 'SKIP':
             clean_leasing = standardize_leasing_name(target_leasing)
             df['finance'] = clean_leasing
@@ -1235,6 +1244,7 @@ async def process_upload_file(update, context, is_pic=False):
         df = df[df['nopol'].str.len() > 2]
         df = df.drop_duplicates(subset=['nopol'], keep='last')
         
+        # Pastikan semua kolom DB ada di DF
         for c in VALID_DB_COLUMNS:
             if c not in df.columns: df[c] = None
         
@@ -1242,23 +1252,21 @@ async def process_upload_file(update, context, is_pic=False):
         recs = json.loads(json.dumps(df[VALID_DB_COLUMNS].to_dict('records'), default=str))
         total_data = len(recs)
         
-        # 4. TAMPILKAN INFO LENGKAP KE USER
+        # --- 4. TAMPILKAN STATUS SEBELUM UPLOAD ---
         found_cols_str = ", ".join([c.upper() for c in found])
         
         await status_msg.edit_text(
             f"✅ **FILE TERBACA!**\n"
             f"📊 Kolom: {found_cols_str}\n"
-            f"📝 **Sample Baris 1:**\n"
-            f"_{preview_str}_\n\n"
+            f"📝 **Sample:**\n{preview_str}\n\n"
             f"📥 Total Bersih: {total_data:,} Baris\n"
             f"🚀 **[3/3] Memulai Upload...**",
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
         
-        # Jeda 3 detik agar user sempat membaca previewnya
-        await asyncio.sleep(3) 
+        await asyncio.sleep(2) 
         
-        # 5. UPLOAD BATCH (ANTI-STUCK)
+        # --- 5. UPLOAD BATCH (ANTI-STUCK) ---
         BATCH_SIZE = 500
         suc = 0
         fail = 0
@@ -1277,21 +1285,21 @@ async def process_upload_file(update, context, is_pic=False):
                 fail += len(batch)
                 print(f"Batch Error {i}: {e}")
             
-            # Update status tiap 2000 data
+            # Update Status tiap 2000 data
             if i % 2000 == 0 and i > 0:
                 percent = int((i / total_data) * 100)
                 try: 
                     await status_msg.edit_text(
-                        f"📝 **Sample:** _{preview_str}_\n"
+                        f"📝 **Sample:** {preview_str}\n"
                         f"🚀 **Uploading... {percent}%**\n"
                         f"✅ Masuk: {suc:,}\n"
                         f"⏱️ Berjalan..."
-                    , parse_mode='Markdown')
+                    , parse_mode='HTML')
                 except: pass
                 
         duration = int(time.time() - start_time)
         
-        # 6. LAPORAN FINAL
+        # --- 6. LAPORAN FINAL ---
         report = (
             f"✅ **UPLOAD SELESAI!**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
@@ -1306,7 +1314,8 @@ async def process_upload_file(update, context, is_pic=False):
         
     except Exception as e:
         logger.error(f"Upload Fatal Error: {e}")
-        await status_msg.edit_text(f"❌ **GAGAL TOTAL:** {str(e)}")
+        # Tambahkan info error detail agar ketahuan kenapa
+        await status_msg.edit_text(f"❌ **GAGAL TOTAL:** {str(e)[:100]}...")
         
     finally:
         if os.path.exists(path): 
