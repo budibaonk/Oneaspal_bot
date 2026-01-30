@@ -1093,7 +1093,7 @@ async def download_finding_report(update, context):
     if not (is_pic or is_admin): 
         return await query.answer("⛔ Akses Ditolak.", show_alert=True)
 
-    # 2. SET FILTER
+    # 2. SET FILTER LEASING
     if is_admin: 
         leasing_filter = "GLOBAL"
         display_name = "DATA GLOBAL (ADMIN)"
@@ -1103,7 +1103,7 @@ async def download_finding_report(update, context):
 
     await query.answer("⏳ Menyiapkan Laporan...", show_alert=False)
     
-    # 3. RANGE WAKTU (BULAN INI)
+    # 3. RANGE WAKTU (BULAN BERJALAN FULL)
     now = datetime.now(TZ_JAKARTA)
     start_date = now.replace(day=1, hour=0, minute=0, second=0)
     end_date_str = now.strftime('%d %B %Y')
@@ -1112,39 +1112,52 @@ async def download_finding_report(update, context):
         query.message.chat_id, 
         f"⏳ <b>GENERATING REPORT: {display_name}</b>\n"
         f"📅 Periode: 1 {now.strftime('%B')} - {end_date_str}\n"
-        f"🔄 <i>Mengambil data alamat user...</i>", 
+        f"🔄 <i>Sinkronisasi Data Profil (Schema Validated)...</i>", 
         parse_mode='HTML'
     )
     
     try:
         def generate_report():
-            # --- STEP A: QUERY LOGS (UNLIMITED) ---
+            # --- STEP A: QUERY LOGS (MAX 100.000 DATA - BULAN INI) ---
+            # Kolom di finding_logs: id, user_id, nama_matel, leasing, nopol, unit, created_at, no_hp, nama_pt
             q = supabase.table('finding_logs').select('*')
-            if not is_admin: q = q.ilike('leasing', f"%{leasing_filter}%")
+            
+            if not is_admin: 
+                q = q.ilike('leasing', f"%{leasing_filter}%")
+            
+            # Filter Waktu: Dari Tanggal 1 sampai detik ini
             q = q.gte('created_at', start_date.isoformat())
             
+            # LIMIT BESAR agar semua data terambil (Unlimited feel)
             res_logs = q.order('created_at', desc=True).limit(100000).execute()
             logs = res_logs.data
+            
             if not logs: return None
 
-            # --- STEP B: AMBIL DATA PROFIL USER (UNTUK PENGAYAAN DATA) ---
-            user_ids = list(set([log['user_id'] for log in logs if log.get('user_id')]))
+            # --- STEP B: AMBIL DATA PROFIL USER (UNTUK LOKASI 'alamat' & NAMA) ---
+            # Kumpulkan user_id dari logs untuk di-lookup ke tabel users
+            list_user_ids = list(set([log['user_id'] for log in logs if log.get('user_id')]))
             
             users_map = {}
-            if user_ids:
+            if list_user_ids:
                 try:
-                    # AMBIL KOLOM 'alamat' (SESUAI ARAHAN KOMANDAN)
-                    # Kita juga ambil 'nama_lengkap', 'agency', 'no_hp' untuk jaga-jaga kalau di log kosong
-                    res_users = supabase.table('users').select('id, nama_lengkap, alamat, agency, no_hp').in_('id', user_ids).execute()
+                    # QUERY TABEL USERS (Sesuai Schema Anda)
+                    # PK: user_id | Kolom: nama_lengkap, alamat, agency, no_hp
+                    res_users = supabase.table('users')\
+                        .select('user_id, nama_lengkap, alamat, agency, no_hp')\
+                        .in_('user_id', list_user_ids)\
+                        .execute()
+                        
                     for usr in res_users.data:
-                        users_map[str(usr['id'])] = usr
+                        # Map menggunakan str(user_id) agar aman
+                        users_map[str(usr['user_id'])] = usr
                 except Exception as e:
                     logger.error(f"Gagal fetch user profiles: {e}")
 
-            # --- STEP C: MAPPING DATA ---
+            # --- STEP C: MAPPING DATA (FIX KOLOM) ---
             report_data = []
             for item in logs:
-                # Format Waktu
+                # 1. Format Waktu
                 raw_time = item.get('created_at', '')
                 try: 
                     dt_obj = datetime.fromisoformat(raw_time.replace('Z', '+00:00')).astimezone(TZ_JAKARTA)
@@ -1154,31 +1167,35 @@ async def download_finding_report(update, context):
                     tgl_temuan = raw_time
                     jam_temuan = ""
                 
-                # Ambil Profil User
+                # 2. Ambil Profil User Terkait
                 uid_str = str(item.get('user_id', ''))
                 profile = users_map.get(uid_str, {})
                 
-                # 1. NAMA PENEMU (Log -> Profil)
-                finder_name = item.get('finder_name')
+                # 3. LOGIKA PENGISIAN DATA (FALLBACK)
+                
+                # A. NAMA PENEMU
+                # Cek 'nama_matel' (Log) -> 'nama_lengkap' (User)
+                finder_name = item.get('nama_matel')
                 if not finder_name or finder_name in ['-', '']:
                     finder_name = profile.get('nama_lengkap', 'Unknown User')
                 
-                # 2. LOKASI TEMUAN (Log GPS -> Kolom 'alamat' User)
-                lokasi = item.get('location')
-                if not lokasi or lokasi in ['-', '']:
-                    # AMBIL DARI KOLOM 'alamat'
-                    lokasi = profile.get('alamat', '-')
+                # B. LOKASI / DOMISILI
+                # Finding logs tidak punya lokasi, ambil 'alamat' dari User
+                lokasi = profile.get('alamat', '-')
                     
-                # 3. AGENCY MATEL (Log -> Profil)
-                pt_matel = item.get('agency')
+                # C. AGENCY / PT
+                # Cek 'nama_pt' (Log) -> 'agency' (User)
+                pt_matel = item.get('nama_pt')
                 if not pt_matel or pt_matel in ['-', '']:
                     pt_matel = profile.get('agency', '-')
 
-                # 4. NO HP (Log -> Profil)
+                # D. NO HP
+                # Cek 'no_hp' (Log) -> 'no_hp' (User)
                 hp = item.get('no_hp')
                 if not hp or hp in ['-', '']:
                     hp = profile.get('no_hp', '-')
 
+                # Masukkan ke baris Excel
                 report_data.append({
                     'TANGGAL': tgl_temuan,
                     'JAM': jam_temuan,
@@ -1188,8 +1205,7 @@ async def download_finding_report(update, context):
                     'NAMA PENEMU': finder_name,
                     'NO HP MATEL': hp,
                     'AGENCY / PT MATEL': pt_matel,
-                    'LOKASI / DOMISILI': lokasi,   # <--- SUDAH PAKAI KOLOM 'alamat'
-                    'INPUT PENCARIAN': item.get('query_text', '-')
+                    'LOKASI / DOMISILI': lokasi     # <-- Diambil dari users.alamat
                 })
 
             # --- STEP D: BIKIN EXCEL ---
@@ -1198,13 +1214,14 @@ async def download_finding_report(update, context):
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 df.to_excel(writer, index=False, sheet_name='Laporan Temuan')
                 
-                # Formatting
                 ws = writer.sheets['Laporan Temuan']
                 format_header = writer.book.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
+                
+                # Header
                 for col_num, value in enumerate(df.columns.values):
                     ws.write(0, col_num, value, format_header)
                 
-                # Lebar Kolom
+                # Width
                 ws.set_column('A:A', 12) 
                 ws.set_column('B:B', 10) 
                 ws.set_column('C:C', 12) 
@@ -1213,24 +1230,25 @@ async def download_finding_report(update, context):
                 ws.set_column('F:F', 25) 
                 ws.set_column('G:G', 15) 
                 ws.set_column('H:H', 25) 
-                ws.set_column('I:I', 30) # Lokasi agak lebar
+                ws.set_column('I:I', 35) 
 
             output.seek(0)
             return output
 
+        # Gunakan thread agar bot tidak freeze saat download besar
         excel_file = await asyncio.to_thread(generate_report)
         
         if not excel_file:
-            await sts.edit_text(f"⚠️ <b>DATA KOSONG.</b>")
+            await sts.edit_text(f"⚠️ <b>DATA KOSONG.</b>\nTidak ada temuan pada periode ini.")
             return
             
         timestamp = datetime.now().strftime('%Y%m%d_%H%M')
         fname = f"REPORT_{leasing_filter}_{timestamp}.xlsx"
         caption = (
             f"📈 <b>LAPORAN KINERJA BULANAN</b>\n"
-            f"🏢 Leasing: {leasing_filter}\n"
+            f"🏢 User: {leasing_filter}\n"
             f"📅 Periode: 1 - {end_date_str}\n"
-            f"📍 Lokasi: Data Alamat Mitra"
+            f"✅ Schema Fixed: Nama, Alamat, HP Terisi."
         )
         
         await context.bot.send_document(
