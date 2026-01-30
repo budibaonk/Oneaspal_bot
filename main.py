@@ -1,7 +1,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 6.30 (FINAL SYNC - INTELLIGENCE READY)         #
+#                      VERSION: 6.31 (DIRECT UPLOAD - NO ADMIN APPROVAL)       #
 #                      ROLE:    MAIN APPLICATION CORE                          #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -1096,84 +1096,225 @@ async def set_agency_group(update, context):
         await update.message.reply_text(f"❌ Gagal set grup: {e}")
 
 # ==============================================================================
-# BAGIAN 10: FITUR UPLOAD (MOBILE OPTIMIZED & DISK BASED)
+# BAGIAN 10:[UPDATE v2.0] UPLOAD ENGINE: CHUNKING + BACKGROUND PROCESS + ANTI-STUCK
 # ==============================================================================
 
 async def upload_start(update, context):
     uid = update.effective_user.id
-    if not get_user(uid): return await update.message.reply_text("⛔ Akses Ditolak.")
+    u = get_user(uid)
+    if not u or u['status'] != 'active': return await update.message.reply_text("⛔ Akses Ditolak.")
     
-    # Simpan File ID untuk User Flow (Forward ke Admin)
+    # Simpan File ID
     context.user_data['upload_file_id'] = update.message.document.file_id
     context.user_data['upload_file_name'] = update.message.document.file_name
-
-    # --- ROUTING: ADMIN vs USER ---
-    # Jika bukan Admin, masuk ke flow 'upload_leasing_user' (Lapor Upload)
-    # Cek support untuk ADMIN_ID (int) atau ADMIN_IDS (list)
-    is_admin = False
-    if 'ADMIN_ID' in globals() and uid == ADMIN_ID: is_admin = True
-    if 'ADMIN_IDS' in globals() and str(uid) in ADMIN_IDS: is_admin = True
     
-    if not is_admin:
+    # Cek Role
+    if u.get('role') == 'pic':
+        # JALUR KHUSUS PIC LEASING (MANDIRI)
+        # Otomatis deteksi leasing dari profil user
+        my_leasing = standardize_leasing_name(u.get('agency'))
+        context.user_data['target_leasing'] = my_leasing
+        
+        # Langsung proses (Skip tanya nama leasing)
         await update.message.reply_text(
-            "📄 File diterima.\n**Untuk leasing apa file ini?**", 
-            parse_mode='Markdown', 
-            reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True)
+            f"📥 **UPLOAD MANDIRI (PIC)**\n"
+            f"👤 User: {clean_text(u.get('nama_lengkap'))}\n"
+            f"🏦 Target Leasing: <b>{my_leasing}</b>\n\n"
+            f"⏳ <i>Sedang menganalisa file...</i>",
+            parse_mode='HTML'
         )
-        return U_LEASING_USER
+        return await process_upload_file(update, context, is_pic=True)
 
-    # --- FLOW ADMIN (PROSES DATA) ---
-    
-    # 1. Siapkan Folder Temp
-    temp_dir = "temp_uploads"
-    os.makedirs(temp_dir, exist_ok=True)
-    
-    # 2. Download File ke Disk
-    fname = update.message.document.file_name
-    file_path = os.path.join(temp_dir, f"{uid}_{int(time.time())}_{fname}")
-    
-    msg = await update.message.reply_text("⏳ **Mendownload & Menganalisa File...**", parse_mode='Markdown')
-    
-    try:
-        f = await update.message.document.get_file()
-        await f.download_to_drive(file_path)
-        
-        # 3. Baca File (Preview Mode)
-        with open(file_path, 'rb') as f_read:
-            file_content = f_read.read()
+    # JALUR ADMIN (Bisa pilih leasing)
+    is_admin = (uid == ADMIN_ID) or (str(uid) in ADMIN_IDS)
+    if is_admin:
+        path = f"temp_{uid}_{int(time.time())}_{update.message.document.file_name}"
+        msg = await update.message.reply_text("⏳ **Analisa File (Admin Mode)...**")
+        try:
+            f = await update.message.document.get_file(); await f.download_to_drive(path)
+            with open(path, 'rb') as fr: content = fr.read()
+            df = read_file_robust(content, path); df = fix_header_position(df); df, found = smart_rename_columns(df)
             
-        df = read_file_robust(file_content, fname)
+            if 'nopol' not in df.columns: 
+                os.remove(path); return await msg.edit_text("❌ Kolom NOPOL tidak ditemukan.")
+                
+            context.user_data['upload_path'] = path
+            context.user_data['preview'] = df.head(1).to_dict('records')
+            context.user_data['cols'] = df.columns.tolist()
+            await msg.delete()
+            
+            await update.message.reply_text(
+                f"✅ **SCAN OK**\nCols: {', '.join(found)}\nTotal: {len(df):,}\n\n👉 Nama Leasing (atau SKIP):", 
+                reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True)
+            )
+            return U_LEASING_ADMIN
+        except Exception as e:
+            if os.path.exists(path): os.remove(path)
+            await msg.edit_text(f"❌ Error: {e}"); return ConversationHandler.END
+
+    else:
+        # JALUR USER BIASA (Lapor Upload)
+        await update.message.reply_text("📄 File diterima. Leasing?", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True)); return U_LEASING_USER
+
+# --- PERANTARA UNTUK ADMIN MEMILIH LEASING ---
+async def upload_leasing_admin(update, context):
+    nm = update.message.text.upper()
+    if nm == "❌ BATAL": return await cancel(update, context)
+    context.user_data['target_leasing'] = nm
+    
+    # Preview sebelum eksekusi
+    prev = context.user_data.get('preview')[0]
+    info = f"🏦 Target: {nm}\n📝 Contoh: {prev.get('nopol')} | {prev.get('type')}"
+    await update.message.reply_text(
+        f"🔎 **PREVIEW**\n{info}\n\nKlik EKSEKUSI untuk memproses.", 
+        reply_markup=ReplyKeyboardMarkup([["🚀 EKSEKUSI", "❌ BATAL"]], one_time_keyboard=True)
+    )
+    return U_CONFIRM_UPLOAD
+
+# --- EKSEKUSI UPLOAD (CORE ENGINE) ---
+# Digunakan oleh Admin (setelah konfirmasi) DAN PIC (Langsung)
+async def upload_confirm_admin(update, context):
+    if update.message.text != "🚀 EKSEKUSI": return await cancel(update, context)
+    return await process_upload_file(update, context, is_pic=False)
+
+async def process_upload_file(update, context, is_pic=False):
+    uid = update.effective_user.id
+    
+    # 1. SETUP AWAL
+    if is_pic:
+        fname = context.user_data.get('upload_file_name', 'data.xlsx')
+        path = f"temp_{uid}_{int(time.time())}_{fname}"
+        status_msg = await update.message.reply_text("⏳ **[1/3] Mendownload File...**", reply_markup=ReplyKeyboardRemove())
+        try:
+            file_id = context.user_data.get('upload_file_id')
+            new_file = await context.bot.get_file(file_id)
+            await new_file.download_to_drive(path)
+        except Exception as e:
+            await status_msg.edit_text(f"❌ Gagal Download: {e}")
+            return ConversationHandler.END
+    else:
+        path = context.user_data.get('upload_path')
+        status_msg = await update.message.reply_text("⏳ **[1/3] Mempersiapkan Data...**", reply_markup=ReplyKeyboardRemove())
+
+    target_leasing = context.user_data.get('target_leasing')
+
+    try:
+        await status_msg.edit_text("⏳ **[2/3] Membaca & Membersihkan Data...**")
+        
+        # 2. BACA FILE & DETEKSI KOLOM
+        with open(path, 'rb') as fr: content = fr.read()
+        df = read_file_robust(content, path)
         df = fix_header_position(df)
-        df, found = smart_rename_columns(df)
+        df, found = smart_rename_columns(df) 
         
-        if 'nopol' not in df.columns: 
-            os.remove(file_path)
-            return await msg.edit_text("❌ Gagal deteksi kolom NOPOL. Pastikan header benar.")
+        # [FITUR BARU] AMBIL PREVIEW BARIS 1 (Sebelum Cleaning)
+        preview_str = "(Data Kosong)"
+        if not df.empty:
+            first_row = df.iloc[0]
+            preview_items = []
+            # Hanya tampilkan kolom yang dikenali sistem (Found)
+            for col in found:
+                val = str(first_row[col]).strip()
+                # Potong jika teks terlalu panjang biar rapi
+                if len(val) > 15: val = val[:12] + "..." 
+                preview_items.append(f"{col.upper()}: {val}")
+            
+            # Gabungkan jadi string (Contoh: NOPOL: B1234 | TYPE: AVANZA...)
+            preview_str = " | ".join(preview_items)
 
-        fin = 'finance' in df.columns
+        # 3. STANDARDISASI DATA
+        if target_leasing and target_leasing != 'SKIP':
+            clean_leasing = standardize_leasing_name(target_leasing)
+            df['finance'] = clean_leasing
+        else:
+            if 'finance' in df.columns: df['finance'] = df['finance'].apply(standardize_leasing_name)
+            else: df['finance'] = 'UNKNOWN'
+            
+        df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
+        df = df.dropna(subset=['nopol'])
+        df = df[df['nopol'].str.len() > 2]
+        df = df.drop_duplicates(subset=['nopol'], keep='last')
         
-        # Simpan Info File
-        context.user_data['upload_path'] = file_path
-        context.user_data['upload_cols'] = df.columns.tolist()
-        context.user_data['preview_records'] = df.head(5).to_dict(orient='records')
+        for c in VALID_DB_COLUMNS:
+            if c not in df.columns: df[c] = None
         
-        await msg.delete()
+        df = df.replace({np.nan: None})
+        recs = json.loads(json.dumps(df[VALID_DB_COLUMNS].to_dict('records'), default=str))
+        total_data = len(recs)
         
-        report = (
-            f"✅ **SCAN BERHASIL (Mobile Mode)**\n"
-            f"📊 Kolom: {', '.join(found)}\n"
-            f"📁 Total Baris: {len(df):,}\n"
-            f"🏦 Leasing: {'✅ ADA' if fin else '⚠️ TIDAK ADA'}\n\n"
-            f"👉 Masukkan Nama Leasing (atau SKIP):"
+        # 4. TAMPILKAN INFO LENGKAP KE USER
+        found_cols_str = ", ".join([c.upper() for c in found])
+        
+        await status_msg.edit_text(
+            f"✅ **FILE TERBACA!**\n"
+            f"📊 Kolom: {found_cols_str}\n"
+            f"📝 **Sample Baris 1:**\n"
+            f"_{preview_str}_\n\n"
+            f"📥 Total Bersih: {total_data:,} Baris\n"
+            f"🚀 **[3/3] Memulai Upload...**",
+            parse_mode='Markdown'
         )
-        await update.message.reply_text(report, reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True))
-        return U_LEASING_ADMIN
-
+        
+        # Jeda 3 detik agar user sempat membaca previewnya
+        await asyncio.sleep(3) 
+        
+        # 5. UPLOAD BATCH (ANTI-STUCK)
+        BATCH_SIZE = 500
+        suc = 0
+        fail = 0
+        start_time = time.time()
+        
+        for i in range(0, total_data, BATCH_SIZE):
+            if context.user_data.get('stop_signal'): 
+                await status_msg.edit_text(f"🛑 **STOPPED!**\nUpload dihentikan user pada {suc:,} data.")
+                break
+                
+            batch = recs[i:i+BATCH_SIZE]
+            try:
+                supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
+                suc += len(batch)
+            except Exception as e:
+                fail += len(batch)
+                print(f"Batch Error {i}: {e}")
+            
+            # Update status tiap 2000 data
+            if i % 2000 == 0 and i > 0:
+                percent = int((i / total_data) * 100)
+                try: 
+                    await status_msg.edit_text(
+                        f"📝 **Sample:** _{preview_str}_\n"
+                        f"🚀 **Uploading... {percent}%**\n"
+                        f"✅ Masuk: {suc:,}\n"
+                        f"⏱️ Berjalan..."
+                    , parse_mode='Markdown')
+                except: pass
+                
+        duration = int(time.time() - start_time)
+        
+        # 6. LAPORAN FINAL
+        report = (
+            f"✅ **UPLOAD SELESAI!**\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"📂 Total File: {total_data:,}\n"
+            f"✅ Berhasil: {suc:,}\n"
+            f"❌ Gagal: {fail:,}\n"
+            f"⏱️ Waktu: {duration} detik\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"Data <b>{target_leasing or 'MIX'}</b> sudah tayang."
+        )
+        await status_msg.edit_text(report, parse_mode='HTML')
+        
     except Exception as e:
-        if os.path.exists(file_path): os.remove(file_path)
-        logger.error(f"Upload Error: {e}")
-        await msg.edit_text(f"❌ Error Analisa: {e}")
-        return ConversationHandler.END
+        logger.error(f"Upload Fatal Error: {e}")
+        await status_msg.edit_text(f"❌ **GAGAL TOTAL:** {str(e)}")
+        
+    finally:
+        if os.path.exists(path): 
+            try: os.remove(path)
+            except: pass
+        context.user_data.clear()
+        
+    return ConversationHandler.END
 
 async def upload_leasing_user(update, context):
     nm = update.message.text
@@ -2164,15 +2305,15 @@ if __name__ == '__main__':
     
     app.add_handler(CommandHandler('stop', stop_upload_command)) # Priority
     
+   # UPDATE HANDLER UPLOAD
     app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Document.ALL, upload_start)], 
+        entry_points=[MessageHandler(filters.Document.ALL, upload_start)],
         states={
-            U_LEASING_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_user)], 
-            U_LEASING_ADMIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_admin)], 
+            U_LEASING_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_user)],
+            U_LEASING_ADMIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_admin)],
             U_CONFIRM_UPLOAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_confirm_admin)]
-        }, 
-        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)],
-        allow_reentry=True
+        },
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
     ))
 
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
@@ -2238,5 +2379,5 @@ if __name__ == '__main__':
     
     print("⏰ Jadwal Cleanup Otomatis: AKTIF (Jam 03:00 WIB)")
 
-    print("✅ BOT ONLINE! (v6.30 - INTELLIGENCE READY)")
+    print("🚀 ONEASPAL BOT v6.31 (DIRECT UPLOAD MODE) STARTING...")
     app.run_polling()
