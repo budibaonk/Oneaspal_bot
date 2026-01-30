@@ -283,9 +283,48 @@ def format_wa_link(phone_number):
 
 def standardize_leasing_name(name):
     if not name: return "UNKNOWN"
+    
+    # 1. Bersihkan input
     clean = str(name).upper().strip()
-    clean = re.sub(r'^\d+\s+', '', clean)
-    clean = re.sub(r'\(.*?\)', '', clean).strip()
+    clean = re.sub(r'[^\w\s]', '', clean) # Hapus titik koma dll
+    
+    # 2. KAMUS ALIAS (Tambahkan sesuai kebutuhan lapangan)
+    # Format: "KATA_KUNCI": "NAMA_STANDAR"
+    aliases = {
+        'ADIRA': 'ADIRA',
+        'BCA': 'BCA',
+        'CIMB': 'CNAF', 'CNAF': 'CNAF', 'NIAGA': 'CNAF',
+        'MANDALA': 'MANDALA',
+        'BAF': 'BAF', 'BUSSAN': 'BAF',
+        'FIF': 'FIF', 'FEDERAL': 'FIF',
+        'WOM': 'WOM', 'WAHANA': 'WOM',
+        'OTO': 'OTO', 'SUMMIT': 'OTO',
+        'ACC': 'ACC', 'ASTRA CREDIT': 'ACC',
+        'TAF': 'TAF', 'TOYOTA': 'TAF',
+        'CLIPAN': 'CLIPAN',
+        'MANDIRI': 'MTF', 'MTF': 'MTF', 'TUNAS': 'MTF',
+        'MACF': 'MEGA', 'MCF': 'MEGAAUTO',
+        'NSC': 'NSC', 'NUSANTARA': 'NSC',
+        'SMS': 'SMS', 'SINAR MITRA': 'SMS',
+        'MAF': 'MAF', 'MCF': 'MCF',
+        'WOKA': 'WOKA',
+        'KREDIT PLUS': 'KREDIT PLUS', 'KREDITPLUS': 'KREDIT PLUS', 'FINANSIA': 'KREDIT PLUS'
+    }
+    
+    # 3. Cek apakah kata kunci ada di dalam input user
+    for keyword, standard in aliases.items():
+        # Cek exact word match agar "BCA" tidak match dengan "ABC"
+        if re.search(r'\b' + re.escape(keyword) + r'\b', clean):
+            return standard
+            
+    # 4. Jika tidak ada di kamus, bersihkan nama umum PT/TBK
+    clean = re.sub(r'\bPT\b', '', clean)
+    clean = re.sub(r'\bTBK\b', '', clean)
+    clean = re.sub(r'\bFINANCE\b', '', clean)
+    clean = re.sub(r'\bMULTI\b', '', clean)
+    clean = re.sub(r'\bJAYA\b', '', clean)
+    clean = re.sub(r'\s+', ' ', clean).strip()
+    
     return clean
 
 # [CRITICAL UPDATE] LOGIC PENCATATAN LOG DIUBAH MENERIMA USER OBJECT
@@ -896,35 +935,62 @@ async def cek_user_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ##############################################################################
 
 async def cek_kuota(update, context):
-    u = get_user(update.effective_user.id)
+    user = update.effective_user
+    u = get_user(user.id)
     if not u or u['status'] != 'active': return
     
     global GLOBAL_INFO
     info_banner = f"📢 <b>INFO PUSAT:</b> {clean_text(GLOBAL_INFO)}\n━━━━━━━━━━━━━━━━━━\n" if GLOBAL_INFO else ""
 
+    # === TAMPILAN KHUSUS PIC LEASING (DASHBOARD) ===
     if u.get('role') == 'pic':
-        msg = (f"{info_banner}📂 **DATABASE SAYA**\n━━━━━━━━━━━━━━━━━━\n👤 **User:** {u.get('nama_lengkap')}\n🏢 **Leasing:** {u.get('agency')}\n🔋 **Status Akses:** UNLIMITED (Enterprise)\n━━━━━━━━━━━━━━━━━━\n✅ Sinkronisasi data berjalan normal.")
+        leasing_name = standardize_leasing_name(u.get('agency'))
+        
+        # 1. Hitung Total Data Aktif di DB (Khusus Leasing Dia)
+        try:
+            res_total = supabase.table('kendaraan').select('*', count='exact', head=True)\
+                .eq('finance', leasing_name).execute()
+            total_unit = res_total.count if res_total.count else 0
+        except: total_unit = 0
+        
+        # 2. Hitung Total Temuan (Log Hits)
+        try:
+            # Hitung log temuan berdasarkan nama leasing
+            res_hits = supabase.table('finding_logs').select('*', count='exact', head=True)\
+                .ilike('leasing', f"%{leasing_name}%").execute()
+            total_hits = res_hits.count if res_hits.count else 0
+        except: total_hits = 0
+
+        msg = (
+            f"{info_banner}"
+            f"🏢 <b>DASHBOARD PIC: {leasing_name}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>PIC:</b> {clean_text(u.get('nama_lengkap'))}\n"
+            f"🔐 <b>Status Akun:</b> ENTERPRISE (Verified)\n\n"
+            f"📊 <b>STATISTIK DATA:</b>\n"
+            f"📦 <b>Total Aset Terpantau:</b> {total_unit:,} Unit\n"
+            f"🎯 <b>Total Ditemukan (Hits):</b> {total_hits:,} Unit\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"💡 <i>Anda bisa mendownload data aset Anda kapan saja untuk kebutuhan laporan internal.</i>"
+        )
+        
+        # Tombol Download Data
+        kb = [[InlineKeyboardButton("📥 DOWNLOAD DATA SAYA (EXCEL)", callback_data="download_my_data")]]
+        
+        await update.message.reply_text(msg, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(kb))
+        return
+
+    # === TAMPILAN MATEL (USER BIASA) - TETAP SEPERTI DULU ===
     else:
         exp_date = u.get('expiry_date')
-        status_aktif = "❌ SUDAH EXPIRED" # Default state
+        status_aktif = "❌ SUDAH EXPIRED" 
         
         if exp_date:
             try:
-                # [UPDATE CTO] Logika Parsing Tanggal Anti-Error
-                # 1. Bersihkan string dari format yang membingungkan
                 clean_date = str(exp_date).replace('Z', '+00:00')
-                
-                # 2. Coba parse (baca) tanggalnya
                 exp_dt = datetime.fromisoformat(clean_date)
-                
-                # 3. Pastikan ada Timezonenya (kalau dari SQL kadang polosan)
-                if exp_dt.tzinfo is None:
-                    exp_dt = exp_dt.replace(tzinfo=timezone.utc)
-                
-                # 4. Konversi ke WIB (Jakarta)
+                if exp_dt.tzinfo is None: exp_dt = exp_dt.replace(tzinfo=timezone.utc)
                 exp_dt_wib = exp_dt.astimezone(TZ_JAKARTA)
-                
-                # 5. Hitung sisa waktu
                 now_wib = datetime.now(TZ_JAKARTA)
                 formatted_date = exp_dt_wib.strftime('%d %b %Y %H:%M')
                 
@@ -933,15 +999,64 @@ async def cek_kuota(update, context):
                     status_aktif = f"✅ AKTIF s/d {formatted_date}\n⏳ Sisa Waktu: {remaining.days} Hari"
                 else:
                     status_aktif = f"❌ SUDAH EXPIRED (Sejak {formatted_date})"
-                    
             except ValueError:
-                # Jika format database aneh banget, anggap expired (Fail Safe)
                 status_aktif = "❌ ERROR: Format Tanggal Invalid"
 
         role_msg = f"🎖️ **KORLAP {u.get('wilayah_korlap','')}**" if u.get('role')=='korlap' else f"🛡️ **MITRA LAPANGAN**"
-        msg = (f"{info_banner}💳 **INFO LANGGANAN**\n━━━━━━━━━━━━━━━━━━\n{role_msg}\n👤 {u.get('nama_lengkap')}\n\n{status_aktif}\n📊 <b>Cek Hari Ini:</b> {u.get('daily_usage', 0)}x\n━━━━━━━━━━━━━━━━━━\n<i>Perpanjang? Ketik /infobayar</i>")
+        
+        msg = (
+            f"{info_banner}💳 **INFO LANGGANAN**\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"{role_msg}\n"
+            f"👤 {u.get('nama_lengkap')}\n\n"
+            f"{status_aktif}\n"
+            f"📊 <b>Cek Hari Ini:</b> {u.get('daily_usage', 0)}x\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"<i>Perpanjang? Ketik /infobayar</i>"
+        )
+        await update.message.reply_text(msg, parse_mode='HTML')
+
+async def download_my_data(update, context):
+    query = update.callback_query
+    user_id = update.effective_user.id
+    u = get_user(user_id)
+    if not u or u.get('role') != 'pic':
+        await query.answer("⛔ Akses Ditolak.", show_alert=True); return
+
+    leasing_name = standardize_leasing_name(u.get('agency'))
+    await query.answer("⏳ Menyiapkan Excel...", show_alert=False)
     
-    await update.message.reply_text(msg, parse_mode='HTML')
+    sts = await context.bot.send_message(query.message.chat_id, "⏳ <b>Mengunduh Data...</b>", parse_mode='HTML')
+    
+    try:
+        # Gunakan Thread agar tidak macet
+        def get_excel():
+            # Batasi 50k biar aman
+            res = supabase.table('kendaraan').select('*').eq('finance', leasing_name).limit(50000).execute()
+            if not res.data: return None
+            
+            df = pd.DataFrame(res.data)
+            output = io.BytesIO()
+            # Gunakan ExcelWriter
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                df.to_excel(writer, index=False, sheet_name='Data Unit')
+            output.seek(0)
+            return output
+
+        excel_file = await asyncio.to_thread(get_excel)
+        
+        if not excel_file:
+            await sts.edit_text("⚠️ Data Kosong.")
+            return
+            
+        timestamp = datetime.now().strftime('%Y%m%d')
+        fname = f"DATA_{leasing_name}_{timestamp}.xlsx"
+        
+        await context.bot.send_document(query.message.chat_id, document=excel_file, filename=fname, caption=f"✅ Data {leasing_name}")
+        await sts.delete()
+        
+    except Exception as e:
+        await sts.edit_text(f"❌ Error: {e}")
 
 async def info_bayar(update, context):
     msg = ("💰 **PAKET LANGGANAN (UNLIMITED CEK)**\n━━━━━━━━━━━━━━━━━━\n1️⃣ **5 HARI** = Rp 25.000\n2️⃣ **10 HARI** = Rp 50.000\n3️⃣ **20 HARI** = Rp 75.000\n🔥 **30 HARI** = Rp 100.000 (BEST DEAL!)\n\n" + f"{BANK_INFO}")
@@ -2294,6 +2409,10 @@ async def callback_handler(update, context):
         try: 
             await context.bot.send_message(user_id_pelapor, "⚠️ Laporan penghapusan unit Anda ditolak oleh Admin. Data dinilai masih valid.", parse_mode='HTML')
         except: pass
+
+# 11. DOWNLOAD DATA PIC LEASING
+    elif data == "download_my_data":
+        await download_my_data(update, context)
 
 
 if __name__ == '__main__':
