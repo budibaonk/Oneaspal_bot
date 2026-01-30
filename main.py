@@ -1100,22 +1100,23 @@ async def set_agency_group(update, context):
 # BAGIAN 10:[UPDATE v2.0] UPLOAD ENGINE: BACKGROUND TASK (ANTI-STUCK)
 # ==============================================================================
 
-# [GLOBAL] Set Task agar tidak di-kill Garbage Collector
+# [GLOBAL] Set Task agar tidak di-kill
 BACKGROUND_TASKS = set()
 
 async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
     """
-    Versi THREADED: Menjalankan operasi berat di thread terpisah agar UI tidak macet.
+    Versi LITE: Tanpa Loading Bar, Tanpa Threading rumit.
+    Hanya lapor Awal -> Proses -> Akhir. Stabil & Cepat.
     """
-    print(f"🚀 [BG-TASK] START User {user_id}")
+    print(f"🚀 [BG-LITE] START User {user_id}")
     
-    # 1. SETUP
+    # Setup
     mode = data_ctx.get('upload_mode', 'UPSERT')
     path = data_ctx.get('upload_path')
     is_pic = False
     
-    # Helper Edit (Aman dari crash)
-    async def safe_edit(text):
+    # Helper Edit Sederhana
+    async def simple_edit(text):
         try: 
             await app.bot.edit_message_text(
                 chat_id=chat_id, 
@@ -1124,142 +1125,115 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
                 parse_mode='HTML'
             )
         except Exception as e: 
-            print(f"⚠️ UI Edit Fail: {e}")
+            print(f"⚠️ Edit Msg Fail: {e}")
 
     try:
-        # DOWNLOAD (Jika PIC)
+        # 1. DOWNLOAD (Jika PIC)
         if not path:
             is_pic = True
             fname = data_ctx.get('upload_file_name', 'data.xlsx')
             path = f"temp_{user_id}_{int(time.time())}_{fname}"
-            await safe_edit("⏳ <b>[1/3] Mendownload File...</b>")
+            # Lapor status 1
+            await simple_edit("⏳ <b>Mendownload & Membaca File...</b>")
             try:
                 new_file = await app.bot.get_file(data_ctx.get('upload_file_id'))
                 await new_file.download_to_drive(path)
             except Exception as e:
-                await safe_edit(f"❌ Gagal Download: {e}")
+                await simple_edit(f"❌ Gagal Download: {e}")
                 return
 
-        # 2. BACA FILE (DI DALAM THREAD)
-        await safe_edit("⏳ <b>[2/3] Membaca Data...</b>")
-        
-        # Fungsi pembaca file sync
-        def read_data_sync():
-            if not os.path.exists(path): return None
-            with open(path, 'rb') as fr: content = fr.read()
-            df = read_file_robust(content, path)
-            df = fix_header_position(df)
-            df, _ = smart_rename_columns(df)
-            
-            target = data_ctx.get('target_leasing')
-            if target and target != 'SKIP':
-                df['finance'] = standardize_leasing_name(target)
-            else:
-                if 'finance' in df.columns: df['finance'] = df['finance'].apply(standardize_leasing_name)
-                else: df['finance'] = 'UNKNOWN'
-                
-            df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
-            df = df.dropna(subset=['nopol'])
-            df = df[df['nopol'].str.len() > 2]
-            df = df.drop_duplicates(subset=['nopol'], keep='last')
-            
-            for c in VALID_DB_COLUMNS:
-                if c not in df.columns: df[c] = None
-            df = df.replace({np.nan: None})
-            
-            return json.loads(json.dumps(df[VALID_DB_COLUMNS].to_dict('records'), default=str))
-
-        # Eksekusi baca file di thread
-        recs = await asyncio.to_thread(read_data_sync)
-        
-        if recs is None:
-            await safe_edit("❌ <b>ERROR:</b> File hilang/rusak.")
+        # 2. BACA FILE
+        if not os.path.exists(path):
+            await simple_edit("❌ Error: File hilang.")
             return
 
+        with open(path, 'rb') as fr: content = fr.read()
+        df = read_file_robust(content, path)
+        df = fix_header_position(df)
+        df, _ = smart_rename_columns(df)
+        
+        target = data_ctx.get('target_leasing')
+        if target and target != 'SKIP':
+            df['finance'] = standardize_leasing_name(target)
+        else:
+            if 'finance' in df.columns: df['finance'] = df['finance'].apply(standardize_leasing_name)
+            else: df['finance'] = 'UNKNOWN'
+
+        df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
+        df = df.dropna(subset=['nopol'])
+        df = df[df['nopol'].str.len() > 2]
+        df = df.drop_duplicates(subset=['nopol'], keep='last')
+        
+        for c in VALID_DB_COLUMNS:
+            if c not in df.columns: df[c] = None
+        df = df.replace({np.nan: None})
+        
+        recs = json.loads(json.dumps(df[VALID_DB_COLUMNS].to_dict('records'), default=str))
         total_data = len(recs)
+        
         if total_data == 0:
-            await safe_edit("⚠️ <b>FILE KOSONG / TIDAK VALID.</b>")
+            await simple_edit("⚠️ <b>FILE KOSONG / TIDAK VALID.</b>")
             if os.path.exists(path): os.remove(path)
             return
 
-        # 3. UPLOAD BATCH (DENGAN THREAD)
-        BATCH_SIZE = 500
-        if mode == 'DELETE': BATCH_SIZE = 200
+        # 3. UPLOAD (TANPA UPDATE PROGRESS BAR)
+        BATCH_SIZE = 1000 # Bisa lebih besar karena tidak update UI
+        if mode == 'DELETE': BATCH_SIZE = 500
         
         suc = 0
         fail = 0
         start_time = time.time()
-        last_update = time.time()
         
         action_txt = "MENGHAPUS" if mode == 'DELETE' else "MENGUPDATE"
-        
-        await safe_edit(f"🚀 <b>[3/3] MULAI {action_txt}...</b>\n📊 Total: {total_data:,}\n⏳ Mohon tunggu...")
-
-        # Fungsi Eksekutor DB Sync
-        def execute_db_sync(batch_data, op_mode, leasing_filter):
-            try:
-                if op_mode == 'DELETE':
-                    nopols = [d['nopol'] for d in batch_data]
-                    q = supabase.table('kendaraan').delete().in_('nopol', nopols)
-                    if leasing_filter and leasing_filter != 'SKIP':
-                        q = q.eq('finance', standardize_leasing_name(leasing_filter))
-                    q.execute()
-                else:
-                    supabase.table('kendaraan').upsert(batch_data, on_conflict='nopol').execute()
-                return True
-            except Exception as ex:
-                print(f"DB Err: {ex}")
-                return False
-
-        # Looping Batch
-        for i in range(0, total_data, BATCH_SIZE):
-            batch = recs[i:i+BATCH_SIZE]
-            
-            # [CRITICAL] Jalankan DB Execute di Thread agar UI tidak macet
-            is_success = await asyncio.to_thread(
-                execute_db_sync, 
-                batch, 
-                mode, 
-                data_ctx.get('target_leasing')
-            )
-            
-            if is_success: suc += len(batch)
-            else: fail += len(batch)
-
-            # Update Status UI (Throttle 4 detik)
-            now = time.time()
-            if (now - last_update) > 4 or (i + BATCH_SIZE) >= total_data:
-                pct = int(((i + len(batch)) / total_data) * 100)
-                filled = int(pct / 10)
-                bar = "█" * filled + "░" * (10 - filled)
-                
-                await safe_edit(
-                    f"🔄 <b>PROSES {action_txt}...</b>\n"
-                    f"<code>[{bar}] {pct}%</code>\n"
-                    f"✅ OK: {suc:,} | ❌ Gagal: {fail:,}\n"
-                    f"⏱️ Berjalan..."
-                )
-                last_update = now
-
-        duration = int(time.time() - start_time)
         leasing_info = clean_text(data_ctx.get('target_leasing') or 'MIX')
         
+        # Lapor status 2 (Satu kali saja sebelum looping)
+        await simple_edit(
+            f"🚀 <b>MEMPROSES {total_data:,} DATA...</b>\n"
+            f"📂 Target: {leasing_info}\n"
+            f"📝 Mode: {action_txt}\n\n"
+            f"<i>Bot sedang bekerja di background. Laporan akan muncul setelah selesai. Mohon tunggu...</i>"
+        )
+
+        # LOOPING MURNI (Tanpa Edit Message = Tanpa Lag)
+        for i in range(0, total_data, BATCH_SIZE):
+            # Bernafas dikit biar server gak hang
+            await asyncio.sleep(0.01)
+            
+            batch = recs[i:i+BATCH_SIZE]
+            try:
+                if mode == 'DELETE':
+                    nopols = [d['nopol'] for d in batch]
+                    q = supabase.table('kendaraan').delete().in_('nopol', nopols)
+                    if target and target != 'SKIP':
+                        q = q.eq('finance', standardize_leasing_name(target))
+                    q.execute()
+                else:
+                    supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
+                suc += len(batch)
+            except Exception as e:
+                fail += len(batch)
+                print(f"Batch Err: {e}")
+
+        duration = int(time.time() - start_time)
+        
+        # Lapor status 3 (SELESAI)
         final_rpt = (
             f"✅ <b>PROSES SELESAI!</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"📂 Data: {total_data:,}\n"
-            f"✅ Sukses: {suc:,}\n"
+            f"📂 Total Data: {total_data:,}\n"
+            f"✅ Berhasil: {suc:,}\n"
             f"❌ Gagal: {fail:,}\n"
             f"⏱️ Waktu: {duration} detik\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"Data <b>{leasing_info}</b> telah diproses."
+            f"Data <b>{leasing_info}</b> telah selesai diproses."
         )
-        await safe_edit(final_rpt)
-        print(f"🏁 [BG] Done. Suc: {suc}")
+        await simple_edit(final_rpt)
+        print(f"🏁 [BG-LITE] Selesai. Sukses: {suc}")
 
     except Exception as e:
-        logger.error(f"BG Fatal: {e}")
-        await safe_edit(f"❌ <b>ERROR FATAL:</b> {str(e)[:200]}")
+        logger.error(f"Upload Fatal: {e}")
+        await simple_edit(f"❌ <b>ERROR FATAL:</b> {str(e)[:200]}")
     finally:
         if path and os.path.exists(path):
             try: os.remove(path)
@@ -1268,78 +1242,67 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
 async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     u = get_user(uid)
-    if not u or u['status'] != 'active': 
-        return await update.message.reply_text("⛔ Akses Ditolak.")
+    if not u or u['status'] != 'active': return await update.message.reply_text("⛔ Akses Ditolak.")
     
     context.user_data['upload_file_id'] = update.message.document.file_id
     context.user_data['upload_file_name'] = update.message.document.file_name
     
-    # === JALUR PIC (BACKGROUND) ===
+    # === JALUR PIC ===
     if u.get('role') == 'pic':
         my_leasing = standardize_leasing_name(u.get('agency'))
-        
         chat_id = update.effective_chat.id
-        safe_context = {
+        
+        safe_ctx = {
             'upload_mode': 'UPSERT',
-            'upload_path': None, # Akan didownload di bg task
+            'upload_path': None, 
             'upload_file_name': update.message.document.file_name,
             'upload_file_id': update.message.document.file_id,
-            'target_leasing': my_leasing,
-            'stop_signal': False
+            'target_leasing': my_leasing
         }
         
         msg = await update.message.reply_text(
-            f"📥 **UPLOAD MANDIRI (PIC)**\n"
-            f"👤 User: {clean_text(u.get('nama_lengkap'))}\n"
-            f"🏦 Target: <b>{my_leasing}</b>\n\n"
-            f"🚀 **MEMPROSES DI BACKGROUND...**\n"
-            f"<i>Menyiapkan mesin...</i>",
+            f"📥 **FILE DITERIMA!**\n"
+            f"🏦 Target: <b>{my_leasing}</b>\n"
+            f"⏳ <i>Menyiapkan antrean proses...</i>",
             parse_mode='HTML',
             reply_markup=ReplyKeyboardRemove()
         )
         
-        # GANTI BAGIAN create_task DI SINI:
+        # JALANKAN TASK
         task = context.application.create_task(
-            run_background_upload(context.application, chat_id, uid, msg.message_id, safe_context)
+            run_background_upload(context.application, chat_id, uid, msg.message_id, safe_ctx)
         )
-        # KUNCI AGAR TIDAK MATI
         BACKGROUND_TASKS.add(task)
         task.add_done_callback(BACKGROUND_TASKS.discard)
         
         return ConversationHandler.END
 
-    # === JALUR ADMIN (SAMA SEPERTI SEBELUMNYA) ===
+    # === JALUR ADMIN ===
     is_admin = (uid == ADMIN_ID) or (str(uid) in ADMIN_IDS)
     if is_admin:
+        # ... (KODE ADMIN SAMA SEPERTI SEBELUMNYA, TIDAK PERLU DIUBAH) ...
+        # (Copy bagian Admin dari code sebelumnya jika perlu, atau biarkan jika sudah benar)
         path = f"temp_{uid}_{int(time.time())}_{update.message.document.file_name}"
         msg = await update.message.reply_text("⏳ **Analisa File (Admin Mode)...**")
         try:
             f = await update.message.document.get_file()
             await f.download_to_drive(path)
-            
             with open(path, 'rb') as fr: content = fr.read()
             df = read_file_robust(content, path)
             df = fix_header_position(df)
             df, found = smart_rename_columns(df)
-            
             if 'nopol' not in df.columns: 
-                os.remove(path)
-                return await msg.edit_text("❌ Kolom NOPOL tidak ditemukan.")
-                
+                os.remove(path); return await msg.edit_text("❌ Kolom NOPOL tidak ditemukan.")
             context.user_data['upload_path'] = path
             context.user_data['preview'] = df.head(1).to_dict('records')
             context.user_data['cols'] = df.columns.tolist()
             await msg.delete()
-            
-            await update.message.reply_text(
-                f"✅ **SCAN OK**\nCols: {', '.join(found)}\nTotal: {len(df):,}\n\n👉 Nama Leasing (atau SKIP):", 
-                reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True)
-            )
+            await update.message.reply_text(f"✅ **SCAN OK**\nCols: {', '.join(found)}\nTotal: {len(df):,}\n\n👉 Nama Leasing:", reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True))
             return U_LEASING_ADMIN
         except Exception as e:
             if os.path.exists(path): os.remove(path)
-            await msg.edit_text(f"❌ Error: {e}")
-            return ConversationHandler.END
+            await msg.edit_text(f"❌ Error: {e}"); return ConversationHandler.END
+
     else:
         await update.message.reply_text("📄 File diterima. Leasing?", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
         return U_LEASING_USER
@@ -1395,46 +1358,32 @@ async def upload_leasing_admin(update: Update, context: ContextTypes.DEFAULT_TYP
 # Digunakan oleh Admin (setelah konfirmasi) DAN PIC (Langsung)
 async def upload_confirm_admin(update, context):
     choice = update.message.text
+    if choice == "❌ BATAL": return await cancel(update, context)
     
-    if choice == "📂 UPDATE DATA":
-        context.user_data['upload_mode'] = 'UPSERT'
-    elif choice == "🗑️ HAPUS DATA":
-        context.user_data['upload_mode'] = 'DELETE'
-    elif choice == "❌ BATAL":
-        return await cancel(update, context)
-    else:
-        return await cancel(update, context)
-        
+    mode = 'DELETE' if choice == "🗑️ HAPUS DATA" else 'UPSERT'
+    
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
     
-    # Ambil data sebelum context clear
-    safe_context = {
-        'upload_mode': context.user_data.get('upload_mode'),
+    safe_ctx = {
+        'upload_mode': mode,
         'upload_path': context.user_data.get('upload_path'),
-        'upload_file_name': context.user_data.get('upload_file_name'),
-        'upload_file_id': context.user_data.get('upload_file_id'),
-        'target_leasing': context.user_data.get('target_leasing'),
-        'stop_signal': False
+        'target_leasing': context.user_data.get('target_leasing')
     }
     
     msg = await update.message.reply_text(
-        "🚀 **PERINTAH DITERIMA!**\n\n"
-        "Sistem akan memproses data di **Latar Belakang**.\n"
-        "Bot tidak akan stuck, Anda bisa menggunakan fitur lain sambil menunggu.\n"
-        "<i>Menyiapkan mesin...</i>",
-        parse_mode='HTML',
-        reply_markup=ReplyKeyboardRemove()
+        "🚀 **PERINTAH DITERIMA!**\n⏳ <i>Menyiapkan antrean proses...</i>",
+        parse_mode='HTML', reply_markup=ReplyKeyboardRemove()
     )
     
-    # GANTI BAGIAN create_task DI SINI:
+    # JALANKAN TASK
     task = context.application.create_task(
-        run_background_upload(context.application, chat_id, user_id, msg.message_id, safe_context)
+        run_background_upload(context.application, chat_id, user_id, msg.message_id, safe_ctx)
     )
-    # KUNCI AGAR TIDAK MATI
     BACKGROUND_TASKS.add(task)
     task.add_done_callback(BACKGROUND_TASKS.discard)
     
+    context.user_data.clear()
     return ConversationHandler.END
 
 async def upload_leasing_user(update, context):
