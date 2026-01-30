@@ -1105,48 +1105,44 @@ BACKGROUND_TASKS = set()
 
 async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
     """
-    Versi LITE: Tanpa Loading Bar, Tanpa Threading rumit.
-    Hanya lapor Awal -> Proses -> Akhir. Stabil & Cepat.
+    Versi 'SEND NEW MESSAGE': 
+    Tidak mengedit pesan lama (rawan timeout), tapi mengirim pesan baru saat selesai.
     """
-    print(f"🚀 [BG-LITE] START User {user_id}")
+    print(f"🚀 [BG] START Task User {user_id}")
     
-    # Setup
+    # 1. SETUP
     mode = data_ctx.get('upload_mode', 'UPSERT')
     path = data_ctx.get('upload_path')
     is_pic = False
     
-    # Helper Edit Sederhana
-    async def simple_edit(text):
+    # Helper: Kirim Pesan Baru (Bukan Edit)
+    async def send_update(text):
         try: 
-            await app.bot.edit_message_text(
-                chat_id=chat_id, 
-                message_id=message_id, 
-                text=text, 
-                parse_mode='HTML'
-            )
+            await app.bot.send_message(chat_id=chat_id, text=text, parse_mode='HTML')
         except Exception as e: 
-            print(f"⚠️ Edit Msg Fail: {e}")
+            print(f"⚠️ Gagal Kirim Pesan: {e}")
 
     try:
-        # 1. DOWNLOAD (Jika PIC)
+        # DOWNLOAD (Jika PIC)
         if not path:
             is_pic = True
             fname = data_ctx.get('upload_file_name', 'data.xlsx')
             path = f"temp_{user_id}_{int(time.time())}_{fname}"
-            # Lapor status 1
-            await simple_edit("⏳ <b>Mendownload & Membaca File...</b>")
             try:
                 new_file = await app.bot.get_file(data_ctx.get('upload_file_id'))
                 await new_file.download_to_drive(path)
             except Exception as e:
-                await simple_edit(f"❌ Gagal Download: {e}")
+                await send_update(f"❌ Gagal Download File: {e}")
                 return
 
         # 2. BACA FILE
         if not os.path.exists(path):
-            await simple_edit("❌ Error: File hilang.")
+            await send_update("❌ Error: File hilang dari server.")
             return
 
+        print("📂 [BG] Membaca File...")
+        
+        # Baca file
         with open(path, 'rb') as fr: content = fr.read()
         df = read_file_robust(content, path)
         df = fix_header_position(df)
@@ -1171,34 +1167,35 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
         recs = json.loads(json.dumps(df[VALID_DB_COLUMNS].to_dict('records'), default=str))
         total_data = len(recs)
         
+        print(f"✅ [BG] Total Data: {total_data}")
+
         if total_data == 0:
-            await simple_edit("⚠️ <b>FILE KOSONG / TIDAK VALID.</b>")
+            await send_update("⚠️ <b>FILE KOSONG / TIDAK VALID.</b>")
             if os.path.exists(path): os.remove(path)
             return
 
-        # 3. UPLOAD (TANPA UPDATE PROGRESS BAR)
-        BATCH_SIZE = 1000 # Bisa lebih besar karena tidak update UI
+        # 3. UPLOAD BATCH
+        BATCH_SIZE = 1000 
         if mode == 'DELETE': BATCH_SIZE = 500
         
         suc = 0
         fail = 0
         start_time = time.time()
         
-        action_txt = "MENGHAPUS" if mode == 'DELETE' else "MENGUPDATE"
         leasing_info = clean_text(data_ctx.get('target_leasing') or 'MIX')
-        
-        # Lapor status 2 (Satu kali saja sebelum looping)
-        await simple_edit(
-            f"🚀 <b>MEMPROSES {total_data:,} DATA...</b>\n"
-            f"📂 Target: {leasing_info}\n"
+        action_txt = "MENGHAPUS" if mode == 'DELETE' else "MENGUPDATE"
+
+        # Kirim Pesan STATUS AWAL (Pesan Baru)
+        await send_update(
+            f"🔄 <b>SEDANG MEMPROSES...</b>\n"
+            f"📂 Total: {total_data:,} Data\n"
             f"📝 Mode: {action_txt}\n\n"
-            f"<i>Bot sedang bekerja di background. Laporan akan muncul setelah selesai. Mohon tunggu...</i>"
+            f"<i>Bot sedang bekerja senyap. Anda akan menerima laporan saat selesai.</i>"
         )
 
-        # LOOPING MURNI (Tanpa Edit Message = Tanpa Lag)
+        # LOOPING TANPA INTERUPSI
         for i in range(0, total_data, BATCH_SIZE):
-            # Bernafas dikit biar server gak hang
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.01) # Jeda mikro
             
             batch = recs[i:i+BATCH_SIZE]
             try:
@@ -1214,26 +1211,30 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
             except Exception as e:
                 fail += len(batch)
                 print(f"Batch Err: {e}")
+            
+            # Print Log ke Terminal setiap 2000 data (Biar admin tahu bot jalan)
+            if i % 2000 == 0:
+                print(f"⏳ [BG] Progress: {i}/{total_data}")
 
         duration = int(time.time() - start_time)
         
-        # Lapor status 3 (SELESAI)
+        # 4. LAPORAN AKHIR (Pesan Baru Lagi)
         final_rpt = (
             f"✅ <b>PROSES SELESAI!</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"📂 Total Data: {total_data:,}\n"
-            f"✅ Berhasil: {suc:,}\n"
+            f"✅ Sukses: {suc:,}\n"
             f"❌ Gagal: {fail:,}\n"
             f"⏱️ Waktu: {duration} detik\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"Data <b>{leasing_info}</b> telah selesai diproses."
         )
-        await simple_edit(final_rpt)
-        print(f"🏁 [BG-LITE] Selesai. Sukses: {suc}")
+        await send_update(final_rpt)
+        print(f"🏁 [BG] Done. Suc: {suc}")
 
     except Exception as e:
         logger.error(f"Upload Fatal: {e}")
-        await simple_edit(f"❌ <b>ERROR FATAL:</b> {str(e)[:200]}")
+        await send_update(f"❌ <b>ERROR FATAL:</b> {str(e)[:200]}")
     finally:
         if path and os.path.exists(path):
             try: os.remove(path)
@@ -1262,8 +1263,9 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         msg = await update.message.reply_text(
             f"📥 **FILE DITERIMA!**\n"
-            f"🏦 Target: <b>{my_leasing}</b>\n"
-            f"⏳ <i>Menyiapkan antrean proses...</i>",
+            f"🏦 Target: <b>{my_leasing}</b>\n\n"
+            f"🚀 **MEMULAI PROSES...**\n"
+            f"Mohon tunggu notifikasi berikutnya.",
             parse_mode='HTML',
             reply_markup=ReplyKeyboardRemove()
         )
@@ -1372,7 +1374,7 @@ async def upload_confirm_admin(update, context):
     }
     
     msg = await update.message.reply_text(
-        "🚀 **PERINTAH DITERIMA!**\n⏳ <i>Menyiapkan antrean proses...</i>",
+        "🚀 **PERINTAH DITERIMA!**\nSistem berjalan di background. Mohon tunggu notifikasi hasil.",
         parse_mode='HTML', reply_markup=ReplyKeyboardRemove()
     )
     
