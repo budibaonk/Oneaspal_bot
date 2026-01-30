@@ -347,7 +347,9 @@ def smart_rename_columns(df):
 
 def read_file_robust(content, fname):
     """
-    Versi SUPER ROBUST: Mampu membaca CSV bandel & Excel.
+    Versi INTELLIGENT: 
+    Otomatis mencari separator yang benar (Koma atau Titik Koma)
+    agar tidak gagal baca kolom.
     """
     fname = fname.lower()
     
@@ -360,23 +362,39 @@ def read_file_robust(content, fname):
                 content = f.read()
                 fname = valid[0].lower()
     
-    # 2. Cek EXCEL
+    # 2. Cek EXCEL (.xlsx / .xls)
     if fname.endswith(('.xlsx', '.xls')):
         try: return pd.read_excel(io.BytesIO(content), dtype=str)
         except Exception as e: raise ValueError(f"Gagal baca Excel: {e}")
 
-    # 3. Cek CSV (Coba berbagai jurus)
-    try:
-        return pd.read_csv(io.BytesIO(content), sep=';', dtype=str, on_bad_lines='skip', encoding='utf-8')
-    except: pass
+    # 3. Cek CSV (SMART SEPARATOR DETECTION)
+    # Kita coba berbagai kemungkinan separator
+    separators = [';', ',', '\t', '|']
+    
+    # Percobaan 1: Encoding UTF-8 (Standar)
+    for sep in separators:
+        try:
+            df = pd.read_csv(io.BytesIO(content), sep=sep, dtype=str, on_bad_lines='skip', encoding='utf-8')
+            # [LOGIKA PINTAR] Jika kolom terdeteksi lebih dari 1, berarti separator BENAR!
+            if len(df.columns) > 1: 
+                print(f"✅ CSV Terbaca dengan separator: '{sep}'")
+                return df
+        except: continue
+
+    # Percobaan 2: Encoding Latin-1 (Jika file jadul/Windows lama)
+    for sep in separators:
+        try:
+            df = pd.read_csv(io.BytesIO(content), sep=sep, dtype=str, on_bad_lines='skip', encoding='latin1')
+            if len(df.columns) > 1: 
+                print(f"✅ CSV (Latin1) Terbaca dengan separator: '{sep}'")
+                return df
+        except: continue
+
+    # Jika semua gagal, coba paksa baca koma sebagai fallback terakhir
     try:
         return pd.read_csv(io.BytesIO(content), sep=',', dtype=str, on_bad_lines='skip', encoding='utf-8')
-    except: pass
-    try:
-        return pd.read_csv(io.BytesIO(content), sep=';', dtype=str, on_bad_lines='skip', encoding='latin1')
-    except: pass
-
-    raise ValueError("Format file tidak bisa dibaca. Pastikan CSV (Pemisah ; atau ,) atau Excel.")
+    except:
+        raise ValueError("Format file tidak dikenali. Pastikan Excel atau CSV yang valid.")
 
 
 # ##############################################################################
