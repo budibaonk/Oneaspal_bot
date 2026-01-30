@@ -1156,50 +1156,97 @@ async def upload_start(update, context):
         # JALUR USER BIASA (Lapor Upload)
         await update.message.reply_text("📄 File diterima. Leasing?", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True)); return U_LEASING_USER
 
-# --- PERANTARA UNTUK ADMIN MEMILIH LEASING ---
-async def upload_leasing_admin(update, context):
+async def upload_leasing_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nm = update.message.text.upper()
     if nm == "❌ BATAL": return await cancel(update, context)
-    context.user_data['target_leasing'] = nm
-    
-    # Preview sebelum eksekusi
-    prev = context.user_data.get('preview')[0]
-    info = f"🏦 Target: {nm}\n📝 Contoh: {prev.get('nopol')} | {prev.get('type')}"
-    await update.message.reply_text(
-        f"🔎 **PREVIEW**\n{info}\n\nKlik EKSEKUSI untuk memproses.", 
-        reply_markup=ReplyKeyboardMarkup([["🚀 EKSEKUSI", "❌ BATAL"]], one_time_keyboard=True)
+
+    # 1. AMBIL DATA
+    preview_data = context.user_data.get('preview')
+    if not preview_data:
+        await update.message.reply_text("❌ **Sesi Habis.** Upload ulang.", parse_mode='Markdown')
+        return ConversationHandler.END
+
+    # 2. LOGIKA NAMA LEASING
+    if nm != 'SKIP':
+        clean_name = standardize_leasing_name(nm)
+        fin_display = clean_name
+        context.user_data['target_leasing'] = nm
+    else:
+        context.user_data['target_leasing'] = 'SKIP'
+        fin_display = "SESUAI FILE (Otomatis)" if 'finance' in preview_data[0] else "UNKNOWN"
+
+    # 3. PREVIEW DATA BARIS 1
+    s = preview_data[0].copy()
+    labels = {'nopol':'🔢 Nopol', 'type':'🚙 Unit', 'finance':'🏦 Leasing', 'noka':'🔧 Noka', 'ovd':'⚠️ OVD'}
+    detail_str = ""
+    for k, label in labels.items():
+        val = clean_name if k == 'finance' and nm != 'SKIP' else s.get(k)
+        if val and str(val).strip().lower() not in ['nan', 'none', '', '-']:
+            detail_str += f"   {label}: {clean_text(val)}\n"
+            
+    preview_msg = (
+        f"🔎 <b>PREVIEW FILE</b>\n━━━━━━━━━━━━━━━━━━\n"
+        f"🏦 <b>Target:</b> {fin_display}\n\n"
+        f"📝 <b>Sample Baris 1:</b>\n{detail_str or '   (Data Kosong)'}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"⚠️ <b>PILIH AKSI:</b>\n"
+        f"• <b>UPDATE:</b> Menambah/Update data baru.\n"
+        f"• <b>HAPUS:</b> Menghapus data berdasarkan Nopol."
     )
+    
+    # TOMBOL PILIHAN GANDA
+    keyboard = [
+        ["📂 UPDATE DATA", "🗑️ HAPUS DATA"],
+        ["❌ BATAL"]
+    ]
+    
+    await update.message.reply_text(preview_msg, parse_mode='HTML', reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return U_CONFIRM_UPLOAD
 
 # --- EKSEKUSI UPLOAD (CORE ENGINE) ---
 # Digunakan oleh Admin (setelah konfirmasi) DAN PIC (Langsung)
 async def upload_confirm_admin(update, context):
-    if update.message.text != "🚀 EKSEKUSI": return await cancel(update, context)
+    choice = update.message.text
+    
+    if choice == "📂 UPDATE DATA":
+        context.user_data['upload_mode'] = 'UPSERT'
+    elif choice == "🗑️ HAPUS DATA":
+        context.user_data['upload_mode'] = 'DELETE'
+    elif choice == "❌ BATAL":
+        return await cancel(update, context)
+    else:
+        # Jika user ketik aneh-aneh
+        return await cancel(update, context)
+        
+    # Panggil Engine Utama
     return await process_upload_file(update, context, is_pic=False)
 
 async def process_upload_file(update, context, is_pic=False):
     uid = update.effective_user.id
+    mode = context.user_data.get('upload_mode', 'UPSERT') # Default Upsert
     
-    # --- 1. SETUP & DOWNLOAD ---
+    # --- 1. DOWNLOAD & PREPARE ---
     if is_pic:
+        # PIC Defaultnya UPSERT (Kecuali nanti kita buat menu khusus hapus untuk PIC)
+        # Untuk sekarang PIC masuk jalur Update Database dulu
+        mode = 'UPSERT' 
         fname = context.user_data.get('upload_file_name', 'data.xlsx')
         path = f"temp_{uid}_{int(time.time())}_{fname}"
         status_msg = await update.message.reply_text("⏳ **[1/3] Mendownload File...**", reply_markup=ReplyKeyboardRemove())
         try:
-            file_id = context.user_data.get('upload_file_id')
-            new_file = await context.bot.get_file(file_id)
+            new_file = await context.bot.get_file(context.user_data.get('upload_file_id'))
             await new_file.download_to_drive(path)
         except Exception as e:
             await status_msg.edit_text(f"❌ Gagal Download: {e}")
             return ConversationHandler.END
     else:
         path = context.user_data.get('upload_path')
-        status_msg = await update.message.reply_text("⏳ **[1/3] Mempersiapkan Data...**", reply_markup=ReplyKeyboardRemove())
+        status_msg = await update.message.reply_text("⏳ **[1/3] Mempersiapkan...**", reply_markup=ReplyKeyboardRemove())
 
     target_leasing = context.user_data.get('target_leasing')
 
     try:
-        await status_msg.edit_text("⏳ **[2/3] Membaca & Membersihkan Data...**")
+        await status_msg.edit_text("⏳ **[2/3] Membaca Data...**")
         
         # --- 2. BACA FILE ---
         with open(path, 'rb') as fr: content = fr.read()
@@ -1207,34 +1254,9 @@ async def process_upload_file(update, context, is_pic=False):
         df = fix_header_position(df)
         df, found = smart_rename_columns(df) 
         
-        # --- [FITUR BARU] PREVIEW KOMPLIT (NOPOL, TYPE, FINANCE, NOKA) ---
-        preview_str = "(Data Kosong)"
-        if not df.empty:
-            first_row = df.iloc[0]
-            
-            # Helper kecil untuk ambil data aman (Anti-Error)
-            def get_val(col_name):
-                if col_name in df.columns:
-                    val = str(first_row[col_name]).strip()
-                    return clean_text(val) # Pakai clean_text agar aman HTML
-                return "-"
-
-            # Susun Preview sesuai Request Komandan
-            # Format: NOPOL | UNIT | LEASING | NOKA
-            p_nopol = get_val('nopol')
-            p_unit = get_val('type')
-            p_fin = get_val('finance')
-            p_noka = get_val('noka') # <-- REQUEST ADDED
-            
-            # Potong jika terlalu panjang
-            if len(p_unit) > 15: p_unit = p_unit[:12] + ".."
-            
-            preview_str = f"🔢 {p_nopol} | 🚙 {p_unit} | 🏦 {p_fin} | 🔧 {p_noka}"
-
-        # --- 3. STANDARDISASI DATA ---
+        # Standardisasi
         if target_leasing and target_leasing != 'SKIP':
-            clean_leasing = standardize_leasing_name(target_leasing)
-            df['finance'] = clean_leasing
+            df['finance'] = standardize_leasing_name(target_leasing)
         else:
             if 'finance' in df.columns: df['finance'] = df['finance'].apply(standardize_leasing_name)
             else: df['finance'] = 'UNKNOWN'
@@ -1242,80 +1264,99 @@ async def process_upload_file(update, context, is_pic=False):
         df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
         df = df.dropna(subset=['nopol'])
         df = df[df['nopol'].str.len() > 2]
-        df = df.drop_duplicates(subset=['nopol'], keep='last')
+        df = df.drop_duplicates(subset=['nopol'], keep='last') # Ambil update terbaru
         
-        # Pastikan semua kolom DB ada di DF
+        # Isi kolom wajib (Untuk Upsert)
         for c in VALID_DB_COLUMNS:
             if c not in df.columns: df[c] = None
-        
         df = df.replace({np.nan: None})
+        
         recs = json.loads(json.dumps(df[VALID_DB_COLUMNS].to_dict('records'), default=str))
         total_data = len(recs)
         
-        # --- 4. TAMPILKAN STATUS SEBELUM UPLOAD ---
-        found_cols_str = ", ".join([c.upper() for c in found])
-        
-        await status_msg.edit_text(
-            f"✅ **FILE TERBACA!**\n"
-            f"📊 Kolom: {found_cols_str}\n"
-            f"📝 **Sample:**\n{preview_str}\n\n"
-            f"📥 Total Bersih: {total_data:,} Baris\n"
-            f"🚀 **[3/3] Memulai Upload...**",
-            parse_mode='HTML'
-        )
-        
-        await asyncio.sleep(2) 
-        
-        # --- 5. UPLOAD BATCH (ANTI-STUCK) ---
+        # --- 3. EKSEKUSI BATCH (VISUAL LOADING) ---
         BATCH_SIZE = 500
         suc = 0
         fail = 0
         start_time = time.time()
         
+        action_text = "MENGHAPUS" if mode == 'DELETE' else "MENGUPDATE"
+        
+        await status_msg.edit_text(
+            f"🚀 **[3/3] MULAI {action_text}...**\n"
+            f"📊 Total Data: {total_data:,}\n"
+            f"⏳ Mohon tunggu...",
+            parse_mode='Markdown'
+        )
+        
+        # Helper Bar Generator
+        def get_bar(pct):
+            filled = int(pct / 10)
+            return "█" * filled + "░" * (10 - filled)
+
         for i in range(0, total_data, BATCH_SIZE):
-            if context.user_data.get('stop_signal'): 
-                await status_msg.edit_text(f"🛑 **STOPPED!**\nUpload dihentikan user pada {suc:,} data.")
-                break
-                
+            if context.user_data.get('stop_signal'): break
+            
             batch = recs[i:i+BATCH_SIZE]
             try:
-                supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
+                if mode == 'DELETE':
+                    # Logika Hapus Massal (Berdasarkan Nopol di Batch)
+                    nopol_list = [d['nopol'] for d in batch]
+                    # Hapus data dimana nopol ada di list DAN (jika ada target leasing) finance cocok
+                    q = supabase.table('kendaraan').delete().in_('nopol', nopol_list)
+                    # Jika admin set leasing spesifik, filter delete biar aman
+                    if target_leasing and target_leasing != 'SKIP':
+                        q = q.eq('finance', standardize_leasing_name(target_leasing))
+                    q.execute()
+                else:
+                    # Logika Upsert (Default)
+                    supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
+                
                 suc += len(batch)
             except Exception as e:
                 fail += len(batch)
-                print(f"Batch Error {i}: {e}")
+                print(f"Batch Error: {e}")
             
-            # Update Status tiap 2000 data
-            if i % 2000 == 0 and i > 0:
-                percent = int((i / total_data) * 100)
+            # Update Loading Bar tiap 10% atau tiap batch (agar responsif)
+            percent = int(((i + len(batch)) / total_data) * 100)
+            if percent % 10 == 0 or (i + BATCH_SIZE) >= total_data:
                 try: 
+                    bar = get_bar(percent)
                     await status_msg.edit_text(
-                        f"📝 **Sample:** {preview_str}\n"
-                        f"🚀 **Uploading... {percent}%**\n"
-                        f"✅ Masuk: {suc:,}\n"
-                        f"⏱️ Berjalan..."
-                    , parse_mode='HTML')
+                        f"🔄 **PROSES {action_text}**\n"
+                        f"`[{bar}] {percent}%`\n\n"
+                        f"✅ Sukses: {suc:,}\n"
+                        f"❌ Gagal: {fail:,}\n"
+                        f"⏱️ Berjalan...",
+                        parse_mode='Markdown'
+                    )
                 except: pass
                 
         duration = int(time.time() - start_time)
         
-        # --- 6. LAPORAN FINAL ---
+        # --- 4. LAPORAN FINAL ---
+        if mode == 'DELETE':
+            header = "🗑️ **HAPUS DATA SELESAI**"
+            desc = "Data di atas telah dihapus dari database."
+        else:
+            header = "✅ **UPDATE DATA SELESAI**"
+            desc = "Data baru telah ditayangkan."
+
         report = (
-            f"✅ **UPLOAD SELESAI!**\n"
+            f"{header}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"📂 Total File: {total_data:,}\n"
-            f"✅ Berhasil: {suc:,}\n"
+            f"✅ Sukses: {suc:,}\n"
             f"❌ Gagal: {fail:,}\n"
             f"⏱️ Waktu: {duration} detik\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"Data <b>{target_leasing or 'MIX'}</b> sudah tayang."
+            f"{desc}"
         )
-        await status_msg.edit_text(report, parse_mode='HTML')
+        await status_msg.edit_text(report, parse_mode='Markdown')
         
     except Exception as e:
-        logger.error(f"Upload Fatal Error: {e}")
-        # Tambahkan info error detail agar ketahuan kenapa
-        await status_msg.edit_text(f"❌ **GAGAL TOTAL:** {str(e)[:100]}...")
+        logger.error(f"Upload Error: {e}")
+        await status_msg.edit_text(f"❌ **ERROR:** {str(e)[:100]}")
         
     finally:
         if os.path.exists(path): 
@@ -1341,119 +1382,6 @@ async def upload_leasing_user(update, context):
     except: pass
 
     await update.message.reply_text("✅ Terkirim ke Admin.", reply_markup=ReplyKeyboardRemove())
-    return ConversationHandler.END
-
-async def upload_leasing_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    nm = update.message.text.upper()
-    if nm == "❌ BATAL": 
-        return await cancel(update, context)
-    
-    context.user_data['target_leasing'] = nm
-    
-    # [FIX] Gunakan key 'preview' (bukan preview_records)
-    # Dan tambahkan handling error jika data benar-benar hilang
-    preview_data = context.user_data.get('preview')
-    
-    if not preview_data:
-        await update.message.reply_text("❌ **Sesi Habis / Error.**\nSilakan upload file ulang dari awal.")
-        return ConversationHandler.END
-
-    prev = preview_data[0]
-    
-    # Ambil sample data aman
-    p_nopol = prev.get('nopol', '-')
-    p_type = prev.get('type', '-')
-    
-    info = (
-        f"🏦 Target: <b>{nm}</b>\n"
-        f"📝 Contoh: {p_nopol} | {p_type}"
-    )
-    
-    await update.message.reply_text(
-        f"🔎 **PREVIEW SETTING**\n"
-        f"{info}\n\n"
-        f"Klik EKSEKUSI untuk memproses.", 
-        parse_mode='HTML',
-        reply_markup=ReplyKeyboardMarkup([["🚀 EKSEKUSI", "❌ BATAL"]], one_time_keyboard=True, resize_keyboard=True)
-    )
-    return U_CONFIRM_UPLOAD
-
-async def upload_confirm_admin(update, context):
-    if update.message.text != "🚀 EKSEKUSI": 
-        path = context.user_data.get('upload_path')
-        if path and os.path.exists(path): os.remove(path)
-        return await cancel(update, context)
-    
-    file_path = context.user_data.get('upload_path')
-    target_leasing = context.user_data.get('target_leasing')
-    
-    if not file_path or not os.path.exists(file_path):
-        return await update.message.reply_text("❌ File hilang. Silakan upload ulang.")
-
-    status_msg = await update.message.reply_text("⏳ **MEMPROSES FILE...**", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
-
-    try:
-        with open(file_path, 'rb') as f_read: content = f_read.read()
-        fname = os.path.basename(file_path)
-        df = read_file_robust(content, fname)
-        df = fix_header_position(df)
-        df, _ = smart_rename_columns(df)
-        
-        if target_leasing != 'SKIP':
-            clean_name = standardize_leasing_name(target_leasing)
-            df['finance'] = clean_name
-        else:
-            if 'finance' in df.columns: df['finance'] = df['finance'].apply(standardize_leasing_name)
-            else: df['finance'] = 'UNKNOWN'
-        
-        # Sanitasi & Filter
-        df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
-        df = df.drop_duplicates(subset=['nopol'], keep='last').replace({np.nan: None})
-        
-        valid_cols = ['nopol', 'type', 'finance', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'branch']
-        for c in valid_cols:
-            if c not in df.columns: df[c] = None
-        
-        final_data = json.loads(json.dumps(df[valid_cols].to_dict(orient='records'), default=str))
-        total_data = len(final_data)
-
-        # PROSES UPLOAD BATCH
-        await status_msg.edit_text(f"🚀 **MENGUPLOAD {total_data:,} DATA...**")
-        
-        suc, fail = 0, 0
-        BATCH = 500
-        start_time = time.time()
-
-        def process_batch_sync(batch_data):
-            try:
-                supabase.table('kendaraan').upsert(batch_data, on_conflict='nopol', count=None).execute()
-                return len(batch_data), 0
-            except: return 0, len(batch_data)
-
-        for i in range(0, total_data, BATCH):
-            if context.user_data.get('stop_signal'):
-                await status_msg.edit_text("🛑 **DIHENTIKAN USER.**")
-                break
-            batch = final_data[i:i+BATCH]
-            s_b, f_b = await asyncio.to_thread(process_batch_sync, batch)
-            suc += s_b; fail += f_b
-            
-            if i % (BATCH*5) == 0:
-                elapsed = int(time.time() - start_time)
-                try: await status_msg.edit_text(f"⏳ **PROGRESS UPLOAD**\n🚀 Data: {suc:,} / {total_data:,}\n⏱ Waktu: {elapsed}s")
-                except: pass
-
-        duration = int(time.time() - start_time)
-        await status_msg.edit_text(f"✅ **SELESAI!**\n📊 Total: {total_data:,}\n✅ Sukses: {suc:,}\n❌ Gagal: {fail:,}\n⏱ {duration}s")
-
-    except Exception as e:
-        logger.error(f"Upload Process Error: {e}")
-        await status_msg.edit_text(f"❌ **GAGAL:** {e}")
-    finally:
-        if file_path and os.path.exists(file_path): 
-            try: os.remove(file_path)
-            except: pass
-        context.user_data.clear()
     return ConversationHandler.END
 
 async def stop_upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
