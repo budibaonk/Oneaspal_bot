@@ -1882,11 +1882,68 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⚠️ <b>SISTEM SEDANG SIBUK</b>\nSilakan coba lagi.\n<i>Error: {e}</i>", parse_mode='HTML')
 
 async def panduan(update, context):
-    u = get_user(update.effective_user.id)
+    """
+    Panduan Cerdas:
+    - PIC: Menjelaskan Dashboard, Download Data, dan Flow Upload/Hapus Baru.
+    - Mitra: Menjelaskan cara cek nopol & topup (Sesuai Request Lama).
+    """
+    user = update.effective_user
+    u = get_user(user.id)
+    
+    # === 1. PANDUAN PIC LEASING (UPDATED: OFFICE STYLE) ===
     if u and u.get('role') == 'pic': 
-        msg = ("📖 <b>PANDUAN ENTERPRISE WORKSPACE</b>\n━━━━━━━━━━━━━━━━━━\n\n1️⃣ <b>SINKRONISASI DATA (Private Cloud)</b>\n• Klik tombol <b>🔄 SINKRONISASI DATA</b>.\n• Upload file Excel data tarikan Anda.\n• Data akan diamankan di server pribadi (Tidak terlihat user lain).\n\n2️⃣ <b>MONITORING UNIT</b>\n• Sistem bekerja otomatis 24 jam.\n• Jika Matel menemukan unit Anda, Notifikasi akan masuk ke:\n   👉 <b>GRUP LEASING OFFICIAL</b> (Pastikan Grup sudah didaftarkan).\n\n3️⃣ <b>CEK STATUS DATA (VALIDASI)</b>\n• Ingin memastikan data sudah masuk atau sudah terhapus?\n• Cukup <b>ketik Nopol</b> unit tersebut di sini.\n• Jika muncul = Data Aktif (Tayang).\n• Jika 'Tidak Ditemukan' = Data Sudah Bersih.\n\n4️⃣ <b>MANAJEMEN ARSIP</b>\n• Untuk menghapus data unit yang sudah lunas/aman, gunakan fitur <b>Update/Hapus Massal</b> saat upload file baru.\n\n<i>Butuh bantuan? Klik tombol 📞 BANTUAN TEKNIS.</i>")
+        # Ambil nama leasing biar personal
+        agency = standardize_leasing_name(u.get('agency'))
+        
+        msg = (
+            f"🏢 <b>PANDUAN ENTERPRISE WORKSPACE</b>\n"
+            f"User: <b>{agency}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n\n"
+            
+            f"1️⃣ <b>MONITORING & LAPORAN (DASHBOARD)</b>\n"
+            f"• Klik tombol <b>📂 DATABASE SAYA</b> di menu bawah.\n"
+            f"• Lihat statistik total aset & temuan secara real-time.\n"
+            f"• Klik <b>📥 DOWNLOAD DATA</b> untuk menarik data aset Anda ke Excel.\n\n"
+            
+            f"2️⃣ <b>UPDATE DATA (PENAMBAHAN)</b>\n"
+            f"• Kirim file Excel/CSV data tarikan baru ke bot.\n"
+            f"• Bot otomatis mendeteksi format & leasing Anda.\n"
+            f"• Klik tombol <b>📂 UPDATE DATA</b>.\n"
+            f"• <i>Data akan diproses di background tanpa mengganggu bot.</i>\n\n"
+            
+            f"3️⃣ <b>PENGHAPUSAN DATA (PELUNASAN)</b>\n"
+            f"• Siapkan file Excel berisi Nopol yang sudah lunas/tarik.\n"
+            f"• Kirim file ke bot -> Klik tombol <b>🗑️ HAPUS DATA</b>.\n"
+            f"• <i>Sistem hanya menghapus data milik {agency} (Aman).</i>\n\n"
+            
+            f"4️⃣ <b>KEAMANAN DATA</b>\n"
+            f"Data Anda terisolasi (Private Cloud). Mitra leasing lain tidak dapat melihat, menghapus, atau mendownload aset Anda.\n\n"
+            
+            f"<i>Butuh bantuan teknis? Hubungi Administrator Pusat.</i>"
+        )
+
+    # === 2. PANDUAN MITRA LAPANGAN (TETAP SESUAI PERMINTAAN) ===
     else: 
-        msg = ("📖 <b>PANDUAN PENGGUNAAN ONEASPAL</b>\n\n1️⃣ <b>Cari Data Kendaraan</b>\n   - Ketik Nopol secara lengkap atau sebagian.\n   - Contoh: <code>B 1234 ABC</code> atau <code>1234</code>\n\n2️⃣ <b>Upload File (Mitra)</b>\n   - Kirim file Excel/CSV/ZIP ke bot ini.\n   - Bot akan membaca otomatis.\n\n3️⃣ <b>Upload Satuan / Kiriman</b>\n   - Gunakan perintah /tambah untuk input data manual.\n\n4️⃣ <b>Lapor Unit Selesai</b>\n   - Gunakan perintah /lapor jika unit sudah ditarik.\n\n5️⃣ <b>Cek Kuota</b>\n   - Ketik /cekkuota untuk melihat sisa HIT.\n\n6️⃣ <b>Bantuan Admin</b>\n   - Ketik /admin [pesan] untuk support.\n\n7️⃣ <b>Perpanjang Langganan</b>\n   - Ketik /infobayar untuk Topup.")
+        msg = (
+            "📖 <b>PANDUAN PENGGUNAAN ONEASPAL</b>\n\n"
+            "1️⃣ <b>Cari Data Kendaraan</b>\n"
+            "   - Ketik Nopol secara lengkap atau sebagian.\n"
+            "   - Contoh: <code>B 1234 ABC</code> atau <code>1234</code>\n\n"
+            "2️⃣ <b>Upload File (Mitra)</b>\n"
+            "   - Kirim file Excel/CSV/ZIP ke bot ini.\n"
+            "   - Bot akan membaca otomatis.\n\n"
+            "3️⃣ <b>Upload Satuan / Kiriman</b>\n"
+            "   - Gunakan perintah /tambah untuk input data manual.\n\n"
+            "4️⃣ <b>Lapor Unit Selesai</b>\n"
+            "   - Gunakan perintah /lapor jika unit sudah ditarik.\n\n"
+            "5️⃣ <b>Cek Kuota</b>\n"
+            "   - Ketik /cekkuota untuk melihat sisa HIT.\n\n"
+            "6️⃣ <b>Bantuan Admin</b>\n"
+            "   - Ketik /admin [pesan] untuk support.\n\n"
+            "7️⃣ <b>Perpanjang Langganan</b>\n"
+            "   - Ketik /infobayar untuk Topup."
+        )
+    
     await update.message.reply_text(msg, parse_mode='HTML')
 
 async def handle_message(update, context):
