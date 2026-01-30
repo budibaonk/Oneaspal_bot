@@ -936,51 +936,71 @@ async def cek_user_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cek_kuota(update, context):
     user = update.effective_user
-    u = get_user(user.id)
+    uid = user.id
+    u = get_user(uid)
     if not u or u['status'] != 'active': return
     
     global GLOBAL_INFO
     info_banner = f"📢 <b>INFO PUSAT:</b> {clean_text(GLOBAL_INFO)}\n━━━━━━━━━━━━━━━━━━\n" if GLOBAL_INFO else ""
 
-    # === TAMPILAN KHUSUS PIC LEASING (DASHBOARD) ===
-    if u.get('role') == 'pic':
-        leasing_name = standardize_leasing_name(u.get('agency'))
-        
-        # 1. Hitung Total Data Aktif di DB (Khusus Leasing Dia)
-        try:
-            res_total = supabase.table('kendaraan').select('*', count='exact', head=True)\
-                .eq('finance', leasing_name).execute()
-            total_unit = res_total.count if res_total.count else 0
-        except: total_unit = 0
-        
-        # 2. Hitung Total Temuan (Log Hits)
-        try:
-            # Hitung log temuan berdasarkan nama leasing
-            res_hits = supabase.table('finding_logs').select('*', count='exact', head=True)\
-                .ilike('leasing', f"%{leasing_name}%").execute()
-            total_hits = res_hits.count if res_hits.count else 0
-        except: total_hits = 0
+    # Cek apakah dia ADMIN atau PIC
+    is_admin = (uid == ADMIN_ID) or (str(uid) in ADMIN_IDS)
+    is_pic = (u.get('role') == 'pic')
+
+    # === TAMPILAN DASHBOARD (UNTUK PIC & ADMIN) ===
+    if is_pic or is_admin:
+        if is_admin:
+            leasing_name = "ADMIN PUSAT (GLOBAL)"
+            # Admin melihat TOTAL SEMUA DATA
+            try:
+                res_total = supabase.table('kendaraan').select('*', count='exact', head=True).execute()
+                total_unit = res_total.count if res_total.count else 0
+            except: total_unit = 0
+            
+            try:
+                # Total Hits Global
+                res_hits = supabase.table('finding_logs').select('*', count='exact', head=True).execute()
+                total_hits = res_hits.count if res_hits.count else 0
+            except: total_hits = 0
+            
+            # Tombol Admin
+            btn_text = "📥 DOWNLOAD DATA (50k TERBARU)"
+        else:
+            # PIC melihat datanya sendiri
+            leasing_name = standardize_leasing_name(u.get('agency'))
+            try:
+                res_total = supabase.table('kendaraan').select('*', count='exact', head=True)\
+                    .eq('finance', leasing_name).execute()
+                total_unit = res_total.count if res_total.count else 0
+            except: total_unit = 0
+            
+            try:
+                res_hits = supabase.table('finding_logs').select('*', count='exact', head=True)\
+                    .ilike('leasing', f"%{leasing_name}%").execute()
+                total_hits = res_hits.count if res_hits.count else 0
+            except: total_hits = 0
+            
+            # Tombol PIC
+            btn_text = "📥 DOWNLOAD DATA SAYA (EXCEL)"
 
         msg = (
             f"{info_banner}"
-            f"🏢 <b>DASHBOARD PIC: {leasing_name}</b>\n"
+            f"🏢 <b>DASHBOARD {leasing_name}</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"👤 <b>PIC:</b> {clean_text(u.get('nama_lengkap'))}\n"
-            f"🔐 <b>Status Akun:</b> ENTERPRISE (Verified)\n\n"
-            f"📊 <b>STATISTIK DATA:</b>\n"
-            f"📦 <b>Total Aset Terpantau:</b> {total_unit:,} Unit\n"
-            f"🎯 <b>Total Ditemukan (Hits):</b> {total_hits:,} Unit\n"
+            f"👤 <b>User:</b> {clean_text(u.get('nama_lengkap'))}\n"
+            f"🔐 <b>Status:</b> {'SUPER ADMIN 👮‍♂️' if is_admin else 'ENTERPRISE PIC 👔'}\n\n"
+            f"📊 <b>STATISTIK REAL-TIME:</b>\n"
+            f"📦 <b>Total Data:</b> {total_unit:,} Unit\n"
+            f"🎯 <b>Total Temuan:</b> {total_hits:,} Unit\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"💡 <i>Anda bisa mendownload data aset Anda kapan saja untuk kebutuhan laporan internal.</i>"
+            f"💡 <i>Klik tombol di bawah untuk menarik laporan Excel.</i>"
         )
         
-        # Tombol Download Data
-        kb = [[InlineKeyboardButton("📥 DOWNLOAD DATA SAYA (EXCEL)", callback_data="download_my_data")]]
-        
+        kb = [[InlineKeyboardButton(btn_text, callback_data="download_my_data")]]
         await update.message.reply_text(msg, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(kb))
         return
 
-    # === TAMPILAN MATEL (USER BIASA) - TETAP SEPERTI DULU ===
+    # === TAMPILAN MATEL (USER BIASA) ===
     else:
         exp_date = u.get('expiry_date')
         status_aktif = "❌ SUDAH EXPIRED" 
@@ -1020,24 +1040,40 @@ async def download_my_data(update, context):
     query = update.callback_query
     user_id = update.effective_user.id
     u = get_user(user_id)
-    if not u or u.get('role') != 'pic':
+    
+    # Cek Admin / PIC
+    is_admin = (user_id == ADMIN_ID) or (str(user_id) in ADMIN_IDS)
+    is_pic = (u.get('role') == 'pic')
+
+    if not (is_pic or is_admin):
         await query.answer("⛔ Akses Ditolak.", show_alert=True); return
 
-    leasing_name = standardize_leasing_name(u.get('agency'))
+    if is_admin:
+        leasing_name = "ALL_DATA_GLOBAL"
+        display_name = "DATA GLOBAL (ADMIN)"
+    else:
+        leasing_name = standardize_leasing_name(u.get('agency'))
+        display_name = f"DATA {leasing_name}"
+
     await query.answer("⏳ Menyiapkan Excel...", show_alert=False)
-    
-    sts = await context.bot.send_message(query.message.chat_id, "⏳ <b>Mengunduh Data...</b>", parse_mode='HTML')
+    sts = await context.bot.send_message(query.message.chat_id, f"⏳ <b>Mengunduh {display_name}...</b>", parse_mode='HTML')
     
     try:
-        # Gunakan Thread agar tidak macet
         def get_excel():
-            # Batasi 50k biar aman
-            res = supabase.table('kendaraan').select('*').eq('finance', leasing_name).limit(50000).execute()
+            # Jika Admin: Ambil semua (limit 50k terbaru agar RAM aman)
+            # Jika PIC: Ambil sesuai finance
+            query = supabase.table('kendaraan').select('*')
+            
+            if not is_admin:
+                query = query.eq('finance', leasing_name)
+                
+            # Urutkan dari yang terbaru diupload (created_at desc)
+            res = query.order('created_at', desc=True).limit(50000).execute()
+            
             if not res.data: return None
             
             df = pd.DataFrame(res.data)
             output = io.BytesIO()
-            # Gunakan ExcelWriter
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 df.to_excel(writer, index=False, sheet_name='Data Unit')
             output.seek(0)
@@ -1049,13 +1085,19 @@ async def download_my_data(update, context):
             await sts.edit_text("⚠️ Data Kosong.")
             return
             
-        timestamp = datetime.now().strftime('%Y%m%d')
-        fname = f"DATA_{leasing_name}_{timestamp}.xlsx"
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+        fname = f"{leasing_name}_{timestamp}.xlsx"
         
-        await context.bot.send_document(query.message.chat_id, document=excel_file, filename=fname, caption=f"✅ Data {leasing_name}")
+        await context.bot.send_document(
+            chat_id=query.message.chat_id, 
+            document=excel_file, 
+            filename=fname, 
+            caption=f"✅ **DOWNLOAD SUKSES**\n📂 File: {fname}\n👤 Request by: {u.get('nama_lengkap')}"
+        )
         await sts.delete()
         
     except Exception as e:
+        logger.error(f"Download Error: {e}")
         await sts.edit_text(f"❌ Error: {e}")
 
 async def info_bayar(update, context):
