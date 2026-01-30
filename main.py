@@ -1277,26 +1277,36 @@ async def upload_confirm_admin(update, context):
 
 async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
     """
-    Berjalan di background tanpa membebani Main Loop Telegram.
+    Versi STABIL: Membaca file secara langsung (Tanpa Threading) untuk mencegah silent crash.
     """
+    print(f"🚀 [BG-TASK] Memulai Task untuk User {user_id}") # Debug Log
+    
     mode = data_ctx.get('upload_mode', 'UPSERT')
     path = data_ctx.get('upload_path')
     is_pic = False
     
-    # Setup Ulang Path jika PIC (karena PIC download dadakan)
+    # Setup Path (Khusus PIC yang belum punya path)
     if not path:
         is_pic = True
         fname = data_ctx.get('upload_file_name', 'data.xlsx')
         path = f"temp_{user_id}_{int(time.time())}_{fname}"
 
-    try:
-        # Helper untuk edit pesan (dibatasi try-except agar tidak crash task)
-        async def safe_edit(text):
-            try: await app.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode='HTML')
-            except: pass
+    # Helper Edit Pesan (Definisi di dalam agar akses scope aman)
+    async def safe_edit(text):
+        try: 
+            await app.bot.edit_message_text(
+                chat_id=chat_id, 
+                message_id=message_id, 
+                text=text, 
+                parse_mode='HTML'
+            )
+        except Exception as e: 
+            print(f"⚠️ Gagal Edit Pesan: {e}")
 
+    try:
         # 1. DOWNLOAD (Khusus PIC)
         if is_pic:
+            await safe_edit("⏳ <b>[1/3] Mendownload File...</b>")
             try:
                 new_file = await app.bot.get_file(data_ctx.get('upload_file_id'))
                 await new_file.download_to_drive(path)
@@ -1304,62 +1314,72 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
                 await safe_edit(f"❌ Gagal Download File: {e}")
                 return
 
-        # 2. BACA DATA
+        # 2. BACA DATA (LANGSUNG - TANPA THREAD)
         await safe_edit("⏳ <b>[2/3] Membaca & Validasi Data...</b>")
+        print(f"📂 [BG-TASK] Membaca file: {path}")
         
-        # Jalankan pembacaan file di Thread terpisah agar bot tidak lag
-        def read_data_sync():
-            with open(path, 'rb') as fr: content = fr.read()
-            df = read_file_robust(content, path)
-            df = fix_header_position(df)
-            df, _ = smart_rename_columns(df)
-            
-            target = data_ctx.get('target_leasing')
-            if target and target != 'SKIP':
-                df['finance'] = standardize_leasing_name(target)
-            else:
-                if 'finance' in df.columns: df['finance'] = df['finance'].apply(standardize_leasing_name)
-                else: df['finance'] = 'UNKNOWN'
-                
-            df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
-            df = df.dropna(subset=['nopol'])
-            df = df[df['nopol'].str.len() > 2]
-            df = df.drop_duplicates(subset=['nopol'], keep='last')
-            
-            for c in VALID_DB_COLUMNS:
-                if c not in df.columns: df[c] = None
-            df = df.replace({np.nan: None})
-            return json.loads(json.dumps(df[VALID_DB_COLUMNS].to_dict('records'), default=str))
+        if not os.path.exists(path):
+            await safe_edit("❌ <b>ERROR:</b> File tidak ditemukan di server.")
+            return
 
-        # Eksekusi fungsi berat di thread pool
-        recs = await asyncio.to_thread(read_data_sync)
+        # --- LOGIKA BACA FILE (Synchronous tapi Cepat) ---
+        with open(path, 'rb') as fr: 
+            content = fr.read()
+        
+        df = read_file_robust(content, path)
+        df = fix_header_position(df)
+        df, _ = smart_rename_columns(df)
+        
+        target = data_ctx.get('target_leasing')
+        if target and target != 'SKIP':
+            df['finance'] = standardize_leasing_name(target)
+        else:
+            if 'finance' in df.columns: df['finance'] = df['finance'].apply(standardize_leasing_name)
+            else: df['finance'] = 'UNKNOWN'
+            
+        df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
+        df = df.dropna(subset=['nopol'])
+        df = df[df['nopol'].str.len() > 2]
+        df = df.drop_duplicates(subset=['nopol'], keep='last')
+        
+        for c in VALID_DB_COLUMNS:
+            if c not in df.columns: df[c] = None
+        df = df.replace({np.nan: None})
+        
+        # Konversi ke Dictionary
+        recs = json.loads(json.dumps(df[VALID_DB_COLUMNS].to_dict('records'), default=str))
         total_data = len(recs)
         
+        print(f"✅ [BG-TASK] Total Data Terbaca: {total_data}")
+
         if total_data == 0:
             await safe_edit("⚠️ <b>FILE KOSONG / TIDAK VALID.</b>")
             if os.path.exists(path): os.remove(path)
             return
 
         # 3. UPLOAD BATCH
-        # [OPTIMASI] Batch kecil agar Supabase tidak timeout
-        BATCH_SIZE = 200 
+        BATCH_SIZE = 500
+        if mode == 'DELETE': BATCH_SIZE = 200 # Lebih kecil untuk delete
+        
         suc = 0
         fail = 0
         start_time = time.time()
-        last_update_time = time.time() # Untuk throttling
+        last_update_time = time.time()
         
         action_text = "MENGHAPUS" if mode == 'DELETE' else "MENGUPDATE"
         
-        # Helper Bar
+        await safe_edit(
+            f"🚀 <b>[3/3] MULAI {action_text}...</b>\n"
+            f"📊 Total Data: {total_data:,}\n"
+            f"⏳ Mohon tunggu..."
+        )
+        
         def get_bar(pct):
             filled = int(pct / 10)
             return "█" * filled + "░" * (10 - filled)
 
         for i in range(0, total_data, BATCH_SIZE):
-            # Cek Stop Signal (Harus implementasi cara cek global variable atau database flag jika mau stop real-time)
-            # Disini kita skip dulu signal stop kompleks agar simpel
-            
-            # Anti-Stuck CPU
+            # Bernafas sejenak agar CPU tidak terkunci 100%
             await asyncio.sleep(0.05) 
             
             batch = recs[i:i+BATCH_SIZE]
@@ -1376,10 +1396,9 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
                 suc += len(batch)
             except Exception as e:
                 fail += len(batch)
-                print(f"Batch Err: {e}")
+                print(f"❌ [BG-TASK] Batch Error: {e}")
 
-            # [THROTTLING] Hanya update pesan setiap 4 detik sekali
-            # Agar Telegram tidak memblokir bot karena "Too Many Requests"
+            # Throttling Update (Tiap 4 Detik)
             now = time.time()
             if (now - last_update_time) > 4 or (i + BATCH_SIZE) >= total_data:
                 percent = int(((i + len(batch)) / total_data) * 100)
@@ -1408,14 +1427,16 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
             f"Data <b>{leasing_info}</b> berhasil diproses."
         )
         await safe_edit(final_rpt)
+        print(f"🏁 [BG-TASK] Selesai. Sukses: {suc}")
 
     except Exception as e:
         logger.error(f"BG Upload Error: {e}")
-        try: await app.bot.send_message(chat_id, f"❌ <b>ERROR FATAL:</b> {str(e)[:100]}", parse_mode='HTML')
-        except: pass
+        # Kirim pesan error ke user agar mereka tahu kenapa gagal
+        await safe_edit(f"❌ <b>ERROR FATAL:</b> {clean_text(str(e)[:200])}")
 
     finally:
-        if os.path.exists(path):
+        # Bersihkan file temp
+        if path and os.path.exists(path):
             try: os.remove(path)
             except: pass
 
