@@ -1343,48 +1343,39 @@ async def upload_leasing_user(update, context):
     await update.message.reply_text("✅ Terkirim ke Admin.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-async def upload_leasing_admin(update, context):
+async def upload_leasing_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nm = update.message.text.upper()
-    preview_data = context.user_data.get('preview_records', [])
-    cols = context.user_data.get('upload_cols', [])
+    if nm == "❌ BATAL": 
+        return await cancel(update, context)
+    
+    context.user_data['target_leasing'] = nm
+    
+    # [FIX] Gunakan key 'preview' (bukan preview_records)
+    # Dan tambahkan handling error jika data benar-benar hilang
+    preview_data = context.user_data.get('preview')
     
     if not preview_data:
-        return await update.message.reply_text("❌ Sesi kedaluwarsa. Ulangi upload.")
+        await update.message.reply_text("❌ **Sesi Habis / Error.**\nSilakan upload file ulang dari awal.")
+        return ConversationHandler.END
 
-    if nm != 'SKIP': 
-        clean_name = standardize_leasing_name(nm)
-        fin_display = clean_name
-    else:
-        if 'finance' in cols: fin_display = "SESUAI FILE (Otomatis)"
-        else: fin_display = "UNKNOWN"
+    prev = preview_data[0]
     
-    context.user_data['target_leasing'] = nm 
-
-    # --- PREVIEW LENGKAP ---
-    s = preview_data[0].copy()
-    if nm != 'SKIP': s['finance'] = clean_name
+    # Ambil sample data aman
+    p_nopol = prev.get('nopol', '-')
+    p_type = prev.get('type', '-')
     
-    labels = {
-        'nopol': '🔢 Nopol', 'type': '🚙 Unit', 'finance': '🏦 Leasing',
-        'tahun': '📅 Tahun', 'warna': '🎨 Warna', 'noka': '🔧 Noka',
-        'nosin': '⚙️ Nosin', 'ovd': '⚠️ OVD', 'branch': '🏢 Cabang'
-    }
-    
-    detail_str = ""
-    for k, label in labels.items():
-        val = s.get(k)
-        if val and str(val).strip().lower() not in ['nan', 'none', '', '-']:
-            detail_str += f"   {label}: {val}\n"
-    if not detail_str: detail_str = "   (Data kosong/tidak terbaca)"
-    
-    preview_msg = (
-        f"🔎 **PREVIEW UPLOAD**\n"
-        f"🏦 Target Leasing: {fin_display}\n"
-        f"📝 **Contoh Data Baris 1:**\n"
-        f"{detail_str}\n"
-        f"⚠️ Klik EKSEKUSI untuk memproses."
+    info = (
+        f"🏦 Target: <b>{nm}</b>\n"
+        f"📝 Contoh: {p_nopol} | {p_type}"
     )
-    await update.message.reply_text(preview_msg, reply_markup=ReplyKeyboardMarkup([["🚀 EKSEKUSI", "❌ BATAL"]], one_time_keyboard=True))
+    
+    await update.message.reply_text(
+        f"🔎 **PREVIEW SETTING**\n"
+        f"{info}\n\n"
+        f"Klik EKSEKUSI untuk memproses.", 
+        parse_mode='HTML',
+        reply_markup=ReplyKeyboardMarkup([["🚀 EKSEKUSI", "❌ BATAL"]], one_time_keyboard=True, resize_keyboard=True)
+    )
     return U_CONFIRM_UPLOAD
 
 async def upload_confirm_admin(update, context):
