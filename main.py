@@ -269,7 +269,8 @@ def add_subscription_days(user_id, days_to_add):
         return False, None
 
 def clean_text(text):
-    if not text: return "-"
+    # Cek explisit None atau string kosong, tapi biarkan angka 0 lewat
+    if text is None or str(text).strip() == "": return "-"
     return html.escape(str(text))
 
 def format_wa_link(phone_number):
@@ -1248,6 +1249,9 @@ async def process_upload_file(update, context, is_pic=False):
         await status_msg.edit_text("⏳ **[2/3] Membaca Data...**")
         
         # --- 2. BACA FILE ---
+        # Gunakan asyncio sleep agar bot sempat update status sebelum loading berat
+        await asyncio.sleep(0.1) 
+        
         with open(path, 'rb') as fr: content = fr.read()
         df = read_file_robust(content, path)
         df = fix_header_position(df)
@@ -1274,8 +1278,19 @@ async def process_upload_file(update, context, is_pic=False):
         recs = json.loads(json.dumps(df[VALID_DB_COLUMNS].to_dict('records'), default=str))
         total_data = len(recs)
         
+        # [FIX] CEK DATA KOSONG (Anti ZeroDivisionError)
+        if total_data == 0:
+            await status_msg.edit_text("⚠️ **FILE KOSONG / TIDAK VALID.**\nTidak ada Nopol yang bisa dibaca.", parse_mode='Markdown')
+            if os.path.exists(path): os.remove(path)
+            return ConversationHandler.END
+
         # --- 3. EKSEKUSI BATCH (VISUAL LOADING) ---
-        BATCH_SIZE = 500
+        # [FIX] BATCH SIZE DINAMIS (Delete harus lebih kecil agar URL tidak kepanjangan)
+        if mode == 'DELETE':
+            BATCH_SIZE = 150 
+        else:
+            BATCH_SIZE = 500
+
         suc = 0
         fail = 0
         start_time = time.time()
@@ -1297,7 +1312,7 @@ async def process_upload_file(update, context, is_pic=False):
         for i in range(0, total_data, BATCH_SIZE):
             if context.user_data.get('stop_signal'): break
             
-            # [FIX ANTI-STUCK] Bernafas sejenak agar Telegram tidak timeout
+            # Anti-Stuck: Bernafas sejenak
             await asyncio.sleep(0.01) 
             
             batch = recs[i:i+BATCH_SIZE]
@@ -1306,6 +1321,7 @@ async def process_upload_file(update, context, is_pic=False):
                     nopol_list = [d['nopol'] for d in batch]
                     q = supabase.table('kendaraan').delete().in_('nopol', nopol_list)
                     if target_leasing and target_leasing != 'SKIP':
+                        # Pastikan format leasing aman
                         q = q.eq('finance', standardize_leasing_name(target_leasing))
                     q.execute()
                 else:
@@ -1316,11 +1332,13 @@ async def process_upload_file(update, context, is_pic=False):
                 fail += len(batch)
                 print(f"Batch Error: {e}")
             
+            # Hitung Persen
             percent = int(((i + len(batch)) / total_data) * 100)
+            
+            # Update Status UI (Tiap 10% atau Batch Terakhir)
             if percent % 10 == 0 or (i + BATCH_SIZE) >= total_data:
                 try: 
                     bar = get_bar(percent)
-                    # [FIX] Format konsisten HTML agar tidak error parse
                     await status_msg.edit_text(
                         f"🔄 <b>PROSES {action_text}</b>\n"
                         f"<code>[{bar}] {percent}%</code>\n\n"
@@ -1341,7 +1359,6 @@ async def process_upload_file(update, context, is_pic=False):
             header = "✅ <b>UPDATE DATA SELESAI</b>"
             desc = "Data baru telah ditayangkan."
 
-        # [FIX] Gunakan HTML untuk mengatasi karakter aneh pada nama leasing
         leasing_info = clean_text(target_leasing or 'MIX')
         
         report = (
