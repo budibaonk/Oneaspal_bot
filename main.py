@@ -161,8 +161,8 @@ VALID_DB_COLUMNS = ['nopol', 'type', 'finance', 'tahun', 'warna', 'noka', 'nosin
 # BAGIAN 3: DEFINISI STATE CONVERSATION
 # ##############################################################################
 
-# Ubah range jadi 8, dan tambahkan R_PHOTO_ID sebelum R_CONFIRM
-R_ROLE_CHOICE, R_NAMA, R_HP, R_EMAIL, R_KOTA, R_AGENCY, R_PHOTO_ID, R_CONFIRM = range(8)
+# UPDATE: Tambahkan R_BRANCH (Jadi range 9)
+R_ROLE_CHOICE, R_NAMA, R_HP, R_EMAIL, R_KOTA, R_AGENCY, R_BRANCH, R_PHOTO_ID, R_CONFIRM = range(9)
 # Definisi State untuk Percakapan Tambah Manual
 ADD_NOPOL, ADD_UNIT, ADD_LEASING, ADD_PHONE, ADD_NOTE, ADD_CONFIRM = range(6)
 L_NOPOL, L_REASON, L_CONFIRM = range(14, 17) 
@@ -1962,44 +1962,127 @@ async def register_hp(update, context):
 
 async def register_email(update, context): 
     if update.message.text == "❌ BATAL": return await cancel(update, context)
+    
+    # Simpan Email
     context.user_data['r_email'] = update.message.text
     role = context.user_data.get('reg_role', 'matel')
-    if role == 'pic': txt = ("4️⃣ **Lokasi Cabang Kantor:**\n_(Contoh: Kelapa Gading, BSD, Bandung Pusat)_\n\n👉 _Ketik nama CABANG tempat Anda bertugas:_")
-    else: txt = ("4️⃣ **Domisili / Wilayah Operasi:**\n_(Contoh: Jakarta Timur, Bekasi, Surabaya)_\n\n👉 _Ketik KOTA/DOMISILI Anda:_")
-    await update.message.reply_text(txt, parse_mode='Markdown'); return R_KOTA
+    
+    # --- LOGIKA PERCABANGAN ---
+    if role == 'pic':
+        # JIKA PIC: SKIP pertanyaan Kota, LANGSUNG tanya Nama Leasing
+        txt = (
+            "4️⃣ **Nama Leasing / Finance:**\n"
+            "⚠️ _Wajib Nama Resmi (JANGAN DISINGKAT)_\n"
+            "_(Contoh: BCA FINANCE, ADIRA DINAMIKA, ACC)_\n\n"
+            "👉 _Ketik Nama FINANCE Anda:_"
+        )
+        await update.message.reply_text(txt, parse_mode='Markdown')
+        return R_AGENCY
+        
+    else:
+        # JIKA MATEL: Tanya Domisili/Kota (Ini dianggap Branch mereka)
+        txt = (
+            "4️⃣ **Domisili / Wilayah Operasi:**\n"
+            "_(Contoh: Jakarta Timur, Bekasi, Surabaya)_\n\n"
+            "👉 _Ketik KOTA/DOMISILI Anda:_"
+        )
+        await update.message.reply_text(txt, parse_mode='Markdown')
+        return R_KOTA
 
 async def register_kota(update, context): 
     if update.message.text == "❌ BATAL": return await cancel(update, context)
+    
+    # Simpan Kota (Domisili Matel)
     context.user_data['r_kota'] = update.message.text
-    role = context.user_data.get('reg_role', 'matel')
-    if role == 'pic': txt = ("5️⃣ **Nama Leasing / Finance:**\n⚠️ _Wajib Nama Resmi (JANGAN DISINGKAT)_\n_(Contoh: BCA FINANCE, ADIRA DINAMIKA, ACC)_\n\n👉 _Ketik Nama FINANCE Anda:_")
-    else: txt = ("5️⃣ **Nama Agency / PT:**\n⚠️ _Wajib Nama Lengkap Sesuai Legalitas_\n_(Contoh: PT ELANG PERKASA, PT MAJU JAYA)_\n\n👉 _Ketik Nama AGENCY Anda:_")
-    await update.message.reply_text(txt, parse_mode='Markdown'); return R_AGENCY
+    
+    # Lanjut tanya Agency
+    txt = (
+        "5️⃣ **Nama Agency / PT:**\n"
+        "⚠️ _Wajib Nama Lengkap Sesuai Legalitas_\n"
+        "_(Contoh: PT ELANG PERKASA, PT MAJU JAYA)_\n\n"
+        "👉 _Ketik Nama AGENCY Anda:_"
+    )
+    await update.message.reply_text(txt, parse_mode='Markdown')
+    return R_AGENCY
 
 async def register_agency(update, context):
     if update.message.text == "❌ BATAL": return await cancel(update, context)
     
-    # Simpan Input Agency/Finance
-    context.user_data['r_agency'] = update.message.text
+    # 1. Standarisasi Nama Leasing (Fitur Kamus Cerdas)
+    raw_text = update.message.text
+    std_leasing = standardize_leasing_name(raw_text)
+    
+    # Simpan Nama Leasing/Agency
+    context.user_data['r_agency'] = std_leasing
     role = context.user_data.get('reg_role', 'matel')
     
     # --- LOGIKA BARU ---
     if role == 'pic':
-        # Jika PIC, Minta Foto ID Card
-        await update.message.reply_text(
-            "📸 **VERIFIKASI IDENTITAS (WAJIB)**\n\n"
-            "Sesuai prosedur keamanan, silakan **Kirim Foto ID CARD / NAMETAG KANTOR** Anda sekarang.\n\n"
-            "⚠️ _Foto harus jelas untuk diverifikasi Admin._",
-            parse_mode='Markdown',
-            reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)
+        # JIKA PIC: Sekarang waktunya tanya CABANG (sebagai pengganti Kota)
+        msg = (
+            f"✅ Leasing Terdeteksi: <b>{std_leasing}</b>\n\n"
+            f"5️⃣ <b>INPUT KODE CABANG (BRANCH)</b>\n"
+            f"Masukkan nama cabang tempat Anda bertugas:\n\n"
+            f"🔸 <b>PIC CABANG:</b> Ketik nama cabang (Contoh: <code>TEBET</code>, <code>SURABAYA</code>)\n"
+            f"🔹 <b>PIC NASIONAL:</b> Ketik kode <b>HO</b> (Akses Seluruh Indonesia)."
         )
-        return R_PHOTO_ID
+        await update.message.reply_text(msg, parse_mode='HTML')
+        return R_BRANCH # <--- Lanjut ke input Branch
+        
     else:
-        # Jika Matel, Langsung Konfirmasi (Seperti Dulu)
+        # JIKA MATEL: Sudah isi Kota sebelumnya, jadi anggap Kota = Branch. SELESAI.
+        # Kita set 'wilayah_korlap' (Branch Logic) sama dengan 'r_kota' mereka
+        context.user_data['r_branch_code'] = context.user_data.get('r_kota')
+        
+        # Tampilkan Konfirmasi
         d = context.user_data
-        summary = (f"📝 **KONFIRMASI PENDAFTARAN**\n━━━━━━━━━━━━━━━━━━\n👤 **Nama:** {d['r_nama']}\n📱 **HP:** {d['r_hp']}\n📧 **Email:** {d['r_email']}\n📍 **Domisili:** {d['r_kota']}\n🛡️ **Agency:** {d['r_agency']}\n━━━━━━━━━━━━━━━━━━\nApakah data di atas sudah benar?")
+        summary = (
+            f"📝 **KONFIRMASI PENDAFTARAN**\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 **Nama:** {d['r_nama']}\n"
+            f"📱 **HP:** {d['r_hp']}\n"
+            f"📧 **Email:** {d['r_email']}\n"
+            f"📍 **Domisili:** {d['r_kota']}\n"
+            f"🛡️ **Agency:** {d['r_agency']}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"Apakah data di atas sudah benar?"
+        )
         await update.message.reply_text(summary, reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True), parse_mode='Markdown')
         return R_CONFIRM
+    
+async def register_branch(update, context):
+    if update.message.text == "❌ BATAL": return await cancel(update, context)
+    
+    branch_input = update.message.text.strip().upper()
+    
+    # Validasi input pendek
+    if len(branch_input) < 2:
+        await update.message.reply_text("⚠️ Nama cabang terlalu pendek. Silakan ulangi.")
+        return R_BRANCH
+
+    # Simpan Input Cabang
+    context.user_data['r_branch_code'] = branch_input
+    
+    # PENTING: Simpan juga sebagai 'r_kota' agar kolom 'alamat' di database tidak kosong
+    context.user_data['r_kota'] = branch_input 
+    
+    # Cek HO atau Cabang Biasa
+    if branch_input in ['HO', 'PUSAT', 'NASIONAL', 'HEAD OFFICE']:
+        context.user_data['r_branch_code'] = "HO" # Standarkan jadi HO
+        access_info = "🌍 NASIONAL (ALL DATA)"
+    else:
+        access_info = f"📍 LOKAL: {branch_input}"
+
+    # Lanjut Minta Foto ID Card
+    await update.message.reply_text(
+        f"✅ Cabang: <b>{branch_input}</b>\n"
+        f"🔐 Akses: {access_info}\n\n"
+        f"📸 <b>VERIFIKASI IDENTITAS (WAJIB)</b>\n"
+        f"Silakan **Kirim Foto ID CARD / NAMETAG KANTOR** Anda sekarang.",
+        parse_mode='HTML',
+        reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True)
+    )
+    return R_PHOTO_ID
     
 async def register_photo_id(update, context):
     # Cek apakah user mengirim foto
@@ -2035,12 +2118,22 @@ async def register_confirm(update, context):
     role_db = d.get('reg_role', 'matel')
     quota_init = 5000 if role_db == 'pic' else 1000
     
+    # Ambil data cabang (Jika PIC), jika Matel kosongkan/pakai data kota
+    branch_val = d.get('r_branch_code') if role_db == 'pic' else None
+
     # Masukkan ke Database
     data_user = {
-        "user_id": update.effective_user.id, "nama_lengkap": d['r_nama'], 
-        "no_hp": d['r_hp'], "email": d['r_email'], "alamat": d['r_kota'], 
-        "agency": d['r_agency'], "quota": quota_init, "status": "pending", 
-        "role": role_db, "ref_korlap": None
+        "user_id": update.effective_user.id, 
+        "nama_lengkap": d['r_nama'], 
+        "no_hp": d['r_hp'], 
+        "email": d['r_email'], 
+        "alamat": d['r_kota'], 
+        "agency": d['r_agency'], 
+        "quota": quota_init, 
+        "status": "pending", 
+        "role": role_db, 
+        "ref_korlap": None,
+        "wilayah_korlap": branch_val  # <--- UPDATE INI (Simpan data Cabang)
     }
     
     try:
@@ -2864,6 +2957,10 @@ if __name__ == '__main__':
             R_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_email)], 
             R_KOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], 
             R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], 
+
+            # --- UPDATE: TAMBAHKAN HANDLER INI ---
+            R_BRANCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_branch)],
+            # -------------------------------------
             
             # --- STATE BARU: HANDLER FOTO ID CARD ---
             R_PHOTO_ID: [MessageHandler(filters.PHOTO, register_photo_id)],
