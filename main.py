@@ -1120,49 +1120,101 @@ async def download_asset_data(update, context):
     user_id = update.effective_user.id
     u = get_user(user_id)
     
+    # 1. CEK OTORITAS
     is_admin = (user_id == ADMIN_ID) or (str(user_id) in ADMIN_IDS)
     is_pic = (u.get('role') == 'pic')
 
-    if not (is_pic or is_admin): return await query.answer("⛔ Akses Ditolak.", show_alert=True)
+    if not (is_pic or is_admin): 
+        return await query.answer("⛔ Akses Ditolak.", show_alert=True)
 
-    if is_admin: leasing_filter = "GLOBAL"
-    else: leasing_filter = standardize_leasing_name(u.get('agency'))
+    # 2. DETEKSI LEASING & CABANG USER
+    if is_admin: 
+        leasing_filter = "GLOBAL"
+        user_branch = "HO" # Admin dianggap HO
+    else: 
+        leasing_filter = standardize_leasing_name(u.get('agency'))
+        # Ambil input cabang user (disimpan di kolom wilayah_korlap)
+        user_branch = str(u.get('wilayah_korlap', '')).strip().upper()
 
-    await query.answer("⏳ Menyiapkan Database Aset...", show_alert=False)
-    sts = await context.bot.send_message(query.message.chat_id, f"⏳ <b>Mengunduh Database Aset: {leasing_filter}...</b>", parse_mode='HTML')
+    # LOGIKA AKSES NASIONAL (HO / PUSAT / NASIONAL)
+    IS_NASIONAL = user_branch in ['HO', 'HEAD OFFICE', 'PUSAT', 'NASIONAL']
+
+    await query.answer("⏳ Menyiapkan Database...", show_alert=False)
+    
+    # Info Tampilan
+    branch_display = "NASIONAL (ALL BRANCH)" if IS_NASIONAL else f"CABANG {user_branch}"
+    
+    sts = await context.bot.send_message(
+        query.message.chat_id, 
+        f"⏳ <b>MENGUNDUH DATABASE ASET</b>\n"
+        f"🏢 Leasing: {leasing_filter}\n"
+        f"📍 Akses: <b>{branch_display}</b>\n"
+        f"🔄 <i>Memfilter data...</i>", 
+        parse_mode='HTML'
+    )
     
     try:
         def fetch_excel():
             q = supabase.table('kendaraan').select('*')
-            if not is_admin: q = q.eq('finance', leasing_filter)
-            res = q.limit(50000).execute() # Limit aman
+            
+            # Filter Leasing (Wajib bagi Non-Admin)
+            if not is_admin: 
+                q = q.eq('finance', leasing_filter)
+                
+                # === FILTER CABANG ===
+                # Jika BUKAN HO/Nasional, maka filter spesifik
+                if not IS_NASIONAL:
+                    q = q.ilike('branch', f"%{user_branch}%")
+            
+            # Limit Aman
+            res = q.limit(100000).execute()
             
             if not res.data: return None
             
             df = pd.DataFrame(res.data)
-            # Pilih kolom penting saja
-            cols = ['nopol', 'type', 'finance', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'branch']
-            # Filter kolom yang ada saja
+            
+            # Pilih Kolom
+            cols = ['nopol', 'unit', 'finance', 'branch', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'nama_nasabah']
             final_cols = [c for c in cols if c in df.columns]
             df = df[final_cols]
+            
+            # Rename Header
+            df.rename(columns={
+                'nopol': 'NOPOL', 'unit': 'UNIT', 'finance': 'LEASING', 
+                'branch': 'CABANG', 'tahun': 'TAHUN', 'warna': 'WARNA', 
+                'ovd': 'OVERDUE', 'nama_nasabah': 'NASABAH'
+            }, inplace=True)
             
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 df.to_excel(writer, index=False, sheet_name='Database Aset')
+                ws = writer.sheets['Database Aset']
+                header_fmt = writer.book.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
+                for col_num, value in enumerate(df.columns.values):
+                    ws.write(0, col_num, value, header_fmt)
+                ws.set_column('A:Z', 15) 
+
             output.seek(0)
             return output
 
         excel_file = await asyncio.to_thread(fetch_excel)
         
         if not excel_file:
-            await sts.edit_text("⚠️ Data Aset Kosong.")
+            msg = f"⚠️ <b>DATABASE KOSONG.</b>\nTidak ada data aset untuk akses: {branch_display}."
+            await sts.edit_text(msg, parse_mode='HTML')
             return
 
-        fname = f"DATABASE_{leasing_filter}_{datetime.now().strftime('%Y%m%d')}.xlsx"
-        await context.bot.send_document(query.message.chat_id, document=excel_file, filename=fname, caption=f"📂 <b>DATABASE ASET</b>\n🏢 {leasing_filter}")
+        fname = f"DATABASE_{leasing_filter}_{user_branch}_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        await context.bot.send_document(
+            chat_id=query.message.chat_id, 
+            document=excel_file, 
+            filename=fname, 
+            caption=f"📂 <b>DATABASE ASET SAYA</b>\n🏢 {leasing_filter}\n📍 {branch_display}"
+        )
         await sts.delete()
 
     except Exception as e:
+        logger.error(f"DL Asset Error: {e}")
         await sts.edit_text(f"❌ Error: {e}")
 
 async def download_finding_report(update, context):
