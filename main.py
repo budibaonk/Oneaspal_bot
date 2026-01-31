@@ -281,51 +281,135 @@ def format_wa_link(phone_number):
         clean_hp = '62' + clean_hp[1:]
     return f'<a href="https://wa.me/{clean_hp}">{phone_number}</a>'
 
-def standardize_leasing_name(name):
-    if not name: return "UNKNOWN"
+def standardize_leasing_name(raw_name):
+    """
+    Kamus Cerdas Standarisasi Nama Leasing Indonesia (V2.0).
+    Mendeteksi Nama PT Panjang -> Mengubah ke Label Singkatan Resmi.
+    """
+    if not raw_name: return "UNKNOWN"
     
-    # 1. Bersihkan input
-    clean = str(name).upper().strip()
-    clean = re.sub(r'[^\w\s]', '', clean) # Hapus titik koma dll
+    text = raw_name.upper().strip()
     
-    # 2. KAMUS ALIAS (Tambahkan sesuai kebutuhan lapangan)
-    # Format: "KATA_KUNCI": "NAMA_STANDAR"
-    aliases = {
-        'ADIRA': 'ADIRA',
-        'BCA': 'BCA',
-        'CIMB': 'CNAF', 'CNAF': 'CNAF', 'NIAGA': 'CNAF',
-        'MANDALA': 'MANDALA',
-        'BAF': 'BAF', 'BUSSAN': 'BAF',
-        'FIF': 'FIF', 'FEDERAL': 'FIF',
-        'WOM': 'WOM', 'WAHANA': 'WOM',
-        'OTO': 'OTO', 'SUMMIT': 'OTO',
-        'ACC': 'ACC', 'ASTRA CREDIT': 'ACC',
-        'TAF': 'TAF', 'TOYOTA': 'TAF',
-        'CLIPAN': 'CLIPAN',
-        'MANDIRI': 'MTF', 'MTF': 'MTF', 'TUNAS': 'MTF',
-        'MACF': 'MEGA', 'MCF': 'MEGAAUTO',
-        'NSC': 'NSC', 'NUSANTARA': 'NSC',
-        'SMS': 'SMS', 'SINAR MITRA': 'SMS',
-        'MAF': 'MAF', 'MCF': 'MCF',
-        'WOKA': 'WOKA',
-        'KREDIT PLUS': 'KREDIT PLUS', 'KREDITPLUS': 'KREDIT PLUS', 'FINANSIA': 'KREDIT PLUS'
+    # DICTIONARY: "KATA KUNCI (NAMA PT)": "LABEL STANDAR (SINGKATAN)"
+    # Logika: Python akan mencari apakah 'Kata Kunci' ada di dalam input user.
+    keywords = {
+        # === 1. GROUP JTRUST (SESUAI REQUEST) ===
+        "JTRUST INVESTMENT": "JTII",
+        "J TRUST INVESTMENT": "JTII",
+        "JTRUST OLYMPINDO": "JTO FINANCE",
+        "OLYMPINDO": "JTO FINANCE",
+        
+        # === 2. GROUP ASTRA & ANAK USAHA ===
+        "FEDERAL INTERNATIONAL": "FIF GROUP", # FIF
+        "ASTRA SEDAYA": "ACC",                # ACC
+        "TOYOTA ASTRA": "TAF",                # TAF
+        "ASTRA MULTI": "AMF",                 # AMF (Spektra/Astra)
+        "KOMATSU": "KOMATSU",
+        "SAN FINANCE": "SANF",                # Surya Artha Nusantara
+        
+        # === 3. GROUP BANK & BUMN ===
+        "BCA FINANCE": "BCA FINANCE",
+        "MANDIRI TUNAS": "MTF",
+        "MANDIRI UTAMA": "MUF",
+        "CIMB NIAGA AUTO": "CNAF",
+        "BNI MULTI": "BNI MULTIFINANCE",
+        "BRI FINANCE": "BRI FINANCE",
+        "BRI MULTI": "BRI FINANCE",
+        "BSI OTO": "BSI OTO",
+        "SYARIAH INDONESIA": "BSI OTO",
+        "MNC FINANCE": "MNC FINANCE",
+        "MEGA FINANCE": "MEGA FINANCE",
+        "MEGA AUTO": "MACF",                  # Mega Auto Central
+        "MEGA CENTRAL": "MACF",
+        
+        # === 4. GROUP SWASTA BESAR (MAJOR PLAYERS) ===
+        "ADIRA DINAMIKA": "ADIRA",
+        "ADIRA MULTI": "ADIRA",
+        "BUSSAN AUTO": "BAF",
+        "WAHANA OTTOMITRA": "WOM FINANCE",
+        "BFI FINANCE": "BFI FINANCE",
+        "SUMMIT OTO": "OTO/SUMMIT",
+        "OTO MULTIARTHA": "OTO/SUMMIT",
+        "CLIPAN FINANCE": "CLIPAN",
+        "SINAR MAS": "SINARMAS",
+        "SINARMAS": "SINARMAS",
+        "SIMAS": "SINARMAS",
+        
+        # === 5. DEALER AFFILIATED ===
+        "SUZUKI FINANCE": "SFI",
+        "INDOMOBIL FINANCE": "IMFI",
+        "DIPO STAR": "DIPO STAR",
+        "MITSUBISHI": "DIPO STAR", # Sering diasosiasikan
+        "HINO FINANCE": "HINO FINANCE",
+        "CHAILEASE": "CHAILEASE",
+        
+        # === 6. MULTIFINANCE LAINNYA (A-Z) ===
+        "AL IJARAH": "AL IJARAH",
+        "ANDALAN FINANCE": "ANDALAN FINANCE",
+        "ARTHA PRIMA": "ARTHA PRIMA",
+        "BATAVIA PROSPERINDO": "BATAVIA PROSPERINDO",
+        "BENTARA SINERGI": "BESS FINANCE",
+        "BESS FINANCE": "BESS FINANCE",
+        "BIMA MULTI": "BIMA FINANCE",
+        "BUANA FINANCE": "BUANA FINANCE",
+        "BUANA MULTI": "BUANA FINANCE",
+        "CAPITAL INC": "CAPITAL",
+        "CLEMONT": "CLEMONT",
+        "COLUMBIA": "COLUMBIA",
+        "DANASUPRA": "DANASUPRA",
+        "ESTA DANA": "ESTA DANA",
+        "FINANSIA MULTI": "KREDIT PLUS",  # Nama PT Kredit Plus
+        "KREDIT PLUS": "KREDIT PLUS",
+        "KREDIT PLUS": "KPLUS",
+        "GLOBALINDO": "GLOBAL FINANCE",
+        "HEXA FINANCE": "HEXA",
+        "INTAN BARUprana": "IBF",
+        "INTRA ASIA": "INTRA ASIA",
+        "KEMBANG 88": "KEMBANG 88",
+        "KRESNA REKSA": "KRESNA REKSA",
+        "MAYBANK": "MAYBANK FINANCE",
+        "MAYBANK INDONESIA": "MAYBANK FINANCE",
+        "MITSUI": "MITSUI LEASING",
+        "MULTI INDO": "MULTI INDO",
+        "NUSA SURYA": "NSC FINANCE", # NSC
+        "PRO CAR": "PRO CAR",
+        "PRO MITRA": "PRO CAR",
+        "RADANA": "RADANA",
+        "REKSA FINANCE": "REKSA FINANCE",
+        "RESURSA": "RESURSA",
+        "SINAR MITRA SEPADAN": "SMS FINANCE",
+        "SMS FINANCE": "SMS FINANCE",
+        "SMART MULTI": "SMART FINANCE",
+        "SUNINDO": "SUNINDO",
+        "SWADHARMA": "SWADHARMA",
+        "TIFA FINANCE": "TIFA",
+        "TRUST FINANCE": "TRUST FINANCE",
+        "VERENA": "VERENA",
+        "WOKA": "WOKA FINANCE",
+        
+        # === FALLBACK PENDEK (JIKA USER CUMA KETIK SINGKATAN) ===
+        "ADIRA": "ADIRA",
+        "BCA": "BCA FINANCE",
+        "FIF": "FIF GROUP",
+        "WOM": "WOM FINANCE",
+        "BAF": "BAF",
+        "ACC": "ACC",
+        "TAF": "TAF",
+        "OTO": "OTO/SUMMIT",
+        "BFI": "BFI FINANCE",
+        "MTF": "MTF",
+        "MUF": "MUF",
+        "CNAF": "CNAF"
     }
-    
-    # 3. Cek apakah kata kunci ada di dalam input user
-    for keyword, standard in aliases.items():
-        # Cek exact word match agar "BCA" tidak match dengan "ABC"
-        if re.search(r'\b' + re.escape(keyword) + r'\b', clean):
-            return standard
-            
-    # 4. Jika tidak ada di kamus, bersihkan nama umum PT/TBK
-    clean = re.sub(r'\bPT\b', '', clean)
-    clean = re.sub(r'\bTBK\b', '', clean)
-    clean = re.sub(r'\bFINANCE\b', '', clean)
-    clean = re.sub(r'\bMULTI\b', '', clean)
-    clean = re.sub(r'\bJAYA\b', '', clean)
-    clean = re.sub(r'\s+', ' ', clean).strip()
-    
-    return clean
+
+    # LOGIKA PENCARIAN
+    for key, label in keywords.items():
+        if key in text:
+            return label
+
+    # Jika nama PT sangat asing dan tidak ada di kamus,
+    # Kembalikan nama aslinya (Upper Case) agar admin sadar ada leasing baru
+    return text
 
 # [CRITICAL UPDATE] LOGIC PENCATATAN LOG DIUBAH MENERIMA USER OBJECT
 def log_successful_hit(user_db, unit_data):
