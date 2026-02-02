@@ -21,6 +21,7 @@ import pytz # Pastikan baris ini ada
 import requests 
 from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
+from supabase.lib.client_options import ClientOptions # <--- TAMBAH INI
 from dotenv import load_dotenv
 
 # DEFINISI ZONA WAKTU (Agar tidak error TZ_JAKARTA)
@@ -83,13 +84,25 @@ KEY = os.getenv("SUPABASE_KEY")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
+# [UPDATE PENTING] Definisi ClientOptions untuk mengatasi Timeout 7000+ Data
+try:
+    from supabase.lib.client_options import ClientOptions
+except ImportError:
+    # Fallback untuk versi library supabase yang berbeda
+    from supabase import ClientOptions
+
 @st.cache_resource
 def init_connection():
+    """
+    Inisialisasi koneksi ke Supabase dengan Timeout yang diperpanjang.
+    Penting untuk upload/hapus data massal (>5000 row).
+    """
     try:
-        # [FIX] Timeout Client diperpanjang jadi 300s
-        opts = ClientOptions(postgrest_client_timeout=300)
+        # Kita set Timeout ke 600 Detik (10 Menit) agar tidak putus di tengah jalan
+        opts = ClientOptions(postgrest_client_timeout=600)
         return create_client(URL, KEY, options=opts)
     except Exception as e:
+        print(f"⚠️ Warning: Gagal set timeout khusus ({e}). Menggunakan setting default.")
         return create_client(URL, KEY)
 
 supabase = init_connection()
@@ -389,7 +402,7 @@ with tab3:
                 recs = df[['nopol'] + required_cols].to_dict('records')
                 
                 # Batch Upload Process
-                BATCH_SIZE = 100 
+                BATCH_SIZE = 50 
                 s, f = 0, 0
                 pb = st.progress(0, f"Memproses {len(recs)} data...")
                 total_recs = len(recs)
