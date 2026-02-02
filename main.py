@@ -1469,14 +1469,32 @@ def get_action_buttons(matel_user, unit_data):
     ])
 
 # --- FUNGSI FORMAT PESAN NOTIFIKASI (PUSAT) ---
+# --- FUNGSI FORMAT PESAN NOTIFIKASI (PUSAT) ---
 def create_notification_text(matel_user, unit_data, header_title):
+    # 1. LOGIKA VERSI DATA (SMART FALLBACK)
+    version_code = unit_data.get('data_month')
+    if not version_code or version_code in ['-', None, '']:
+        raw_date = unit_data.get('created_at')
+        if raw_date:
+            try:
+                # Parse timestamp dari Supabase
+                dt = datetime.fromisoformat(str(raw_date).replace('Z', '+00:00'))
+                version_code = dt.strftime('%m%y') 
+            except:
+                version_code = "-"
+        else:
+            version_code = "-"
+
+    # 2. FORMAT TEXT STANDAR (SAMA DENGAN HASIL CARI)
     clean_nopol = clean_text(unit_data.get('nopol'))
     clean_unit = clean_text(unit_data.get('type'))
+    
     return (
         f"{header_title}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"👤 <b>Penemu:</b> {clean_text(matel_user.get('nama_lengkap'))} ({clean_text(matel_user.get('agency'))})\n"
-        f"📍 <b>Lokasi:</b> {clean_text(matel_user.get('alamat'))}\n\n"
+        f"📍 <b>Lokasi:</b> {clean_text(matel_user.get('alamat'))}\n"
+        f"----------------------------------\n"
         f"🚙 <b>Unit:</b> {clean_unit}\n"
         f"🔢 <b>Nopol:</b> {clean_nopol}\n"
         f"📅 <b>Tahun:</b> {clean_text(unit_data.get('tahun'))}\n"
@@ -1485,8 +1503,9 @@ def create_notification_text(matel_user, unit_data, header_title):
         f"🔧 <b>Noka:</b> {clean_text(unit_data.get('noka'))}\n"
         f"⚙️ <b>Nosin:</b> {clean_text(unit_data.get('nosin'))}\n"
         f"----------------------------------\n"
-        f"⚠️ <b>OVD:</b> {clean_text(unit_data.get('ovd'))}\n"
         f"🏦 <b>Finance:</b> {clean_text(unit_data.get('finance'))}\n"
+        f"🗓️ <b>DATA: {version_code}</b>\n" # <--- FITUR BARU
+        f"⚠️ <b>OVD:</b> {clean_text(unit_data.get('ovd'))}\n"       
         f"🏢 <b>Branch:</b> {clean_text(unit_data.get('branch'))}\n"
         f"━━━━━━━━━━━━━━━━━━"
     )
