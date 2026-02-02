@@ -1591,25 +1591,28 @@ BACKGROUND_TASKS = set()
 
 async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
     """
-    Versi 'SEND NEW MESSAGE': 
-    Tidak mengedit pesan lama (rawan timeout), tapi mengirim pesan baru saat selesai.
+    Versi UPDATE: Menambahkan 'data_month' (Format MMYY) otomatis.
     """
     print(f"🚀 [BG] START Task User {user_id}")
     
+    # --- [BARU] GENERATE KODE BULAN (MMYY) ---
+    # Contoh: Februari 2026 -> "0226"
+    now = datetime.now(TZ_JAKARTA)
+    code_version = now.strftime('%m%y') 
+    # -----------------------------------------
+
     # 1. SETUP
     mode = data_ctx.get('upload_mode', 'UPSERT')
     path = data_ctx.get('upload_path')
     is_pic = False
     
-    # Helper: Kirim Pesan Baru (Bukan Edit)
+    # Helper: Kirim Pesan Baru
     async def send_update(text):
-        try: 
-            await app.bot.send_message(chat_id=chat_id, text=text, parse_mode='HTML')
-        except Exception as e: 
-            print(f"⚠️ Gagal Kirim Pesan: {e}")
+        try: await app.bot.send_message(chat_id=chat_id, text=text, parse_mode='HTML')
+        except Exception as e: print(f"⚠️ Gagal Kirim Pesan: {e}")
 
     try:
-        # DOWNLOAD (Jika PIC)
+        # DOWNLOAD FILE (Logic sama seperti sebelumnya...)
         if not path:
             is_pic = True
             fname = data_ctx.get('upload_file_name', 'data.xlsx')
@@ -1621,14 +1624,12 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
                 await send_update(f"❌ Gagal Download File: {e}")
                 return
 
-        # 2. BACA FILE
+        # BACA FILE (Logic sama...)
         if not os.path.exists(path):
             await send_update("❌ Error: File hilang dari server.")
             return
 
         print("📂 [BG] Membaca File...")
-        
-        # Baca file
         with open(path, 'rb') as fr: content = fr.read()
         df = read_file_robust(content, path)
         df = fix_header_position(df)
@@ -1646,43 +1647,47 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
         df = df[df['nopol'].str.len() > 2]
         df = df.drop_duplicates(subset=['nopol'], keep='last')
         
+        # Pastikan kolom DB lengkap
         for c in VALID_DB_COLUMNS:
             if c not in df.columns: df[c] = None
+            
+        # --- [BARU] INJEKSI KODE BULAN KE DATAFRAME ---
+        df['data_month'] = code_version
+        # ----------------------------------------------
+        
         df = df.replace({np.nan: None})
         
-        recs = json.loads(json.dumps(df[VALID_DB_COLUMNS].to_dict('records'), default=str))
-        total_data = len(recs)
+        # [PENTING] Tambahkan 'data_month' ke list kolom yang akan di-insert
+        # Kita konversi ke dict records
+        cols_to_use = VALID_DB_COLUMNS + ['data_month'] # Tambah kolom baru
+        recs = json.loads(json.dumps(df[cols_to_use].to_dict('records'), default=str))
         
-        print(f"✅ [BG] Total Data: {total_data}")
+        total_data = len(recs)
+        print(f"✅ [BG] Total Data: {total_data} (Versi: {code_version})")
 
         if total_data == 0:
             await send_update("⚠️ <b>FILE KOSONG / TIDAK VALID.</b>")
             if os.path.exists(path): os.remove(path)
             return
 
-        # 3. UPLOAD BATCH
+        # 3. UPLOAD BATCH (Logic sama...)
         BATCH_SIZE = 1000 
         if mode == 'DELETE': BATCH_SIZE = 500
         
-        suc = 0
-        fail = 0
-        start_time = time.time()
-        
+        suc = 0; fail = 0; start_time = time.time()
         leasing_info = clean_text(data_ctx.get('target_leasing') or 'MIX')
         action_txt = "MENGHAPUS" if mode == 'DELETE' else "MENGUPDATE"
 
-        # Kirim Pesan STATUS AWAL (Pesan Baru)
         await send_update(
             f"🔄 <b>SEDANG MEMPROSES...</b>\n"
             f"📂 Total: {total_data:,} Data\n"
+            f"🗓️ <b>Versi Data: {code_version}</b>\n" # Info ke Admin
             f"📝 Mode: {action_txt}\n\n"
-            f"<i>Bot sedang bekerja senyap. Anda akan menerima laporan saat selesai.</i>"
+            f"<i>Bot sedang bekerja senyap...</i>"
         )
 
-        # LOOPING TANPA INTERUPSI
         for i in range(0, total_data, BATCH_SIZE):
-            await asyncio.sleep(0.01) # Jeda mikro
-            
+            await asyncio.sleep(0.01)
             batch = recs[i:i+BATCH_SIZE]
             try:
                 if mode == 'DELETE':
@@ -1692,28 +1697,25 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
                         q = q.eq('finance', standardize_leasing_name(target))
                     q.execute()
                 else:
+                    # Upsert dengan kolom data_month baru
                     supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
                 suc += len(batch)
             except Exception as e:
                 fail += len(batch)
                 print(f"Batch Err: {e}")
-            
-            # Print Log ke Terminal setiap 2000 data (Biar admin tahu bot jalan)
-            if i % 2000 == 0:
-                print(f"⏳ [BG] Progress: {i}/{total_data}")
+            if i % 2000 == 0: print(f"⏳ [BG] Progress: {i}/{total_data}")
 
         duration = int(time.time() - start_time)
-        
-        # 4. LAPORAN AKHIR (Pesan Baru Lagi)
         final_rpt = (
             f"✅ <b>PROSES SELESAI!</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"📂 Total Data: {total_data:,}\n"
+            f"📂 Total: {total_data:,}\n"
+            f"🗓️ <b>Versi Data: {code_version}</b>\n"
             f"✅ Sukses: {suc:,}\n"
             f"❌ Gagal: {fail:,}\n"
             f"⏱️ Waktu: {duration} detik\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"Data <b>{leasing_info}</b> telah selesai diproses."
+            f"Data <b>{leasing_info}</b> telah terupdate."
         )
         await send_update(final_rpt)
         print(f"🏁 [BG] Done. Suc: {suc}")
@@ -2378,17 +2380,78 @@ async def handle_message(update, context):
     except Exception as e: logger.error(f"Search error: {e}"); await update.message.reply_text("❌ Error DB.")
 
 async def show_unit_detail_original(update, context, d, u):
-    txt = (f"🚨 <b>UNIT DITEMUKAN! (HIT)</b>\n━━━━━━━━━━━━━━━━━━\n🚙 <b>Unit:</b> {clean_text(d.get('type', '-'))}\n🔢 <b>Nopol:</b> {clean_text(d.get('nopol', '-'))}\n🎨 <b>Warna:</b> {clean_text(d.get('warna', '-'))}\n📅 <b>Tahun:</b> {clean_text(d.get('tahun', '-'))}\n----------------------------------\n🔧 <b>Noka:</b> {clean_text(d.get('noka', '-'))}\n⚙️ <b>Nosin:</b> {clean_text(d.get('nosin', '-'))}\n----------------------------------\n🏦 <b>Finance:</b> {clean_text(d.get('finance', '-'))}\n⚠️ <b>OVD:</b> {clean_text(d.get('ovd', '-'))}\n🏢 <b>Branch:</b> {clean_text(d.get('branch', '-'))}\n━━━━━━━━━━━━━━━━━━\nInformasi ini BUKAN alat yang SAH untuk penarikan unit (Eksekusi).\nMohon untuk konfirmasi ke Pic Leasing atau Kantor.")
-    share_text = (f"*LAPORAN TEMUAN UNIT (ONE ASPAL)*\n----------------------------------\n🚙 Unit: {d.get('type', '-')}\n🔢 Nopol: {d.get('nopol', '-')}\n🎨 Warna: {d.get('warna', '-')}\n📅 Tahun: {d.get('tahun', '-')}\n🔧 Noka: {d.get('noka', '-')}\n⚙️ Nosin: {d.get('nosin', '-')}\n🏦 Finance: {d.get('finance', '-')}\n⚠️ OVD: {d.get('ovd', '-')}\n🏢 Branch: {d.get('branch', '-')}\n📍 Lokasi: {u.get('alamat', '-')}\n👤 Penemu: {u.get('nama_lengkap', '-')} ({u.get('agency', '-')})\n----------------------------------\n⚠️ *PENTING & DISCLAIMER:*\nInformasi ini BUKAN alat yang SAH untuk penarikan unit (Eksekusi).\nMohon untuk konfirmasi ke Pic Leasing atau Kantor.")
-    encoded_text = urllib.parse.quote(share_text); wa_url = f"https://wa.me/?text={encoded_text}"
+    # Ambil Kode Bulan (Default '-' jika data lama belum ada kodenya)
+    version_code = d.get('data_month', '-')
+    
+    # Format Text Utama (Tampilan di Telegram)
+    txt = (
+        f"🚨 <b>UNIT DITEMUKAN! (HIT)</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🚙 <b>Unit:</b> {clean_text(d.get('type', '-'))}\n"
+        f"🔢 <b>Nopol:</b> {clean_text(d.get('nopol', '-'))}\n"
+        f"🎨 <b>Warna:</b> {clean_text(d.get('warna', '-'))}\n"
+        f"📅 <b>Tahun:</b> {clean_text(d.get('tahun', '-'))}\n"
+        f"----------------------------------\n"
+        f"🔧 <b>Noka:</b> {clean_text(d.get('noka', '-'))}\n"
+        f"⚙️ <b>Nosin:</b> {clean_text(d.get('nosin', '-'))}\n"
+        f"----------------------------------\n"
+        f"🏦 <b>Finance:</b> {clean_text(d.get('finance', '-'))}\n"
+        f"🗓️ <b>DATA: {version_code}</b>\n"  # <--- FITUR BARU (VERSI DATA)
+        f"⚠️ <b>OVD:</b> {clean_text(d.get('ovd', '-'))}\n"
+        f"🏢 <b>Branch:</b> {clean_text(d.get('branch', '-'))}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"Informasi ini BUKAN alat yang SAH untuk penarikan unit (Eksekusi).\n"
+        f"Mohon untuk konfirmasi ke Pic Leasing atau Kantor."
+    )
+    
+    # Format Text Share WA (Isinya disamakan agar rapi)
+    share_text = (
+        f"*LAPORAN TEMUAN UNIT (ONE ASPAL)*\n"
+        f"----------------------------------\n"
+        f"🚙 Unit: {d.get('type', '-')}\n"
+        f"🔢 Nopol: {d.get('nopol', '-')}\n"
+        f"🎨 Warna: {d.get('warna', '-')}\n"
+        f"📅 Tahun: {d.get('tahun', '-')}\n"
+        f"🔧 Noka: {d.get('noka', '-')}\n"
+        f"⚙️ Nosin: {d.get('nosin', '-')}\n"
+        f"🏦 Finance: {d.get('finance', '-')}\n"
+        f"🗓️ Data: {version_code}\n" # <--- FITUR BARU DI WA
+        f"⚠️ OVD: {d.get('ovd', '-')}\n"
+        f"🏢 Branch: {d.get('branch', '-')}\n"
+        f"📍 Lokasi: {u.get('alamat', '-')}\n"
+        f"👤 Penemu: {u.get('nama_lengkap', '-')} ({u.get('agency', '-')})\n"
+        f"----------------------------------\n"
+        f"⚠️ *PENTING & DISCLAIMER:*\n"
+        f"Informasi ini BUKAN alat yang SAH untuk penarikan unit (Eksekusi).\n"
+        f"Mohon untuk konfirmasi ke Pic Leasing atau Kantor."
+    )
+    
+    # Generate Link WA & Nopol Safe
+    encoded_text = urllib.parse.quote(share_text)
+    wa_url = f"https://wa.me/?text={encoded_text}"
     nopol_safe = d['nopol'].replace(" ", "") 
-    kb = [[InlineKeyboardButton("📲 SHARE KE WA (Lapor PIC)", url=wa_url)], [InlineKeyboardButton("📋 SALIN TEKS LENGKAP", callback_data=f"cp_{nopol_safe}")]]
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+    
+    # Keyboard Tombol
+    kb = [
+        [InlineKeyboardButton("📲 SHARE KE WA (Lapor PIC)", url=wa_url)], 
+        [InlineKeyboardButton("📋 SALIN TEKS LENGKAP", callback_data=f"cp_{nopol_safe}")]
+    ]
+    
+    # Kirim Pesan ke User
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id, 
+        text=txt, 
+        reply_markup=InlineKeyboardMarkup(kb), 
+        parse_mode='HTML'
+    )
+    
+    # Trigger Notifikasi ke Grup-Grup
     await notify_hit_to_group(context, u, d)    # Ke Admin Pusat
     await notify_leasing_group(context, u, d)   # Ke Leasing
     await notify_agency_group(context, u, d)    # Ke Agency
+    
+    # Catat Statistik & Log
     increment_daily_usage(u['user_id'], u.get('daily_usage', 0))
-    # [FIX CALL] Pass full user object 'u' instead of just id/name
     log_successful_hit(u, d)
 
 async def show_multi_choice(update, context, data_list, keyword):
