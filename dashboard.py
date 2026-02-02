@@ -17,11 +17,14 @@ import re
 import numpy as np
 import io
 import zipfile
-import pytz  
+import pytz # Pastikan baris ini ada
 import requests 
 from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 from dotenv import load_dotenv
+
+# DEFINISI ZONA WAKTU (Agar tidak error TZ_JAKARTA)
+TZ_JAKARTA = pytz.timezone('Asia/Jakarta')
 
 # [FIX] Import ClientOptions untuk menangani Timeout Client
 try:
@@ -329,36 +332,69 @@ with tab2:
 # --- TAB 3: UPLOAD FILE (BATCH 100 ANTI-TIMEOUT & FIX NULL NOPOL) ---
 with tab3:
     if st.session_state['upload_stage'] == 'idle':
-        up = st.file_uploader("DROP FILE", type=['xlsx','csv','txt','zip'], label_visibility="collapsed", key="file_up_analyze")
+        # UPDATE: Tambahkan 'xls' agar bisa upload file Excel 97-2003
+        up = st.file_uploader("DROP FILE", type=['xlsx','xls','csv','txt','zip'], label_visibility="collapsed", key="file_up_analyze")
+        
         if up and st.button("🔍 ANALISA", key="btn_analyze"):
-            df = read_file_robust(up)
+            # Pastikan fungsi read_file_robust di dashboard.py Anda sudah support xlrd
+            df = read_file_robust(up) 
             if not df.empty:
                 df, cols = smart_rename_columns(fix_header_position(df))
-                if 'nopol' in df.columns: st.session_state['upload_data_cache'], st.session_state['upload_found_cols'], st.session_state['upload_stage'] = df, cols, 'preview'; st.rerun()
-                else: st.error("NOPOL NOT FOUND")
+                if 'nopol' in df.columns: 
+                    st.session_state['upload_data_cache'], st.session_state['upload_found_cols'], st.session_state['upload_stage'] = df, cols, 'preview'
+                    st.rerun()
+                else: 
+                    st.error("❌ NOPOL NOT FOUND. Pastikan ada kolom NOPOL di file Anda.")
+            else:
+                st.error("❌ Gagal membaca file atau file kosong.")
+
     elif st.session_state['upload_stage'] == 'preview':
         df = st.session_state['upload_data_cache']
-        st.info(f"COLS: {st.session_state['upload_found_cols']} | TOTAL: {len(df)}")
+        st.info(f"✅ TERDETEKSI: {len(df)} Baris Data | Kolom: {st.session_state['upload_found_cols']}")
         st.dataframe(df.head(), use_container_width=True)
-        l_in = st.text_input("LEASING NAME (Opsional):", key="input_leasing_name") if 'finance' not in df.columns else ""
+        
+        # Input Leasing Opsional
+        l_in = st.text_input("🏦 NAMA LEASING (Opsional - Jika kosong di file):", key="input_leasing_name") if 'finance' not in df.columns else ""
+        
         c1, c2 = st.columns(2)
         with c1: 
-            if st.button("❌ RESET", key="btn_reset"): st.session_state['upload_stage']='idle'; st.rerun()
+            if st.button("❌ BATAL / RESET", key="btn_reset"): 
+                st.session_state['upload_stage']='idle'
+                st.rerun()
         with c2:
-            if st.button("🚀 UPDATE DATABASE", key="btn_update"):
+            if st.button("🚀 EKSEKUSI UPDATE", key="btn_update"):
+                # Logic Standarisasi Leasing
                 if l_in: df['finance'] = standardize_leasing_name(l_in)
+                
+                # Pembersihan Nopol
                 df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
                 df['nopol'] = df['nopol'].replace({'': np.nan, 'NAN': np.nan, 'NONE': np.nan})
                 df = df.dropna(subset=['nopol'])
                 df = df.drop_duplicates(subset=['nopol'])
-                for c in ['type','finance','tahun','warna','noka','nosin','ovd','branch']:
+                
+                # --- UPDATE: DATA VERSIONING (KODE BULAN) ---
+                # Tambahkan kolom data_month otomatis saat upload via Dashboard
+                now = datetime.now(TZ_JAKARTA)
+                code_version = now.strftime('%m%y')
+                df['data_month'] = code_version
+                # --------------------------------------------
+
+                # Pastikan Kolom Lengkap
+                required_cols = ['type','finance','tahun','warna','noka','nosin','ovd','branch','data_month']
+                for c in required_cols:
                     if c not in df.columns: df[c] = None 
                     else: df[c] = df[c].replace({np.nan: None, "": None})
-                recs = df[['nopol','type','finance','tahun','warna','noka','nosin','ovd','branch']].to_dict('records')
+                
+                # Konversi ke Records
+                recs = df[['nopol'] + required_cols].to_dict('records')
+                
+                # Batch Upload Process
                 BATCH_SIZE = 100 
-                s, f, pb = 0, 0, st.progress(0, "Uploading...")
+                s, f = 0, 0
+                pb = st.progress(0, f"Memproses {len(recs)} data...")
                 total_recs = len(recs)
                 last_error = ""
+                
                 for i in range(0, total_recs, BATCH_SIZE):
                     batch = recs[i:i+BATCH_SIZE]
                     try: 
@@ -368,15 +404,22 @@ with tab3:
                         f += len(batch)
                         last_error = str(e)
                     pb.progress(min((i+BATCH_SIZE)/total_recs, 1.0))
+                
                 st.session_state['upload_result'] = {'suc': s, 'fail': f, 'err': last_error}
-                st.session_state['upload_stage'] = 'complete'; st.rerun()
+                st.session_state['upload_stage'] = 'complete'
+                st.rerun()
+
     elif st.session_state['upload_stage'] == 'complete':
         r = st.session_state['upload_result']
-        if r['fail'] == 0: st.success(f"✅ SUKSES TOTAL: {r['suc']} Data")
+        if r['fail'] == 0: 
+            st.success(f"✅ SUKSES TOTAL! {r['suc']} Data Berhasil Diupdate.")
         else:
-            st.warning(f"⚠️ SELESAI DENGAN ERROR\n✅ Sukses: {r['suc']}\n❌ Gagal: {r['fail']}")
-            if r['err']: st.error(f"🔍 Penyebab Error Terakhir: {r['err']}")
-        if st.button("BACK", key="btn_back"): st.session_state['upload_stage']='idle'; st.rerun()
+            st.warning(f"⚠️ SELESAI DENGAN CATATAN\n✅ Sukses: {r['suc']}\n❌ Gagal: {r['fail']}")
+            if r['err']: st.error(f"🔍 Info Error: {r['err']}")
+        
+        if st.button("⬅️ UPLOAD LAGI", key="btn_back"): 
+            st.session_state['upload_stage']='idle'
+            st.rerun()
 
 # --- TAB 4: HAPUS MASSAL ---
 with tab4:
