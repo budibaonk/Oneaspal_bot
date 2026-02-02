@@ -2380,10 +2380,24 @@ async def handle_message(update, context):
     except Exception as e: logger.error(f"Search error: {e}"); await update.message.reply_text("❌ Error DB.")
 
 async def show_unit_detail_original(update, context, d, u):
-    # Ambil Kode Bulan (Default '-' jika data lama belum ada kodenya)
-    version_code = d.get('data_month', '-')
+    # --- LOGIKA CERDAS: DETEKSI VERSI DATA ---
+    version_code = d.get('data_month')
     
-    # Format Text Utama (Tampilan di Telegram)
+    # Jika data_month kosong (Data Lama), ambil dari created_at
+    if not version_code or version_code in ['-', None, '']:
+        raw_date = d.get('created_at')
+        if raw_date:
+            try:
+                # Parse timestamp dari Supabase (String ISO)
+                # Contoh: 2026-01-25T14:30:00+00:00 -> ambil Bulan & Tahun
+                dt = datetime.fromisoformat(str(raw_date).replace('Z', '+00:00'))
+                version_code = dt.strftime('%m%y') # Hasil: 0126
+            except:
+                version_code = "-"
+        else:
+            version_code = "-"
+    # -----------------------------------------
+
     txt = (
         f"🚨 <b>UNIT DITEMUKAN! (HIT)</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
@@ -2396,7 +2410,7 @@ async def show_unit_detail_original(update, context, d, u):
         f"⚙️ <b>Nosin:</b> {clean_text(d.get('nosin', '-'))}\n"
         f"----------------------------------\n"
         f"🏦 <b>Finance:</b> {clean_text(d.get('finance', '-'))}\n"
-        f"🗓️ <b>DATA: {version_code}</b>\n"  # <--- FITUR BARU (VERSI DATA)
+        f"🗓️ <b>DATA: {version_code}</b>\n"  # <--- AKAN MUNCUL '0126' OTOMATIS
         f"⚠️ <b>OVD:</b> {clean_text(d.get('ovd', '-'))}\n"
         f"🏢 <b>Branch:</b> {clean_text(d.get('branch', '-'))}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
@@ -2404,7 +2418,7 @@ async def show_unit_detail_original(update, context, d, u):
         f"Mohon untuk konfirmasi ke Pic Leasing atau Kantor."
     )
     
-    # Format Text Share WA (Isinya disamakan agar rapi)
+    # Format Share WA (Juga update agar sinkron)
     share_text = (
         f"*LAPORAN TEMUAN UNIT (ONE ASPAL)*\n"
         f"----------------------------------\n"
@@ -2415,7 +2429,7 @@ async def show_unit_detail_original(update, context, d, u):
         f"🔧 Noka: {d.get('noka', '-')}\n"
         f"⚙️ Nosin: {d.get('nosin', '-')}\n"
         f"🏦 Finance: {d.get('finance', '-')}\n"
-        f"🗓️ Data: {version_code}\n" # <--- FITUR BARU DI WA
+        f"🗓️ Data: {version_code}\n"
         f"⚠️ OVD: {d.get('ovd', '-')}\n"
         f"🏢 Branch: {d.get('branch', '-')}\n"
         f"📍 Lokasi: {u.get('alamat', '-')}\n"
@@ -2426,18 +2440,15 @@ async def show_unit_detail_original(update, context, d, u):
         f"Mohon untuk konfirmasi ke Pic Leasing atau Kantor."
     )
     
-    # Generate Link WA & Nopol Safe
     encoded_text = urllib.parse.quote(share_text)
     wa_url = f"https://wa.me/?text={encoded_text}"
     nopol_safe = d['nopol'].replace(" ", "") 
     
-    # Keyboard Tombol
     kb = [
         [InlineKeyboardButton("📲 SHARE KE WA (Lapor PIC)", url=wa_url)], 
         [InlineKeyboardButton("📋 SALIN TEKS LENGKAP", callback_data=f"cp_{nopol_safe}")]
     ]
     
-    # Kirim Pesan ke User
     await context.bot.send_message(
         chat_id=update.effective_chat.id, 
         text=txt, 
@@ -2445,12 +2456,9 @@ async def show_unit_detail_original(update, context, d, u):
         parse_mode='HTML'
     )
     
-    # Trigger Notifikasi ke Grup-Grup
-    await notify_hit_to_group(context, u, d)    # Ke Admin Pusat
-    await notify_leasing_group(context, u, d)   # Ke Leasing
-    await notify_agency_group(context, u, d)    # Ke Agency
-    
-    # Catat Statistik & Log
+    await notify_hit_to_group(context, u, d)
+    await notify_leasing_group(context, u, d)
+    await notify_agency_group(context, u, d)
     increment_daily_usage(u['user_id'], u.get('daily_usage', 0))
     log_successful_hit(u, d)
 
