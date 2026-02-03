@@ -675,70 +675,139 @@ async def rekap_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Rekap Error: {e}")
         await msg.edit_text(f"❌ Gagal menarik data rekap: {e}")
 
-async def rekap_spesifik(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
+# --- [UPDATE FINAL] MASTER REKAP ENGINE (ADMIN, PIC, KORLAP) ---
+async def rekap_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    u = get_user(user_id)
     
+    # 1. CEK OTORITAS & IDENTITAS
+    if not u or u.get('role') not in ['admin', 'superadmin', 'korlap', 'pic']:
+        return # User biasa (Matel) tidak bisa akses
+    
+    role = u.get('role')
+    my_agency = str(u.get('agency', '')).upper().strip() # Untuk PIC/Korlap
+    
+    # 2. PARSING KEYWORD
+    # Input: /rekap atau /rekapBCA atau /rekapElang
     raw_text = update.message.text.split()[0]
-    target_leasing = raw_text.lower().replace("/rekap", "").strip().upper()
+    keyword = raw_text.lower().replace("/rekap", "").replace("_", "").strip().upper()
     
-    if not target_leasing: return 
-    
-    msg = await update.message.reply_text(f"⏳ **Mencari Data Temuan: {target_leasing}...**", parse_mode='Markdown')
-    
+    msg = await update.message.reply_text(f"⏳ **Mengolah Data Harian...**", parse_mode='Markdown')
+
     try:
+        # 3. TARIK DATA HARIAN (Global dulu, baru difilter)
         now = datetime.now(TZ_JAKARTA)
         start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
         
-        res = supabase.table('finding_logs').select("*")\
-            .gte('created_at', start_of_day.isoformat())\
-            .ilike('leasing', f'%{target_leasing}%')\
-            .order('created_at', desc=True)\
-            .execute()
+        res = supabase.table('finding_logs').select("*").gte('created_at', start_of_day.isoformat()).execute()
+        all_logs = res.data
         
-        data = res.data
-        total_hits = len(data)
-        
-        if total_hits == 0:
-            return await msg.edit_text(f"📊 **REKAP HARIAN: {target_leasing}**\n\nNihil. Belum ada unit ditemukan hari ini.")
-            
-        header = (
-            f"📊 **LAPORAN HARIAN KHUSUS: {target_leasing}**\n"
-            f"📅 Tanggal: {now.strftime('%d %b %Y')}\n"
-            f"🔥 **Total Hit:** {total_hits} Unit\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-        )
-        
-        footer = "\n━━━━━━━━━━━━━━━━━━\n#OneAspalAnalytics"
-        
-        messages = []
-        current_report = header
-        
-        for i, d in enumerate(data):
-            nopol = d.get('nopol', '-')
-            unit = d.get('unit', '-')
-            matel = d.get('nama_matel', 'Anonim')
-            hp = d.get('no_hp', 'No HP -')
-            pt = d.get('nama_pt', 'PT -')
-            
-            line = f"{i+1}. **{nopol}** | {unit}\n"
-            line += f"   └ 👤 {matel} ({hp}) | 🏢 {pt}\n"
-            
-            if len(current_report) + len(line) + len(footer) > 3800:
-                messages.append(current_report + footer)
-                current_report = f"📊 **LANJUTAN REKAP: {target_leasing}**\n━━━━━━━━━━━━━━━━━━\n" + line
+        if not all_logs:
+            return await msg.edit_text(f"📊 **REKAP HARIAN**\n\nNihil. Belum ada unit ditemukan hari ini (Global).")
+
+        # 4. LOGIKA FILTERING (CORE ENGINE)
+        target_data = []
+        mode_tampilan = "SUMMARY" # Default: Statistik Angka
+        header_context = "GLOBAL"
+
+        # --- SKENARIO A: ADMIN / SUPERADMIN ---
+        if role in ['admin', 'superadmin']:
+            if not keyword: 
+                # Jika cuma /rekap -> Tampilkan SEMUA (Global Summary)
+                target_data = all_logs
+                header_context = "GLOBAL (ADMIN)"
             else:
-                current_report += line
-        
-        messages.append(current_report + footer)
-        
-        for index, text in enumerate(messages):
-            if index == 0:
-                await msg.edit_text(text, parse_mode='Markdown')
+                # Jika /rekapBCA -> Cari di Leasing ATAU PT
+                target_data = [l for l in all_logs if keyword in (str(l.get('leasing',''))+str(l.get('nama_pt',''))).upper().replace(" ","")]
+                mode_tampilan = "DETAIL" # Admin minta spesifik -> kasih detil
+                header_context = f"SEARCH: {keyword}"
+
+        # --- SKENARIO B: PIC LEASING ---
+        elif role == 'pic':
+            # PIC otomatis terkunci ke Leasingnya sendiri (misal: BCA)
+            # Standarisasi nama leasing dari profil user
+            my_leasing_std = standardize_leasing_name(my_agency)
+            
+            # Filter logs yang leasingnya mengandung nama leasing PIC
+            target_data = [l for l in all_logs if my_leasing_std in str(l.get('leasing','')).upper()]
+            
+            header_context = f"INTERNAL {my_leasing_std}"
+            mode_tampilan = "DETAIL" # PIC biasanya ingin lihat rincian langsung
+
+        # --- SKENARIO C: KORLAP / AGENCY ---
+        elif role == 'korlap':
+            if not keyword:
+                # Jika cuma /rekap -> Otomatis filter Agency dia sendiri
+                # Gunakan logic string contain sederhana
+                target_data = [l for l in all_logs if my_agency in str(l.get('nama_pt','')).upper()]
+                header_context = f"AGENCY {my_agency}"
             else:
-                await context.bot.send_message(chat_id=update.effective_chat.id, text=text, parse_mode='Markdown')
+                # Jika /rekapBCA -> Dia ingin lihat Agency Dia TAPI khusus Leasing BCA
+                target_data = [l for l in all_logs if my_agency in str(l.get('nama_pt','')).upper() and keyword in str(l.get('leasing','')).upper()]
+                mode_tampilan = "DETAIL"
+                header_context = f"{my_agency} ({keyword})"
+
+        # 5. RENDER TAMPILAN
+        if not target_data:
+             return await msg.edit_text(f"🔍 **Data Kosong**\nKonteks: {header_context}\nTidak ada temuan hari ini.")
+
+        # TAMPILAN DETAIL (List Nopol)
+        if mode_tampilan == "DETAIL":
+            rpt = (
+                f"📋 **RINCIAN TEMUAN HARIAN**\n"
+                f"🔍 **Konteks:** {header_context}\n"
+                f"📅 **Tanggal:** {now.strftime('%d %b %Y')}\n"
+                f"🔥 **Total:** {len(target_data)} Unit\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+            )
+            body = ""
+            for i, d in enumerate(target_data):
+                nopol = d.get('nopol', '-')
+                unit = d.get('unit', '-')
+                matel = d.get('nama_matel', 'Anonim')
+                hp = d.get('no_hp', '-')
+                leasing_lbl = d.get('leasing', '-')
+                pt_lbl = d.get('nama_pt', '-')
                 
+                # Format Baris
+                row = f"{i+1}. **{nopol}** | {unit}\n"
+                # Jika Admin, tampilkan PT juga. Jika Agency, tampilkan Leasing.
+                if role in ['admin', 'superadmin']:
+                    row += f"   └ 🏢 {pt_lbl} | 🏦 {leasing_lbl}\n"
+                else:
+                    row += f"   └ 🏦 {leasing_lbl} | 👤 {matel}\n"
+                
+                if len(rpt + body + row) > 3800:
+                    body += "\n...(Data terpotong, terlalu banyak)..."
+                    break
+                body += row
+            
+            await msg.edit_text(rpt + body, parse_mode='Markdown')
+
+        # TAMPILAN SUMMARY (Statistik Angka)
+        else:
+            # Hitung Statistik by Leasing
+            stats = {}
+            for x in target_data:
+                ls_name = x.get('leasing', 'UNKNOWN')
+                stats[ls_name] = stats.get(ls_name, 0) + 1
+            sorted_stats = sorted(stats.items(), key=lambda item: item[1], reverse=True)
+            
+            rpt = (
+                f"📊 **REKAP STATISTIK HARIAN**\n"
+                f"🏢 **Level:** {header_context}\n"
+                f"📅 **Tanggal:** {now.strftime('%d %b %Y')}\n"
+                f"🔥 **TOTAL GLOBAL:** {len(target_data)} Unit\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+            )
+            for ls, count in sorted_stats:
+                rpt += f"🔹 **{ls}:** {count} Unit\n"
+            
+            rpt += "\n💡 *Ketik /rekap[Nama] untuk filter spesifik.*"
+            await msg.edit_text(rpt, parse_mode='Markdown')
+
     except Exception as e:
-        logger.error(f"Rekap Spesifik Error: {e}")
+        logger.error(f"Master Rekap Error: {e}")
         await msg.edit_text(f"❌ Error: {e}")
 
 async def list_users(update, context):
@@ -3087,7 +3156,8 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('delinfo', del_info))        
     app.add_handler(CommandHandler('addagency', add_agency)) 
     app.add_handler(CommandHandler('adminhelp', admin_help)) 
-    app.add_handler(MessageHandler(filters.Regex(r'^/rekap[a-zA-Z0-9]+$') & filters.COMMAND, rekap_spesifik))
+    # Tangkap semua command yang diawali /rekap...
+    app.add_handler(MessageHandler(filters.Regex(r'^/rekap.*') & filters.COMMAND, rekap_handler))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo_topup))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
