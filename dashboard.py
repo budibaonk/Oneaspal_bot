@@ -303,44 +303,110 @@ with tab1:
             st.markdown(f'<div class="leaderboard-row"><div><b>#{i} {r[1]["nama_lengkap"]}</b><br><small>{r[1]["agency"]}</small></div><div class="leaderboard-val">{r[1]["h"]} HITS</div></div>', unsafe_allow_html=True)
 
 # --- TAB 2: MANAJEMEN PERSONIL ---
+# --- TAB 2: MANAJEMEN PERSONIL (USER) ---
 with tab2:
-    if not df_u.empty:
-        div = st.radio("DIV", ["🛡️ MATEL", "🏦 PIC LEASING"], horizontal=True, label_visibility="collapsed", key="radio_role_select")
-        target = df_u[df_u['role']!='pic'] if "MATEL" in div else df_u[df_u['role']=='pic']
-        target = target.sort_values(by="nama_lengkap", key=lambda col: col.str.lower())
-        sel = st.selectbox("SEARCH AGENT", [f"{r['nama_lengkap']} | {r['agency']}" for i, r in target.iterrows()], label_visibility="collapsed", key="select_agent_search")
-        if sel:
-            uid = target[target['nama_lengkap']==sel.split(' | ')[0]].iloc[0]['user_id']
-            u = target[target['user_id']==uid].iloc[0]
-            st.markdown(f'''<div class="tech-box"><h3>{u["nama_lengkap"]}</h3><hr style="border-color:rgba(255,255,255,0.1); margin:15px 0;"><div class="info-grid"><div class="info-item"><span class="info-label">STATUS</span><span class="info-value" style="color:{'#0f0' if u["status"]=="active" else "#f00"}">{u["status"].upper()}</span></div><div class="info-item"><span class="info-label">NO HP / WA</span><span class="info-value">{u.get("no_hp", "-")}</span></div><div class="info-item"><span class="info-label">PT / AGENCY</span><span class="info-value">{u.get("agency", "-")}</span></div><div class="info-item"><span class="info-label">DOMISILI</span><span class="info-value">{u.get("alamat", "-")}</span></div><div class="info-item"><span class="info-label">EXPIRY</span><span class="info-value">{str(u["expiry_date"])[:10]}</span></div><div class="info-item"><span class="info-label">QUOTA</span><span class="info-value">{u.get("quota",0)}</span></div><div class="info-item" style="grid-column:span 2;border:1px solid #00f2ff;"><span class="info-label">LIFETIME HITS</span><span class="info-value" style="color:#00f2ff;">{hits.get(uid,0)} FOUND</span></div></div></div>''', unsafe_allow_html=True)
-            st.write("---")
-            c_day, c_btn = st.columns([1, 2])
-            with c_day: days_add = st.number_input("JUMLAH HARI", min_value=1, max_value=365, value=30, label_visibility="collapsed", key="num_days_add")
-            b1, b2, b3 = st.columns(3)
-            with b1:
-                if st.button(f"➕ TAMBAH KUOTA", key="btn_add_quota", use_container_width=True):
-                    is_success, msg_feedback = add_user_quota(uid, days_add)
-                    if is_success: st.toast(f"✅ {msg_feedback}", icon="🎉"); time.sleep(1); st.rerun()
-                    else: st.error(f"❌ GAGAL UPDATE: {msg_feedback}")
-            with b2:
-                btn_label = "⛔ FREEZE AKUN" if u['status']=='active' else "✅ BUKA FREEZE"
-                if st.button(btn_label, key="btn_freeze", use_container_width=True):
-                    new_stat = 'banned' if u['status']=='active' else 'active'
-                    update_user_status(uid, new_stat); st.toast(f"Status: {new_stat.upper()}", icon="🔄"); time.sleep(1); st.rerun()
-            with b3:
-                if st.button("🗑️ HAPUS AKUN", key="btn_del_req", use_container_width=True): st.session_state[f'del_confirm_{uid}'] = True
-            if st.session_state.get(f'del_confirm_{uid}', False):
-                st.warning("⚠️ KONFIRMASI PENGHAPUSAN")
-                del_reason = st.text_input("📝 ALASAN MENGHAPUS (Wajib Diisi):", key=f"reason_{uid}")
-                cd1, cd2 = st.columns(2)
-                with cd1:
-                    if st.button("❌ BATAL", key=f"cancel_{uid}"): st.session_state[f'del_confirm_{uid}'] = False; st.rerun()
-                with cd2:
-                    if st.button("✅ KONFIRMASI HAPUS", key=f"confirm_{uid}"):
-                        if del_reason.strip():
-                            if delete_user_with_reason(uid, del_reason): st.success("User dihapus."); st.session_state[f'del_confirm_{uid}'] = False; time.sleep(1); st.rerun()
-                            else: st.error("Gagal menghapus user.")
-                        else: st.error("Isi alasan dulu.")
+    st.header("👥 DATA PERSONIL & ROLE MANAGEMENT")
+    
+    # 1. LOAD DATA USER
+    res = supabase.table('users').select("*").execute()
+    users = res.data
+    
+    if users:
+        df_users = pd.DataFrame(users)
+        
+        # Tampilkan Metrik Singkat
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Total User", len(df_users))
+        m2.metric("Matel", len(df_users[df_users['role'] == 'matel']))
+        m3.metric("Korlap", len(df_users[df_users['role'] == 'korlap']))
+        m4.metric("PIC Leasing", len(df_users[df_users['role'] == 'pic']))
+
+        # --- A. TABEL MONITORING ---
+        st.subheader("📋 Daftar Personil")
+        # Fitur Pencarian Cepat
+        search_query = st.text_input("🔍 Cari Nama / Agency / Role:", placeholder="Ketik nama matel...")
+        
+        if search_query:
+            mask = df_users.apply(lambda x: search_query.lower() in str(x).lower(), axis=1)
+            df_display = df_users[mask]
+        else:
+            df_display = df_users
+
+        st.dataframe(
+            df_display[['created_at', 'user_id', 'nama_lengkap', 'agency', 'role', 'status', 'expiry_date']], 
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.divider()
+
+        # --- B. PANEL EKSEKUSI ROLE (FITUR BARU) ---
+        st.subheader("👑 MANAJEMEN JABATAN (Promosi/Mutasi)")
+        
+        with st.container(border=True):
+            st.info("💡 Pilih personel di bawah ini untuk mengubah jabatannya.")
+            
+            # 1. Dropdown dengan Search (Format: Nama | Agency | Role Saat Ini)
+            # Kita buat list label yang informatif
+            user_options = [
+                f"{row['nama_lengkap']} | {row['agency']} (Saat ini: {row['role']}) | ID: {row['user_id']}" 
+                for index, row in df_users.iterrows()
+            ]
+            
+            selected_label = st.selectbox("👤 Pilih Personel:", options=user_options)
+            
+            # 2. Ambil User ID dari string yang dipilih
+            # Format string kita akhiri dengan "| ID: 12345" -> Kita split ambil elemen terakhir
+            if selected_label:
+                selected_id_str = selected_label.split("| ID: ")[-1]
+                selected_user_id = int(selected_id_str)
+                
+                # Extract nama untuk konfirmasi
+                selected_nama = selected_label.split("|")[0].strip()
+
+                st.write(f"Target Operasi: **{selected_nama}**")
+                
+                # 3. Tombol Eksekusi
+                c1, c2, c3, c4 = st.columns(4)
+                
+                with c1:
+                    if st.button("⬆️ ANGKAT JADI KORLAP", type="primary", use_container_width=True):
+                        try:
+                            supabase.table('users').update({'role': 'korlap'}).eq('user_id', selected_user_id).execute()
+                            st.success(f"✅ {selected_nama} resmi diangkat menjadi KORLAP!")
+                            time.sleep(1.5); st.rerun()
+                        except Exception as e:
+                            st.error(f"Gagal: {e}")
+
+                with c2:
+                    if st.button("⬇️ TURUNKAN JADI MATEL", use_container_width=True):
+                        try:
+                            supabase.table('users').update({'role': 'matel'}).eq('user_id', selected_user_id).execute()
+                            st.warning(f"⚠️ {selected_nama} diturunkan menjadi MATEL.")
+                            time.sleep(1.5); st.rerun()
+                        except Exception as e:
+                            st.error(f"Gagal: {e}")
+                
+                with c3:
+                    if st.button("👮 JADIKAN PIC LEASING", use_container_width=True):
+                        try:
+                            supabase.table('users').update({'role': 'pic'}).eq('user_id', selected_user_id).execute()
+                            st.info(f"ℹ️ {selected_nama} diubah menjadi PIC LEASING.")
+                            time.sleep(1.5); st.rerun()
+                        except Exception as e:
+                            st.error(f"Gagal: {e}")
+                            
+                with c4:
+                    if st.button("🚫 BLOKIR / BANNED", type="primary", use_container_width=True):
+                         try:
+                            supabase.table('users').update({'status': 'banned'}).eq('user_id', selected_user_id).execute()
+                            st.error(f"⛔ {selected_nama} telah DIBLOKIR.")
+                            time.sleep(1.5); st.rerun()
+                         except Exception as e:
+                            st.error(f"Gagal: {e}")
+
+    else:
+        st.warning("Belum ada data user.")
 
 # --- TAB 3: UPLOAD FILE (BATCH 100 ANTI-TIMEOUT & FIX NULL NOPOL) ---
 with tab3:
