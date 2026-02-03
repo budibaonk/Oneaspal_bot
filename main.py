@@ -199,6 +199,18 @@ def get_user(user_id):
         return response.data[0] if response.data else None
     except: return None
 
+# --- FUNGSI HELPER BARU (PASTIKAN ADA DI ATAS) ---
+def get_korlaps_by_agency(agency_name):
+    """Mencari list ID Korlap berdasarkan nama Agency (Case Insensitive)"""
+    try:
+        # Cari Korlap yang nama agency-nya mengandung kata kunci yang diinput
+        # Contoh: Input "Elang", akan nemu Korlap "PT Elang Perkasa"
+        res = supabase.table('users').select("user_id, nama_lengkap").eq('role', 'korlap').ilike('agency', f"%{agency_name}%").execute()
+        return res.data 
+    except Exception as e:
+        logger.error(f"Error finding Korlap: {e}")
+        return []
+
 def update_user_status(user_id, status):
     try:
         supabase.table('users').update({'status': status}).eq('user_id', user_id).execute()
@@ -2201,6 +2213,7 @@ async def register_photo_id(update, context):
     await update.message.reply_text(summary, reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True), parse_mode='Markdown')
     return R_CONFIRM
 
+# --- UPDATE FUNGSI REGISTER CONFIRM ---
 async def register_confirm(update, context):
     if update.message.text != "✅ KIRIM": return await cancel(update, context)
     
@@ -2223,22 +2236,44 @@ async def register_confirm(update, context):
         "status": "pending", 
         "role": role_db, 
         "ref_korlap": None,
-        "wilayah_korlap": branch_val  # <--- UPDATE INI (Simpan data Cabang)
+        "wilayah_korlap": branch_val
     }
     
     try:
+        # 1. Simpan ke Database
         supabase.table('users').insert(data_user).execute()
         
-        # Balasan ke User
+        # 2. Tentukan Siapa yang Harus Meng-Approve
+        approver_list = [] # List ID Telegram penerima notif
+        is_routed_to_korlap = False
+        
+        # Jika pendaftar adalah MATEL, cek apakah ada KORLAP di agency tersebut?
+        if role_db == 'matel':
+            korlap_data = get_korlaps_by_agency(d['r_agency'])
+            if korlap_data:
+                # Ada Korlap! Kirim notif ke mereka
+                approver_list = [k['user_id'] for k in korlap_data]
+                is_routed_to_korlap = True
+        
+        # Jika tidak ada Korlap (atau user adalah PIC), kirim ke ADMIN PUSAT
+        if not approver_list:
+            approver_list = [ADMIN_ID] # ID Admin Default (Pastikan variabel ADMIN_ID sudah ada)
+
+        # 3. Kirim Balasan ke User Pendaftar
         if role_db == 'pic': 
             await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nAkses Enterprise Workspace sedang diverifikasi Admin.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
-        else: 
-            await update.message.reply_text("✅ **PENDAFTARAN TERKIRIM**\nData Mitra sedang diverifikasi Admin Pusat.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
+        else:
+            verifikator = "KORLAP AGENCY" if is_routed_to_korlap else "ADMIN PUSAT"
+            await update.message.reply_text(f"✅ **PENDAFTARAN TERKIRIM**\nData Anda telah dikirim ke **{verifikator}** untuk verifikasi.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
         
-        # Siapkan Pesan Admin
+        # 4. Susun Pesan Notifikasi untuk Approver (Korlap/Admin)
         wa_link = format_wa_link(d['r_hp']) 
-        msg_admin = (
-            f"🔔 <b>REGISTRASI BARU ({role_db.upper()})</b>\n"
+        
+        header_title = f"🔔 <b>PERMINTAAN ANGGOTA BARU</b>" if is_routed_to_korlap else f"🔔 <b>REGISTRASI BARU ({role_db.upper()})</b>"
+        sub_info = f"<i>User ini mendaftar di Agency Anda: <b>{d['r_agency']}</b></i>" if is_routed_to_korlap else "<i>Silakan validasi data mitra ini.</i>"
+
+        msg_notif = (
+            f"{header_title}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"👤 <b>Nama:</b> {clean_text(d['r_nama'])}\n"
             f"🆔 <b>User ID:</b> <code>{update.effective_user.id}</code>\n"
@@ -2247,29 +2282,34 @@ async def register_confirm(update, context):
             f"📱 <b>HP/WA:</b> {wa_link}\n"
             f"📧 <b>Email:</b> {clean_text(d['r_email'])}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
+            f"{sub_info}\n"
         )
         
-        kb = [[InlineKeyboardButton("✅ TERIMA (AKTIFKAN)", callback_data=f"appu_{update.effective_user.id}")], [InlineKeyboardButton("❌ TOLAK (HAPUS)", callback_data=f"reju_{update.effective_user.id}")]]
+        kb = [[InlineKeyboardButton("✅ TERIMA", callback_data=f"appu_{update.effective_user.id}")], [InlineKeyboardButton("❌ TOLAK", callback_data=f"reju_{update.effective_user.id}")]]
         
-        # --- LOGIKA KIRIM KE ADMIN ---
-        # Jika PIC dan ada Foto -> Kirim Foto + Caption
-        if role_db == 'pic' and 'r_photo_proof' in d:
-            await context.bot.send_photo(
-                chat_id=ADMIN_ID, 
-                photo=d['r_photo_proof'], 
-                caption=msg_admin + "📸 <i>Bukti ID Card terlampir.</i>", 
-                reply_markup=InlineKeyboardMarkup(kb), 
-                parse_mode='HTML'
-            )
-        # Jika Matel -> Kirim Teks Biasa
-        else:
-            await context.bot.send_message(
-                chat_id=ADMIN_ID, 
-                text=msg_admin + "<i>Silakan validasi data mitra ini.</i>", 
-                reply_markup=InlineKeyboardMarkup(kb), 
-                parse_mode='HTML', 
-                link_preview_options=LinkPreviewOptions(is_disabled=True)
-            )
+        # 5. Eksekusi Pengiriman Notif
+        for target_id in approver_list:
+            try:
+                # Jika ada foto (Biasanya PIC), kirim foto
+                if 'r_photo_proof' in d and role_db == 'pic':
+                    await context.bot.send_photo(
+                        chat_id=target_id, 
+                        photo=d['r_photo_proof'], 
+                        caption=msg_notif + "📸 <i>Bukti ID Card terlampir.</i>", 
+                        reply_markup=InlineKeyboardMarkup(kb), 
+                        parse_mode='HTML'
+                    )
+                else:
+                    # Kirim Teks Biasa (Matel)
+                    await context.bot.send_message(
+                        chat_id=target_id, 
+                        text=msg_notif, 
+                        reply_markup=InlineKeyboardMarkup(kb), 
+                        parse_mode='HTML', 
+                        link_preview_options=LinkPreviewOptions(is_disabled=True)
+                    )
+            except Exception as e:
+                logger.error(f"Gagal kirim notif ke approver {target_id}: {e}")
             
     except Exception as e: 
         logger.error(f"Reg Error: {e}")
