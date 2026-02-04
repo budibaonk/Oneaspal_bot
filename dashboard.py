@@ -301,7 +301,8 @@ st.write("")
 # ##############################################################################
 # BAGIAN 6: FITUR TABS
 # ##############################################################################
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 LEADERBOARD", "🛡️ PERSONIL", "📤 UPLOAD", "🗑️ HAPUS", "📡 LIVE OPS"])
+# Tambahkan "💀 EXPIRED" di akhir
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏆 LEADERBOARD", "🛡️ PERSONIL", "📤 UPLOAD", "🗑️ HAPUS", "📡 LIVE OPS", "💀 EXPIRED"])
 
 # --- TAB 1: LEADERBOARD ---
 with tab1:
@@ -314,44 +315,6 @@ with tab1:
 # --- TAB 2: MANAJEMEN PERSONIL (USER) ---
 with tab2:
     if not df_u.empty:
-        # --- [FITUR BARU] MONITORING USER EXPIRED ---
-        # 1. Konversi tanggal agar bisa dibandingkan
-        now_date = datetime.now(TZ_JAKARTA).date()
-        # Pastikan kolom expiry_date formatnya datetime
-        df_u['tgl_exp'] = pd.to_datetime(df_u['expiry_date'], errors='coerce').dt.date
-        
-        # 2. Filter: Siapa yang tanggalnya < hari ini?
-        # Kita juga filter yang statusnya BUKAN 'banned' (biar fokus ke yang telat bayar saja)
-        df_expired = df_u[ (df_u['tgl_exp'] < now_date) & (df_u['status'] != 'banned') ]
-        
-        # 3. Tampilkan dalam Expander (Menu Lipat)
-        with st.expander(f"💀 DAFTAR USER EXPIRED ({len(df_expired)} Orang) - KLIK LIHAT", expanded=False):
-            if not df_expired.empty:
-                st.warning("⚠️ User di bawah ini masa aktifnya sudah habis. Silakan di-follow up.")
-                
-                # Tampilkan tabel data ringkas
-                # Kita format tanggalnya biar enak dibaca
-                df_show = df_expired[['nama_lengkap', 'agency', 'no_hp', 'role', 'expiry_date']].copy()
-                df_show['expiry_date'] = pd.to_datetime(df_show['expiry_date']).dt.strftime('%d-%m-%Y')
-                
-                st.dataframe(
-                    df_show, 
-                    column_config={
-                        "nama_lengkap": "Nama User",
-                        "agency": "Agency/PT",
-                        "no_hp": "WhatsApp",
-                        "role": "Jabatan",
-                        "expiry_date": "Tgl Expired"
-                    },
-                    hide_index=True,
-                    use_container_width=True
-                )
-            else:
-                st.success("✅ Aman Ndan! Tidak ada user yang expired hari ini.")
-        
-        st.divider() # Garis pemisah biar rapi
-        # --- [BATAS FITUR BARU] ---
-        
         # Pilihan Filter Tipe User
         div = st.radio("DIV", ["🛡️ MATEL", "🏦 PIC LEASING"], horizontal=True, label_visibility="collapsed", key="radio_role_select")
         
@@ -399,8 +362,6 @@ with tab2:
                 if st.button("🗑️ HAPUS AKUN", key="btn_del_req", use_container_width=True): st.session_state[f'del_confirm_{uid}'] = True
 
             # Tombol 3 & 4: Manajemen Jabatan (Korlap)
-            # Logika: Jika dia MATEL -> Muncul tombol "Jadikan KORLAP"
-            # Jika dia KORLAP -> Muncul tombol "Turunkan ke MATEL"
             with b3:
                  if u['role'] == 'matel':
                     if st.button("⬆️ JADI KORLAP", key="btn_promote", type="primary", use_container_width=True):
@@ -411,7 +372,6 @@ with tab2:
                         supabase.table('users').update({'role': 'matel'}).eq('user_id', uid).execute()
                         st.warning(f"⚠️ {u['nama_lengkap']} turun pangkat jadi MATEL."); time.sleep(1); st.rerun()
 
-            # Tombol 4: Jadikan PIC (Opsional jika mau mindahin Matel ke PIC)
             with b4:
                 if u['role'] != 'pic':
                     if st.button("👮 JADI PIC LEASING", key="btn_pic", use_container_width=True):
@@ -575,6 +535,74 @@ with tab5:
                 st.dataframe(final_view, hide_index=True, use_container_width=True, column_config={"STATUS": st.column_config.TextColumn("STATUS", width="small"), "LAST ACTIVE": st.column_config.TextColumn("JAM (WIB)", width="small")})
             else: st.info("💤 Belum ada aktivitas user hari ini (Sejak 00:00 WIB).")
         else: st.warning("⚠️ Database belum mencatat waktu (Kolom last_seen kosong).")
+
+# --- TAB 6: DAFTAR USER EXPIRED (AUDIT & RETENSI) ---
+with tab6:
+    st.markdown("### 💀 DAFTAR USER HABIS MASA AKTIF")
+    st.info("Halaman ini menampilkan seluruh user yang tanggal expired-nya sudah lewat. Silakan download data ini untuk melakukan follow-up / penagihan.")
+    
+    if not df_u.empty:
+        # 1. Konversi & Filter Data
+        now_date = datetime.now(TZ_JAKARTA).date()
+        
+        # Pastikan kolom expiry bisa dibaca tanggalnya
+        df_u['tgl_exp_obj'] = pd.to_datetime(df_u['expiry_date'], errors='coerce').dt.date
+        
+        # Filter: Tanggal < Hari Ini DAN Status != Banned (Kalau sudah dibanned biarin aja)
+        df_audit = df_u[ (df_u['tgl_exp_obj'] < now_date) & (df_u['status'] != 'banned') ].copy()
+        
+        # Urutkan dari yang paling lama expirednya
+        df_audit = df_audit.sort_values(by='tgl_exp_obj', ascending=True)
+
+        if not df_audit.empty:
+            # 2. Tampilkan Metrik Ringkas
+            c1, c2 = st.columns(2)
+            c1.metric("TOTAL EXPIRED", f"{len(df_audit)} User", "Potensi Revenue", delta_color="inverse")
+            c2.metric("TERLAMA SEJAK", f"{df_audit['tgl_exp_obj'].iloc[0]}", "Perlu Tindakan")
+            
+            st.divider()
+
+            # 3. Siapkan Tabel Cantik
+            # Format tanggal jadi String biar rapi di tabel
+            df_audit['expiry_date_str'] = pd.to_datetime(df_audit['expiry_date']).dt.strftime('%Y-%m-%d')
+            
+            # Pilih kolom yang penting saja untuk penagihan
+            df_show = df_audit[['nama_lengkap', 'no_hp', 'agency', 'role', 'expiry_date_str', 'status']]
+            
+            st.dataframe(
+                df_show,
+                column_config={
+                    "nama_lengkap": "Nama User",
+                    "no_hp": "WhatsApp",
+                    "agency": "Agency/PT",
+                    "role": "Jabatan",
+                    "expiry_date_str": "Tgl Expired",
+                    "status": "Status Sistem"
+                },
+                hide_index=True,
+                use_container_width=True,
+                height=500
+            )
+            
+            # 4. Fitur Download (PENTING untuk Admin WA)
+            # Konversi ke CSV
+            csv = df_show.to_csv(index=False).encode('utf-8')
+            
+            st.download_button(
+                label="📥 DOWNLOAD DATA EXPIRED (CSV)",
+                data=csv,
+                file_name=f"DATA_EXPIRED_ONEASPAL_{now_date}.csv",
+                mime='text/csv',
+                type='primary',
+                use_container_width=True
+            )
+            
+        else:
+            st.success("✅ LUAR BIASA! Tidak ada user expired yang menunggak. Semua akun sehat.", icon="🌟")
+            st.balloons()
+            
+    else:
+        st.warning("Belum ada data user di database.")
 
 st.markdown("<br><hr style='border-color: #00f2ff; opacity: 0.3;'><br>", unsafe_allow_html=True)
 cf1, cf2, cf3 = st.columns([1, 2, 1])
