@@ -314,6 +314,44 @@ with tab1:
 # --- TAB 2: MANAJEMEN PERSONIL (USER) ---
 with tab2:
     if not df_u.empty:
+        # --- [FITUR BARU] MONITORING USER EXPIRED ---
+        # 1. Konversi tanggal agar bisa dibandingkan
+        now_date = datetime.now(TZ_JAKARTA).date()
+        # Pastikan kolom expiry_date formatnya datetime
+        df_u['tgl_exp'] = pd.to_datetime(df_u['expiry_date'], errors='coerce').dt.date
+        
+        # 2. Filter: Siapa yang tanggalnya < hari ini?
+        # Kita juga filter yang statusnya BUKAN 'banned' (biar fokus ke yang telat bayar saja)
+        df_expired = df_u[ (df_u['tgl_exp'] < now_date) & (df_u['status'] != 'banned') ]
+        
+        # 3. Tampilkan dalam Expander (Menu Lipat)
+        with st.expander(f"💀 DAFTAR USER EXPIRED ({len(df_expired)} Orang) - KLIK LIHAT", expanded=False):
+            if not df_expired.empty:
+                st.warning("⚠️ User di bawah ini masa aktifnya sudah habis. Silakan di-follow up.")
+                
+                # Tampilkan tabel data ringkas
+                # Kita format tanggalnya biar enak dibaca
+                df_show = df_expired[['nama_lengkap', 'agency', 'no_hp', 'role', 'expiry_date']].copy()
+                df_show['expiry_date'] = pd.to_datetime(df_show['expiry_date']).dt.strftime('%d-%m-%Y')
+                
+                st.dataframe(
+                    df_show, 
+                    column_config={
+                        "nama_lengkap": "Nama User",
+                        "agency": "Agency/PT",
+                        "no_hp": "WhatsApp",
+                        "role": "Jabatan",
+                        "expiry_date": "Tgl Expired"
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
+            else:
+                st.success("✅ Aman Ndan! Tidak ada user yang expired hari ini.")
+        
+        st.divider() # Garis pemisah biar rapi
+        # --- [BATAS FITUR BARU] ---
+        
         # Pilihan Filter Tipe User
         div = st.radio("DIV", ["🛡️ MATEL", "🏦 PIC LEASING"], horizontal=True, label_visibility="collapsed", key="radio_role_select")
         
