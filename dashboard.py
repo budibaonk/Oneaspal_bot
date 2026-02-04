@@ -285,7 +285,16 @@ m1.metric("ASSETS", f"{get_total_asset_count():,}", "DATABASE")
 m2.metric("LIVE USERS", f"{get_live_users_count()}", "ACTIVE < 30M")
 m3.metric("DAILY ACTIVE", f"{get_daily_active_users()}", "24H VISITOR") 
 m4.metric("MITRA", f"{len(df_u[df_u['role']!='pic']) if not df_u.empty else 0}", "REGISTERED")
-m5.metric("READY", f"{len(df_u[(df_u['status']=='active') & (pd.to_numeric(df_u['quota'], errors='coerce').fillna(0)>0)]) if not df_u.empty else 0}", "QUOTA > 0")
+# [REVISI METRIK M5: STATUS BASED]
+# Hitung User Aktif vs Non-Aktif (Banned/Pending/Suspended)
+jml_aktif = len(df_u[df_u['status'] == 'active']) if not df_u.empty else 0
+jml_non_aktif = len(df_u) - jml_aktif if not df_u.empty else 0
+        
+# Tampilkan:
+# - Value Utama: Jumlah User AKTIF
+# - Delta (Info Bawah): Jumlah User Non-Aktif/Banned
+m5.metric("STATUS AKUN", f"{jml_aktif} Aktif", f"{jml_non_aktif} Non-Aktif/Banned",delta_color="off" # Warna netral (abu-abu) agar tidak dianggap error
+)
 m6.metric("PIC LEASING", f"{len(df_u[df_u['role']=='pic']) if not df_u.empty else 0}", "INTERNAL")
 st.write("")
 
