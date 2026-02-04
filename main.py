@@ -210,6 +210,40 @@ def get_korlaps_by_agency(agency_name):
     except Exception as e:
         logger.error(f"Error finding Korlap: {e}")
         return []
+    
+# ==============================================================================
+# 🔥 [SISIPKAN FITUR BARU DI SINI] SMART TYPO DETECTION (AUTO-CORRECT AGENCY)
+# ==============================================================================
+def find_best_match_agency(user_input):
+    """
+    Logika Fuzzy: Mencari nama Agency Korlap yang paling mirip dengan ketikan user.
+    Contoh: User ketik "PTMITRASYADARMA" -> Hasil: "PT MITRA RASYA DARMA"
+    """
+    try:
+        # 1. Ambil semua User Korlap untuk dijadikan "Kamus Kata"
+        response = supabase.table('users').select('agency').eq('role', 'korlap').execute()
+        
+        if not response.data: return None 
+            
+        # 2. List Unik Agency (Uppercase & Bersih)
+        valid_agencies = list(set([item['agency'].upper().strip() for item in response.data if item.get('agency')]))
+        
+        # 3. Bersihkan Input User
+        clean_input = user_input.upper().replace('.', ' ').replace(',', ' ').strip()
+        clean_input = " ".join(clean_input.split()) 
+        
+        # 4. Cari Kemiripan (Cutoff 0.5 = 50% mirip sudah dianggap ketemu)
+        matches = difflib.get_close_matches(clean_input, valid_agencies, n=1, cutoff=0.5)
+        
+        if matches:
+            return matches[0] # Kembalikan nama yang BENAR
+        else:
+            return None
+            
+    except Exception as e:
+        print(f"Error Smart Detect: {e}")
+        return None
+# ==============================================================================
 
 def update_user_status(user_id, status):
     try:
@@ -2110,19 +2144,55 @@ async def register_kota(update, context):
 async def register_agency(update, context):
     if update.message.text == "❌ BATAL": return await cancel(update, context)
     
-    # 1. Standarisasi Nama Leasing (Fitur Kamus Cerdas)
-    raw_text = update.message.text
-    std_leasing = standardize_leasing_name(raw_text)
-    
-    # Simpan Nama Leasing/Agency
-    context.user_data['r_agency'] = std_leasing
+    raw_text = update.message.text.strip()
     role = context.user_data.get('reg_role', 'matel')
     
-    # --- LOGIKA BARU ---
+    final_agency_name = raw_text # Default value
+    
+    # ==========================================================================
+    # 🧠 INTELLIGENT NAME DETECTION (PERCABANGAN LOGIKA)
+    # ==========================================================================
+    
+    if role == 'matel':
+        # [KASUS 1: MATEL] -> Gunakan SMART TYPO DETECTION (Cari Nama PT Korlap)
+        # Tujuannya: Agar Matel terhubung ke Korlap yang benar meski typo
+        
+        # Panggil Helper yang sudah kita buat tadi
+        suggested = find_best_match_agency(raw_text)
+        
+        if suggested:
+            final_agency_name = suggested
+            # Beri Feedback Auto-Correct jika input beda dengan hasil
+            if raw_text.upper() != final_agency_name:
+                await update.message.reply_text(
+                    f"🤖 **AUTO-CORRECT:**\n"
+                    f"Input: _{raw_text}_\n"
+                    f"Terdeteksi sebagai: **{final_agency_name}**\n"
+                    f"✅ Data dikoreksi otomatis agar terhubung ke Korlap.",
+                    parse_mode='Markdown'
+                )
+            else:
+                await update.message.reply_text(f"✅ Agency Terkonfirmasi: **{final_agency_name}**", parse_mode='Markdown')
+        else:
+            # Jika tidak ketemu di DB Korlap, pakai input asli user (Uppercase)
+            final_agency_name = raw_text.upper()
+            await update.message.reply_text(f"⚠️ **AGENCY BARU:** {final_agency_name}\nBelum terdaftar di database Korlap. Data akan diverifikasi Admin Pusat.", parse_mode='Markdown')
+
+    else:
+        # [KASUS 2: PIC LEASING] -> Gunakan KAMUS CERDAS (Fitur Lama Anda)
+        # Tujuannya: Standarisasi nama leasing (ex: "bca" -> "BCA FINANCE")
+        final_agency_name = standardize_leasing_name(raw_text)
+
+    # ==========================================================================
+    
+    # Simpan Nama Hasil Deteksi ke Memori
+    context.user_data['r_agency'] = final_agency_name
+    
+    # --- LOGIKA LANJUTAN (SAMA PERSIS DENGAN KODE LAMA) ---
     if role == 'pic':
         # JIKA PIC: Sekarang waktunya tanya CABANG (sebagai pengganti Kota)
         msg = (
-            f"✅ Leasing Terdeteksi: <b>{std_leasing}</b>\n\n"
+            f"✅ Leasing Terdeteksi: <b>{final_agency_name}</b>\n\n"
             f"5️⃣ <b>INPUT KODE CABANG (BRANCH)</b>\n"
             f"Masukkan nama cabang tempat Anda bertugas:\n\n"
             f"🔸 <b>PIC CABANG:</b> Ketik nama cabang (Contoh: <code>TEBET</code>, <code>SURABAYA</code>)\n"
@@ -2316,7 +2386,6 @@ async def register_confirm(update, context):
         await update.message.reply_text("❌ Gagal Terkirim. User ID Anda mungkin sudah terdaftar.", reply_markup=ReplyKeyboardRemove())
         
     return ConversationHandler.END
-
 
 # ==============================================================================
 # BAGIAN 12: START & CORE SEARCH ENGINE
