@@ -1734,7 +1734,7 @@ async def set_agency_group(update, context):
         await update.message.reply_text(f"❌ Gagal set grup: {e}")
 
 # ==============================================================================
-# BAGIAN 10:[UPDATE v2.0] UPLOAD ENGINE: BACKGROUND TASK (ANTI-STUCK)
+# BAGIAN 10:[UPDATE v2.1] UPLOAD ENGINE: BACKGROUND TASK (ANTI-TIMEOUT)
 # ==============================================================================
 
 # [GLOBAL] Set Task agar tidak di-kill
@@ -1742,28 +1742,29 @@ BACKGROUND_TASKS = set()
 
 async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
     """
-    Versi UPDATE: Menambahkan 'data_month' (Format MMYY) otomatis.
+    Versi UPDATE v2.1: 
+    - Batch Size 200 (Aman untuk Supabase)
+    - Retry Logic 5x (Tahan banting koneksi)
+    - Auto Month Code (0226)
     """
     print(f"🚀 [BG] START Task User {user_id}")
     
-    # --- [BARU] GENERATE KODE BULAN (MMYY) ---
-    # Contoh: Februari 2026 -> "0226"
+    # 1. GENERATE KODE BULAN (MMYY)
     now = datetime.now(TZ_JAKARTA)
     code_version = now.strftime('%m%y') 
-    # -----------------------------------------
-
-    # 1. SETUP
+    
+    # 2. SETUP VARIABEL
     mode = data_ctx.get('upload_mode', 'UPSERT')
     path = data_ctx.get('upload_path')
     is_pic = False
     
-    # Helper: Kirim Pesan Baru
+    # Helper: Kirim Pesan
     async def send_update(text):
         try: await app.bot.send_message(chat_id=chat_id, text=text, parse_mode='HTML')
         except Exception as e: print(f"⚠️ Gagal Kirim Pesan: {e}")
 
     try:
-        # DOWNLOAD FILE (Logic sama seperti sebelumnya...)
+        # --- A. DOWNLOAD FILE ---
         if not path:
             is_pic = True
             fname = data_ctx.get('upload_file_name', 'data.xlsx')
@@ -1775,17 +1776,20 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
                 await send_update(f"❌ Gagal Download File: {e}")
                 return
 
-        # BACA FILE (Logic sama...)
+        # --- B. BACA & BERSIHKAN FILE ---
         if not os.path.exists(path):
             await send_update("❌ Error: File hilang dari server.")
             return
 
         print("📂 [BG] Membaca File...")
         with open(path, 'rb') as fr: content = fr.read()
+        
+        # Gunakan read_file_robust yang sudah support TOPAZ/ZIP
         df = read_file_robust(content, path)
         df = fix_header_position(df)
         df, _ = smart_rename_columns(df)
         
+        # Standarisasi Leasing
         target = data_ctx.get('target_leasing')
         if target and target != 'SKIP':
             df['finance'] = standardize_leasing_name(target)
@@ -1793,37 +1797,36 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
             if 'finance' in df.columns: df['finance'] = df['finance'].apply(standardize_leasing_name)
             else: df['finance'] = 'UNKNOWN'
 
+        # Bersihkan Nopol
         df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
         df = df.dropna(subset=['nopol'])
         df = df[df['nopol'].str.len() > 2]
         df = df.drop_duplicates(subset=['nopol'], keep='last')
         
-        # Pastikan kolom DB lengkap
+        # Pastikan Kolom Lengkap
         for c in VALID_DB_COLUMNS:
             if c not in df.columns: df[c] = None
             
-        # --- [BARU] INJEKSI KODE BULAN KE DATAFRAME ---
+        # Masukkan Kode Bulan
         df['data_month'] = code_version
-        # ----------------------------------------------
         
         df = df.replace({np.nan: None})
         
-        # [PENTING] Tambahkan 'data_month' ke list kolom yang akan di-insert
-        # Kita konversi ke dict records
-        cols_to_use = VALID_DB_COLUMNS + ['data_month'] # Tambah kolom baru
+        # Siapkan Data untuk Insert
+        cols_to_use = VALID_DB_COLUMNS + ['data_month']
         recs = json.loads(json.dumps(df[cols_to_use].to_dict('records'), default=str))
         
         total_data = len(recs)
         print(f"✅ [BG] Total Data: {total_data} (Versi: {code_version})")
 
         if total_data == 0:
-            await send_update("⚠️ <b>FILE KOSONG / TIDAK VALID.</b>")
+            await send_update("⚠️ <b>FILE KOSONG / TIDAK VALID SETELAH FILTER.</b>")
             if os.path.exists(path): os.remove(path)
             return
 
-        # 3. UPLOAD BATCH (Logic sama...)
-        BATCH_SIZE = 1000 
-        if mode == 'DELETE': BATCH_SIZE = 500
+        # --- C. UPLOAD BATCH (BAGIAN KRUSIAL) ---
+        # Kita set 200 agar database tidak timeout (Error 57014)
+        BATCH_SIZE = 200 
         
         suc = 0; fail = 0; start_time = time.time()
         leasing_info = clean_text(data_ctx.get('target_leasing') or 'MIX')
@@ -1832,30 +1835,47 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
         await send_update(
             f"🔄 <b>SEDANG MEMPROSES...</b>\n"
             f"📂 Total: {total_data:,} Data\n"
-            f"🗓️ <b>Versi Data: {code_version}</b>\n" # Info ke Admin
+            f"🗓️ <b>Versi Data: {code_version}</b>\n"
             f"📝 Mode: {action_txt}\n\n"
-            f"<i>Bot sedang bekerja senyap...</i>"
+            f"<i>Bot sedang bekerja... (Estimasi: {int(total_data/BATCH_SIZE*1.5)} detik)</i>"
         )
 
         for i in range(0, total_data, BATCH_SIZE):
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.01) # Jeda nafas CPU
             batch = recs[i:i+BATCH_SIZE]
-            try:
-                if mode == 'DELETE':
-                    nopols = [d['nopol'] for d in batch]
-                    q = supabase.table('kendaraan').delete().in_('nopol', nopols)
-                    if target and target != 'SKIP':
-                        q = q.eq('finance', standardize_leasing_name(target))
-                    q.execute()
-                else:
-                    # Upsert dengan kolom data_month baru
-                    supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
-                suc += len(batch)
-            except Exception as e:
+            
+            # --- RETRY LOGIC (JARING PENGAMAN) ---
+            # Jika gagal, coba lagi sampai 5 kali
+            batch_success = False
+            for attempt in range(5):
+                try:
+                    if mode == 'DELETE':
+                        nopols = [d['nopol'] for d in batch]
+                        q = supabase.table('kendaraan').delete().in_('nopol', nopols)
+                        if target and target != 'SKIP':
+                            q = q.eq('finance', standardize_leasing_name(target))
+                        q.execute()
+                    else:
+                        # Upsert Data
+                        supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
+                    
+                    suc += len(batch)
+                    batch_success = True
+                    break # Berhasil! Keluar dari loop retry
+                
+                except Exception as e:
+                    # Gagal? Tunggu sebentar lalu coba lagi
+                    await asyncio.sleep((attempt + 1) * 2)
+                    if attempt == 4: # Jika sudah 5x tetap gagal
+                        print(f"⚠️ Batch Gagal: {e}")
+            
+            if not batch_success:
                 fail += len(batch)
-                print(f"Batch Err: {e}")
+            
+            # Update Log di Console
             if i % 2000 == 0: print(f"⏳ [BG] Progress: {i}/{total_data}")
 
+        # --- D. LAPORAN SELESAI ---
         duration = int(time.time() - start_time)
         final_rpt = (
             f"✅ <b>PROSES SELESAI!</b>\n"
@@ -1875,6 +1895,7 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
         logger.error(f"Upload Fatal: {e}")
         await send_update(f"❌ <b>ERROR FATAL:</b> {str(e)[:200]}")
     finally:
+        # Bersihkan file temp
         if path and os.path.exists(path):
             try: os.remove(path)
             except: pass
