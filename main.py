@@ -329,126 +329,143 @@ def format_wa_link(phone_number):
 
 def standardize_leasing_name(raw_name):
     """
-    Kamus Cerdas Standarisasi Nama Leasing Indonesia (V2.0).
+    Kamus Cerdas Standarisasi Nama Leasing Indonesia (V3.0 - FINAL COMPLETE).
     Mendeteksi Nama PT Panjang -> Mengubah ke Label Singkatan Resmi.
     """
     if not raw_name: return "UNKNOWN"
     
-    text = raw_name.upper().strip()
+    text = str(raw_name).upper().strip()
     
     # DICTIONARY: "KATA KUNCI (NAMA PT)": "LABEL STANDAR (SINGKATAN)"
-    # Logika: Python akan mencari apakah 'Kata Kunci' ada di dalam input user.
     keywords = {
-        # === 1. GROUP JTRUST (SESUAI REQUEST) ===
+        # === 1. GROUP JTRUST & OLYMPINDO ===
         "JTRUST INVESTMENT": "JTII",
         "J TRUST INVESTMENT": "JTII",
         "JTRUST OLYMPINDO": "JTO FINANCE",
         "OLYMPINDO": "JTO FINANCE",
+        "JTO": "JTO FINANCE",
         
         # === 2. GROUP ASTRA & ANAK USAHA ===
-        "FEDERAL INTERNATIONAL": "FIF GROUP", # FIF
-        "ASTRA SEDAYA": "ACC",                # ACC
-        "TOYOTA ASTRA": "TAF",                # TAF
-        "ASTRA MULTI": "AMF",                 # AMF (Spektra/Astra)
+        "FEDERAL INTERNATIONAL": "FIF GROUP",
+        "FIF": "FIF GROUP",
+        "SPEKTRA": "FIF GROUP",
+        "ASTRA SEDAYA": "ACC",
+        "ACC": "ACC",
+        "TOYOTA ASTRA": "TAF",
+        "TAF": "TAF",
+        "ASTRA MULTI": "AMF",
         "KOMATSU": "KOMATSU",
-        "SAN FINANCE": "SANF",                # Surya Artha Nusantara
+        "SAN FINANCE": "SANF",
+        "SURYA ARTHA": "SANF",
         
         # === 3. GROUP BANK & BUMN ===
         "BCA FINANCE": "BCA FINANCE",
+        "CSUL": "CSUL FINANCE", # Ciptadana
         "MANDIRI TUNAS": "MTF",
         "MANDIRI UTAMA": "MUF",
-        "CIMB NIAGA AUTO": "CNAF",
+        "CIMB NIAGA": "CNAF",
+        "CNAF": "CNAF",
         "BNI MULTI": "BNI MULTIFINANCE",
         "BRI FINANCE": "BRI FINANCE",
         "BRI MULTI": "BRI FINANCE",
         "BSI OTO": "BSI OTO",
         "SYARIAH INDONESIA": "BSI OTO",
         "MNC FINANCE": "MNC FINANCE",
+        "MNC GUNA": "MNC FINANCE",
         "MEGA FINANCE": "MEGA FINANCE",
-        "MEGA AUTO": "MACF",                  # Mega Auto Central
+        "MEGA AUTO": "MACF",
         "MEGA CENTRAL": "MACF",
+        "KB BUKOPIN": "BUKOPIN",
+        "BUKOPIN": "BUKOPIN",
         
         # === 4. GROUP SWASTA BESAR (MAJOR PLAYERS) ===
-        "ADIRA DINAMIKA": "ADIRA",
-        "ADIRA MULTI": "ADIRA",
+        "ADIRA": "ADIRA",
         "BUSSAN AUTO": "BAF",
+        "BAF": "BAF",
+        "YAMAHA": "BAF", # Sering disebut Yamaha Finance
         "WAHANA OTTOMITRA": "WOM FINANCE",
-        "BFI FINANCE": "BFI FINANCE",
+        "WOM": "WOM FINANCE",
+        "BFI": "BFI FINANCE",
         "SUMMIT OTO": "OTO/SUMMIT",
-        "OTO MULTIARTHA": "OTO/SUMMIT",
-        "CLIPAN FINANCE": "CLIPAN",
+        "OTO MULTI": "OTO/SUMMIT",
+        "CLIPAN": "CLIPAN",
         "SINAR MAS": "SINARMAS",
         "SINARMAS": "SINARMAS",
         "SIMAS": "SINARMAS",
+        "MANDALA": "MANDALA FINANCE", # [BARU] Wajib ada
         
-        # === 5. DEALER AFFILIATED ===
-        "SUZUKI FINANCE": "SFI",
-        "INDOMOBIL FINANCE": "IMFI",
+        # === 5. DEALER & BRAND AFFILIATED ===
+        "SUZUKI": "SFI",
+        "SFI": "SFI",
+        "INDOMOBIL": "IMFI",
+        "IMFI": "IMFI",
         "DIPO STAR": "DIPO STAR",
-        "MITSUBISHI": "DIPO STAR", # Sering diasosiasikan
-        "HINO FINANCE": "HINO FINANCE",
+        "MITSUBISHI": "DIPO STAR",
+        "HINO": "HINO FINANCE",
         "CHAILEASE": "CHAILEASE",
+        "WULING": "WULING FINANCE", # [BARU]
         
-        # === 6. MULTIFINANCE LAINNYA (A-Z) ===
+        # === 6. CONSUMER & FINTECH (SERING ADA MOTOR) ===
+        "HOME CREDIT": "HCI",
+        "HCI": "HCI",
+        "AEON": "AEON CREDIT",
+        "KREDIVO": "KREDIVO",
+        "AKULAKU": "AKULAKU",
+
+        # === 7. MULTIFINANCE LAINNYA (A-Z) ===
         "AL IJARAH": "AL IJARAH",
-        "ANDALAN FINANCE": "ANDALAN FINANCE",
+        "ANDALAN": "ANDALAN FINANCE",
         "ARTHA PRIMA": "ARTHA PRIMA",
-        "BATAVIA PROSPERINDO": "BATAVIA PROSPERINDO",
-        "BENTARA SINERGI": "BESS FINANCE",
-        "BESS FINANCE": "BESS FINANCE",
+        "ARTHAASIA": "ARTHAASIA", # [BARU]
+        "BATAVIA": "BATAVIA PROSPERINDO",
+        "BENTARA": "BESS FINANCE",
+        "BESS": "BESS FINANCE",
         "BIMA MULTI": "BIMA FINANCE",
-        "BUANA FINANCE": "BUANA FINANCE",
-        "BUANA MULTI": "BUANA FINANCE",
-        "CAPITAL INC": "CAPITAL",
-        "CLEMONT": "CLEMONT",
+        "BUANA": "BUANA FINANCE",
+        "CAPITAL": "CAPITAL",
+        "CLEMENT": "CLEMENT", # Ejaan yang benar Clement
+        "CLEMONT": "CLEMENT",
         "COLUMBIA": "COLUMBIA",
         "DANASUPRA": "DANASUPRA",
         "ESTA DANA": "ESTA DANA",
-        "FINANSIA MULTI": "KREDIT PLUS",  # Nama PT Kredit Plus
+        "FINANSIA": "KREDIT PLUS",
         "KREDIT PLUS": "KREDIT PLUS",
-        "KREDIT PLUS": "KPLUS",
+        "KPLUS": "KREDIT PLUS",
         "GLOBALINDO": "GLOBAL FINANCE",
-        "HEXA FINANCE": "HEXA",
-        "INTAN BARUprana": "IBF",
+        "HEXA": "HEXA",
+        "INTAN BARU": "IBF",
+        "IBF": "IBF",
         "INTRA ASIA": "INTRA ASIA",
+        "ISTANA": "ISTANA", # IMG
         "KEMBANG 88": "KEMBANG 88",
-        "KRESNA REKSA": "KRESNA REKSA",
+        "KRESNA": "KRESNA REKSA",
         "MAYBANK": "MAYBANK FINANCE",
-        "MAYBANK INDONESIA": "MAYBANK FINANCE",
         "MITSUI": "MITSUI LEASING",
         "MULTI INDO": "MULTI INDO",
-        "NUSA SURYA": "NSC FINANCE", # NSC
+        "NUSA SURYA": "NSC FINANCE",
+        "NSC": "NSC FINANCE",
+        "ORICO": "ORICO BALIMOR", # [BARU] Ex Mizuho
+        "BALIMOR": "ORICO BALIMOR",
         "PRO CAR": "PRO CAR",
         "PRO MITRA": "PRO CAR",
         "RADANA": "RADANA",
-        "REKSA FINANCE": "REKSA FINANCE",
+        "REKSA": "REKSA FINANCE",
         "RESURSA": "RESURSA",
-        "SINAR MITRA SEPADAN": "SMS FINANCE",
-        "SMS FINANCE": "SMS FINANCE",
+        "SMS": "SMS FINANCE",
+        "SINAR MITRA": "SMS FINANCE",
         "SMART MULTI": "SMART FINANCE",
+        "SMART FINANCE": "SMART FINANCE",
         "SUNINDO": "SUNINDO",
         "SWADHARMA": "SWADHARMA",
-        "TIFA FINANCE": "TIFA",
-        "TRUST FINANCE": "TRUST FINANCE",
+        "TIFA": "TIFA",
+        "TOPAZ": "TOPAZ", # [BARU]
+        "TRUST": "TRUST FINANCE",
         "VERENA": "VERENA",
-        "WOKA": "WOKA FINANCE",
-        
-        # === FALLBACK PENDEK (JIKA USER CUMA KETIK SINGKATAN) ===
-        "ADIRA": "ADIRA",
-        "BCA": "BCA FINANCE",
-        "FIF": "FIF GROUP",
-        "WOM": "WOM FINANCE",
-        "BAF": "BAF",
-        "ACC": "ACC",
-        "TAF": "TAF",
-        "OTO": "OTO/SUMMIT",
-        "BFI": "BFI FINANCE",
-        "MTF": "MTF",
-        "MUF": "MUF",
-        "CNAF": "CNAF"
+        "WOKA": "WOKA FINANCE"
     }
 
     # LOGIKA PENCARIAN
+    # Kita cari string input user di dalam key dictionary
     for key, label in keywords.items():
         if key in text:
             return label
@@ -2503,16 +2520,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def panduan(update, context):
     """
-    Panduan Cerdas:
-    - PIC: Menjelaskan Dashboard, Download Data, dan Flow Upload/Hapus Baru.
-    - Mitra: Menjelaskan cara cek nopol & topup (Sesuai Request Lama).
+    Panduan Cerdas v3 (Final Fix):
+    - PIC: Monitoring + Manajemen + Upload Format (Lengkap) + Hapus + Keamanan.
+    - Mitra: Tetap standar operasional lapangan.
     """
     user = update.effective_user
     u = get_user(user.id)
     
-    # === 1. PANDUAN PIC LEASING (UPDATED: OFFICE STYLE) ===
+    # === 1. PANDUAN PIC LEASING (LENGKAP & SOLID) ===
     if u and u.get('role') == 'pic': 
-        # Ambil nama leasing biar personal
         agency = standardize_leasing_name(u.get('agency'))
         
         msg = (
@@ -2520,29 +2536,39 @@ async def panduan(update, context):
             f"User: <b>{agency}</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n\n"
             
-            f"1️⃣ <b>MONITORING & LAPORAN (DASHBOARD)</b>\n"
+            f"1️⃣ <b>MONITORING KINERJA (BARU!)</b>\n"
+            f"• Ketik <b>/rekap</b> : Lihat total temuan & ranking agency hari ini.\n"
+            f"• Ketik <b>/cekagency [NamaPT]</b> : Audit mitra tertentu.\n"
+            f"• Ketik <b>/broadcast</b> : Kirim info penting ke Matel.\n\n"
+            
+            f"2️⃣ <b>MANAJEMEN DATA (DASHBOARD)</b>\n"
             f"• Klik tombol <b>📂 DATABASE SAYA</b> di menu bawah.\n"
             f"• Lihat statistik total aset & temuan secara real-time.\n"
             f"• Klik <b>📥 DOWNLOAD DATA</b> untuk menarik data aset Anda ke Excel.\n\n"
             
-            f"2️⃣ <b>UPDATE DATA (PENAMBAHAN)</b>\n"
-            f"• Kirim file Excel/CSV data tarikan baru ke bot.\n"
+            f"3️⃣ <b>UPDATE DATA (PENAMBAHAN)</b>\n"
+            f"• Kirim file <b>Excel (.xlsx), CSV, ZIP, atau TOPAZ</b> ke bot.\n"
+            f"• ⚠️ <b>FORMAT KOLOM WAJIB (Header):</b>\n"
+            f"  🔸 <b>NOPOL</b> (Wajib, cth: B 1234 XY)\n"
+            f"  🔸 <b>UNIT</b> (Merk/Tipe Kendaraan)\n"
+            f"  🔸 <b>OVD</b> (Jumlah Hari Keterlambatan)\n"
+            f"  🔸 <b>BRANCH</b> (Nama Cabang/Area)\n"
+            f"  🔸 <b>FINANCE</b> (Opsional/Nama Leasing)\n"
             f"• Bot otomatis mendeteksi format & leasing Anda.\n"
-            f"• Klik tombol <b>📂 UPDATE DATA</b>.\n"
-            f"• <i>Data akan diproses di background tanpa mengganggu bot.</i>\n\n"
+            f"• Data akan diproses otomatis di background.\n\n"
             
-            f"3️⃣ <b>PENGHAPUSAN DATA (PELUNASAN)</b>\n"
-            f"• Siapkan file Excel berisi Nopol yang sudah lunas/tarik.\n"
-            f"• Kirim file ke bot -> Klik tombol <b>🗑️ HAPUS DATA</b>.\n"
-            f"• <i>Sistem hanya menghapus data milik {agency} (Aman).</i>\n\n"
+            f"4️⃣ <b>PENGHAPUSAN DATA (PELUNASAN)</b>\n"
+            f"• Login ke Dashboard Web -> Menu Hapus Massal.\n"
+            f"• Upload daftar Nopol lunas -> Klik Hapus.\n"
+            f"• <i>Sistem hanya menghapus data milik {agency}.</i>\n\n"
             
-            f"4️⃣ <b>KEAMANAN DATA</b>\n"
+            f"5️⃣ <b>KEAMANAN DATA</b>\n"
             f"Data Anda terisolasi (Private Cloud). Mitra leasing lain tidak dapat melihat, menghapus, atau mendownload aset Anda.\n\n"
             
             f"<i>Butuh bantuan teknis? Hubungi Administrator Pusat.</i>"
         )
 
-    # === 2. PANDUAN MITRA LAPANGAN (TETAP SESUAI PERMINTAAN) ===
+    # === 2. PANDUAN MITRA LAPANGAN (TETAP SAMA) ===
     else: 
         msg = (
             "📖 <b>PANDUAN PENGGUNAAN ONEASPAL</b>\n\n"
@@ -2550,7 +2576,7 @@ async def panduan(update, context):
             "   - Ketik Nopol secara lengkap atau sebagian.\n"
             "   - Contoh: <code>B 1234 ABC</code> atau <code>1234</code>\n\n"
             "2️⃣ <b>Upload File (Mitra)</b>\n"
-            "   - Kirim file Excel/CSV/ZIP ke bot ini.\n"
+            "   - Kirim file Excel/CSV/ZIP/TOPAZ ke bot ini.\n"
             "   - Bot akan membaca otomatis.\n\n"
             "3️⃣ <b>Upload Satuan / Kiriman</b>\n"
             "   - Gunakan perintah /tambah untuk input data manual.\n\n"
