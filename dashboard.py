@@ -1,7 +1,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL COMMAND CENTER                        #
-#                      VERSION: 10.2 (FIX: LIVE OPS COLUMN NAME ERROR)         #
+#                      VERSION: 10.3 (STABILITY: BATCH 1000 + RETRY LOGIC)     #
 #                      ROLE:    ADMIN DASHBOARD CORE                           #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -17,14 +17,13 @@ import re
 import numpy as np
 import io
 import zipfile
-import pytz # Pastikan baris ini ada
+import pytz 
 import requests 
 from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
-from supabase.lib.client_options import ClientOptions # <--- TAMBAH INI
 from dotenv import load_dotenv
 
-# DEFINISI ZONA WAKTU (Agar tidak error TZ_JAKARTA)
+# DEFINISI ZONA WAKTU
 TZ_JAKARTA = pytz.timezone('Asia/Jakarta')
 
 # [FIX] Import ClientOptions untuk menangani Timeout Client
@@ -84,21 +83,13 @@ KEY = os.getenv("SUPABASE_KEY")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-# [UPDATE PENTING] Definisi ClientOptions untuk mengatasi Timeout 7000+ Data
-try:
-    from supabase.lib.client_options import ClientOptions
-except ImportError:
-    # Fallback untuk versi library supabase yang berbeda
-    from supabase import ClientOptions
-
 @st.cache_resource
 def init_connection():
     """
     Inisialisasi koneksi ke Supabase dengan Timeout yang diperpanjang.
-    Penting untuk upload/hapus data massal (>5000 row).
     """
     try:
-        # Kita set Timeout ke 600 Detik (10 Menit) agar tidak putus di tengah jalan
+        # Kita set Timeout ke 600 Detik (10 Menit)
         opts = ClientOptions(postgrest_client_timeout=600)
         return create_client(URL, KEY, options=opts)
     except Exception as e:
@@ -210,7 +201,7 @@ def delete_user_with_reason(uid, reason):
     except: return False
 
 # ##############################################################################
-# BAGIAN 3: ENGINE PINTAR
+# BAGIAN 3: ENGINE PINTAR & PARSER (UPDATE: SUPPORT TOPAZ & ZIP)
 # ##############################################################################
 COLUMN_ALIASES = {
     'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi'],
@@ -242,15 +233,64 @@ def smart_rename_columns(df):
                 break
         if col not in new: new[col] = col
     df.rename(columns=new, inplace=True); return df.loc[:, ~df.columns.duplicated()], found
-def read_file_robust(f):
+
+# --- [UPDATE] READ FILE ROBUST + TOPAZ PARSER ---
+def read_file_robust(file_up):
     try:
-        if f.name.endswith('.zip'):
-            with zipfile.ZipFile(f) as z:
+        filename = file_up.name.upper()
+        
+        # 1. HANDLE TOPAZ FILE
+        if filename.endswith('.TOPAZ'):
+            try:
+                content = file_up.getvalue().decode('utf-8', errors='ignore')
+                lines = content.splitlines()
+                data_list = []
+                for line in lines:
+                    if not line.strip() or 'NOPOLISI' in line: continue
+                    parts = line.split('\t')
+                    if len(parts) >= 2:
+                        nopol = parts[0].strip()
+                        details = parts[1]
+                        def get_val(k, t, nk_list):
+                            try:
+                                if k in t:
+                                    start = t.find(k) + len(k)
+                                    sub = t[start:]
+                                    for nk in nk_list:
+                                        if nk in sub: sub = sub.split(nk)[0]
+                                    return sub.strip()
+                            except: pass
+                            return None
+                        row = {
+                            'nopol': nopol,
+                            'type': get_val('TIPE;', details, ['NOKA;', 'NOSIN;']),
+                            'noka': get_val('NOKA;', details, ['NOSIN;', 'WARNA;']),
+                            'nosin': get_val('NOSIN;', details, ['WARNA;', 'OD;']),
+                            'warna': get_val('WARNA;', details, ['OD;', 'OVERDUE']),
+                            'ovd': get_val('OD;', details, []),
+                            'finance': None, 'tahun': None
+                        }
+                        data_list.append(row)
+                return pd.DataFrame(data_list)
+            except Exception as e:
+                st.error(f"Error parsing TOPAZ: {e}")
+                return pd.DataFrame()
+
+        # 2. HANDLE ZIP
+        if filename.endswith('.ZIP'):
+            with zipfile.ZipFile(file_up) as z:
                 v = [x for x in z.namelist() if x.endswith(('.csv','.xlsx','.xls'))]
-                if v: f = io.BytesIO(z.read(v[0])); f.name = v[0]
-        if f.name.endswith(('.xlsx', '.xls')): return pd.read_excel(f, dtype=str)
-        return pd.read_csv(f, sep=None, engine='python', dtype=str, on_bad_lines='skip')
+                if v: file_up = io.BytesIO(z.read(v[0])); file_up.name = v[0]
+        
+        # 3. HANDLE EXCEL
+        if file_up.name.upper().endswith(('.XLSX', '.XLS')): 
+            try: return pd.read_excel(file_up, dtype=str)
+            except: return pd.read_excel(file_up, engine='openpyxl', dtype=str)
+        
+        # 4. HANDLE CSV
+        return pd.read_csv(file_up, sep=None, engine='python', dtype=str, on_bad_lines='skip')
     except: return pd.DataFrame()
+
 def standardize_leasing_name(n): return "UNKNOWN" if str(n).upper().strip() in ['NAN','NULL',''] else str(n).upper().strip()
 
 # ##############################################################################
@@ -275,7 +315,7 @@ with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", width=220)
     st.caption(f"ONE ASPAL SYSTEM\nStatus: {auto_refresh_status}")
 
-st.markdown("## ONE ASPAL COMMANDO v10.2")
+st.markdown("## ONE ASPAL COMMANDO v10.3")
 st.markdown("<span style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE INTELLIGENCE COMMAND CENTER</span>", unsafe_allow_html=True)
 st.markdown("---")
 
@@ -285,23 +325,16 @@ m1.metric("ASSETS", f"{get_total_asset_count():,}", "DATABASE")
 m2.metric("LIVE USERS", f"{get_live_users_count()}", "ACTIVE < 30M")
 m3.metric("DAILY ACTIVE", f"{get_daily_active_users()}", "24H VISITOR") 
 m4.metric("MITRA", f"{len(df_u[df_u['role']!='pic']) if not df_u.empty else 0}", "REGISTERED")
-# [REVISI METRIK M5: STATUS BASED]
-# Hitung User Aktif vs Non-Aktif (Banned/Pending/Suspended)
+
 jml_aktif = len(df_u[df_u['status'] == 'active']) if not df_u.empty else 0
 jml_non_aktif = len(df_u) - jml_aktif if not df_u.empty else 0
-        
-# Tampilkan:
-# - Value Utama: Jumlah User AKTIF
-# - Delta (Info Bawah): Jumlah User Non-Aktif/Banned
-m5.metric("STATUS AKUN", f"{jml_aktif} Aktif", f"{jml_non_aktif} Non-Aktif/Banned",delta_color="off" # Warna netral (abu-abu) agar tidak dianggap error
-)
+m5.metric("STATUS AKUN", f"{jml_aktif} Aktif", f"{jml_non_aktif} Non-Aktif/Banned",delta_color="off")
 m6.metric("PIC LEASING", f"{len(df_u[df_u['role']=='pic']) if not df_u.empty else 0}", "INTERNAL")
 st.write("")
 
 # ##############################################################################
 # BAGIAN 6: FITUR TABS
 # ##############################################################################
-# Tambahkan "💀 EXPIRED" di akhir
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏆 LEADERBOARD", "🛡️ PERSONIL", "📤 UPLOAD", "🗑️ HAPUS", "📡 LIVE OPS", "💀 EXPIRED"])
 
 # --- TAB 1: LEADERBOARD ---
@@ -315,53 +348,32 @@ with tab1:
 # --- TAB 2: MANAJEMEN PERSONIL (USER) ---
 with tab2:
     if not df_u.empty:
-        # Pilihan Filter Tipe User
         div = st.radio("DIV", ["🛡️ MATEL", "🏦 PIC LEASING"], horizontal=True, label_visibility="collapsed", key="radio_role_select")
-        
-        # Filter Data
         target = df_u[df_u['role']!='pic'] if "MATEL" in div else df_u[df_u['role']=='pic']
         target = target.sort_values(by="nama_lengkap", key=lambda col: col.str.lower())
-        
-        # Dropdown Search
         sel = st.selectbox("SEARCH AGENT", [f"{r['nama_lengkap']} | {r['agency']}" for i, r in target.iterrows()], label_visibility="collapsed", key="select_agent_search")
         
         if sel:
-            # Ambil User ID & Data
             uid = target[target['nama_lengkap']==sel.split(' | ')[0]].iloc[0]['user_id']
             u = target[target['user_id']==uid].iloc[0]
-            
-            # Tampilan Kartu Profil (Tech-Box Style)
             st.markdown(f'''<div class="tech-box"><h3>{u["nama_lengkap"]}</h3><hr style="border-color:rgba(255,255,255,0.1); margin:15px 0;"><div class="info-grid"><div class="info-item"><span class="info-label">ROLE</span><span class="info-value" style="color:#00f2ff;">{u["role"].upper()}</span></div><div class="info-item"><span class="info-label">STATUS</span><span class="info-value" style="color:{'#0f0' if u["status"]=="active" else "#f00"}">{u["status"].upper()}</span></div><div class="info-item"><span class="info-label">NO HP / WA</span><span class="info-value">{u.get("no_hp", "-")}</span></div><div class="info-item"><span class="info-label">PT / AGENCY</span><span class="info-value">{u.get("agency", "-")}</span></div><div class="info-item"><span class="info-label">DOMISILI</span><span class="info-value">{u.get("alamat", "-")}</span></div><div class="info-item"><span class="info-label">EXPIRY</span><span class="info-value">{str(u["expiry_date"])[:10]}</span></div><div class="info-item"><span class="info-label">QUOTA</span><span class="info-value">{u.get("quota",0)}</span></div><div class="info-item" style="grid-column:span 2;border:1px solid #00f2ff;"><span class="info-label">LIFETIME HITS</span><span class="info-value" style="color:#00f2ff;">{hits.get(uid,0)} FOUND</span></div></div></div>''', unsafe_allow_html=True)
-            
             st.write("---")
-            
-            # --- BAGIAN 1: TAMBAH KUOTA ---
             c_day, c_btn = st.columns([1, 2])
-            with c_day: 
-                days_add = st.number_input("JUMLAH HARI", min_value=1, max_value=365, value=30, label_visibility="collapsed", key="num_days_add")
+            with c_day: days_add = st.number_input("JUMLAH HARI", min_value=1, max_value=365, value=30, label_visibility="collapsed", key="num_days_add")
             with c_btn:
                 if st.button(f"➕ PERPANJANG MASA AKTIF", key="btn_add_quota", use_container_width=True):
                     is_success, msg_feedback = add_user_quota(uid, days_add)
                     if is_success: st.toast(f"✅ {msg_feedback}", icon="🎉"); time.sleep(1); st.rerun()
                     else: st.error(f"❌ GAGAL: {msg_feedback}")
-
             st.divider()
-
-            # --- BAGIAN 2: TOMBOL EKSEKUSI (FREEZE, DELETE, & KORLAP) ---
-            b1, b2, b3, b4 = st.columns(4) # Kita bagi 4 kolom
-            
-            # Tombol 1: Freeze/Unfreeze
+            b1, b2, b3, b4 = st.columns(4) 
             with b1:
                 btn_label = "⛔ FREEZE AKUN" if u['status']=='active' else "✅ BUKA FREEZE"
                 if st.button(btn_label, key="btn_freeze", use_container_width=True):
                     new_stat = 'banned' if u['status']=='active' else 'active'
                     update_user_status(uid, new_stat); st.toast(f"Status: {new_stat.upper()}", icon="🔄"); time.sleep(1); st.rerun()
-            
-            # Tombol 2: Hapus Akun
             with b2:
                 if st.button("🗑️ HAPUS AKUN", key="btn_del_req", use_container_width=True): st.session_state[f'del_confirm_{uid}'] = True
-
-            # Tombol 3 & 4: Manajemen Jabatan (Korlap)
             with b3:
                  if u['role'] == 'matel':
                     if st.button("⬆️ JADI KORLAP", key="btn_promote", type="primary", use_container_width=True):
@@ -371,14 +383,12 @@ with tab2:
                     if st.button("⬇️ TURUNKAN MATEL", key="btn_demote", use_container_width=True):
                         supabase.table('users').update({'role': 'matel'}).eq('user_id', uid).execute()
                         st.warning(f"⚠️ {u['nama_lengkap']} turun pangkat jadi MATEL."); time.sleep(1); st.rerun()
-
             with b4:
                 if u['role'] != 'pic':
                     if st.button("👮 JADI PIC LEASING", key="btn_pic", use_container_width=True):
                          supabase.table('users').update({'role': 'pic'}).eq('user_id', uid).execute()
                          st.info(f"ℹ️ {u['nama_lengkap']} dimutasi jadi PIC LEASING."); time.sleep(1); st.rerun()
 
-            # --- KONFIRMASI PENGHAPUSAN ---
             if st.session_state.get(f'del_confirm_{uid}', False):
                 st.warning("⚠️ KONFIRMASI PENGHAPUSAN")
                 del_reason = st.text_input("📝 ALASAN MENGHAPUS (Wajib Diisi):", key=f"reason_{uid}")
@@ -392,80 +402,69 @@ with tab2:
                             else: st.error("Gagal menghapus user.")
                         else: st.error("Isi alasan dulu.")
 
-# --- TAB 3: UPLOAD FILE (BATCH 100 ANTI-TIMEOUT & FIX NULL NOPOL) ---
+# --- TAB 3: UPLOAD FILE (BATCH 1000 + RETRY LOGIC + SUPPORT TOPAZ) ---
 with tab3:
     if st.session_state['upload_stage'] == 'idle':
-        # UPDATE: Tambahkan 'xls' agar bisa upload file Excel 97-2003
-        up = st.file_uploader("DROP FILE", type=['xlsx','xls','csv','txt','zip'], label_visibility="collapsed", key="file_up_analyze")
+        up = st.file_uploader("DROP FILE", type=['xlsx','xls','csv','txt','zip','topaz'], label_visibility="collapsed", key="file_up_analyze")
         
         if up and st.button("🔍 ANALISA", key="btn_analyze"):
-            # Pastikan fungsi read_file_robust di dashboard.py Anda sudah support xlrd
             df = read_file_robust(up) 
             if not df.empty:
                 df, cols = smart_rename_columns(fix_header_position(df))
                 if 'nopol' in df.columns: 
                     st.session_state['upload_data_cache'], st.session_state['upload_found_cols'], st.session_state['upload_stage'] = df, cols, 'preview'
                     st.rerun()
-                else: 
-                    st.error("❌ NOPOL NOT FOUND. Pastikan ada kolom NOPOL di file Anda.")
-            else:
-                st.error("❌ Gagal membaca file atau file kosong.")
+                else: st.error("❌ NOPOL NOT FOUND. Pastikan ada kolom NOPOL di file Anda.")
+            else: st.error("❌ Gagal membaca file atau file kosong.")
 
     elif st.session_state['upload_stage'] == 'preview':
         df = st.session_state['upload_data_cache']
         st.info(f"✅ TERDETEKSI: {len(df)} Baris Data | Kolom: {st.session_state['upload_found_cols']}")
         st.dataframe(df.head(), use_container_width=True)
-        
-        # Input Leasing Opsional
         l_in = st.text_input("🏦 NAMA LEASING (Opsional - Jika kosong di file):", key="input_leasing_name") if 'finance' not in df.columns else ""
-        
         c1, c2 = st.columns(2)
         with c1: 
             if st.button("❌ BATAL / RESET", key="btn_reset"): 
-                st.session_state['upload_stage']='idle'
-                st.rerun()
+                st.session_state['upload_stage']='idle'; st.rerun()
         with c2:
             if st.button("🚀 EKSEKUSI UPDATE", key="btn_update"):
-                # Logic Standarisasi Leasing
                 if l_in: df['finance'] = standardize_leasing_name(l_in)
-                
-                # Pembersihan Nopol
                 df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
                 df['nopol'] = df['nopol'].replace({'': np.nan, 'NAN': np.nan, 'NONE': np.nan})
                 df = df.dropna(subset=['nopol'])
                 df = df.drop_duplicates(subset=['nopol'])
                 
-                # --- UPDATE: DATA VERSIONING (KODE BULAN) ---
-                # Tambahkan kolom data_month otomatis saat upload via Dashboard
                 now = datetime.now(TZ_JAKARTA)
-                code_version = now.strftime('%m%y')
-                df['data_month'] = code_version
-                # --------------------------------------------
+                df['data_month'] = now.strftime('%m%y')
 
-                # Pastikan Kolom Lengkap
                 required_cols = ['type','finance','tahun','warna','noka','nosin','ovd','branch','data_month']
                 for c in required_cols:
                     if c not in df.columns: df[c] = None 
                     else: df[c] = df[c].replace({np.nan: None, "": None})
                 
-                # Konversi ke Records
                 recs = df[['nopol'] + required_cols].to_dict('records')
                 
-                # Batch Upload Process
-                BATCH_SIZE = 50 
+                # --- [OPTIMASI] BATCH SIZE 1000 UNTUK KECEPATAN ---
+                BATCH_SIZE = 1000 
                 s, f = 0, 0
-                pb = st.progress(0, f"Memproses {len(recs)} data...")
+                pb = st.progress(0, f"Memproses {len(recs)} data (Batch {BATCH_SIZE})...")
                 total_recs = len(recs)
                 last_error = ""
                 
                 for i in range(0, total_recs, BATCH_SIZE):
                     batch = recs[i:i+BATCH_SIZE]
-                    try: 
-                        supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
-                        s += len(batch)
-                    except Exception as e: 
-                        f += len(batch)
-                        last_error = str(e)
+                    # Retry logic sederhana (Coba 3x jika gagal)
+                    for attempt in range(3):
+                        try: 
+                            supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
+                            s += len(batch)
+                            break # Berhasil, keluar loop retry
+                        except Exception as e: 
+                            if attempt == 2: # Jika sudah 3x gagal
+                                f += len(batch)
+                                last_error = str(e)
+                            time.sleep(1) # Tunggu 1 detik sebelum retry
+                    
                     pb.progress(min((i+BATCH_SIZE)/total_recs, 1.0))
                 
                 st.session_state['upload_result'] = {'suc': s, 'fail': f, 'err': last_error}
@@ -474,15 +473,12 @@ with tab3:
 
     elif st.session_state['upload_stage'] == 'complete':
         r = st.session_state['upload_result']
-        if r['fail'] == 0: 
-            st.success(f"✅ SUKSES TOTAL! {r['suc']} Data Berhasil Diupdate.")
+        if r['fail'] == 0: st.success(f"✅ SUKSES TOTAL! {r['suc']} Data Berhasil Diupdate.")
         else:
             st.warning(f"⚠️ SELESAI DENGAN CATATAN\n✅ Sukses: {r['suc']}\n❌ Gagal: {r['fail']}")
             if r['err']: st.error(f"🔍 Info Error: {r['err']}")
-        
         if st.button("⬅️ UPLOAD LAGI", key="btn_back"): 
-            st.session_state['upload_stage']='idle'
-            st.rerun()
+            st.session_state['upload_stage']='idle'; st.rerun()
 
 # --- TAB 4: HAPUS MASSAL ---
 with tab4:
@@ -491,13 +487,14 @@ with tab4:
         df = read_file_robust(up); df, _ = smart_rename_columns(df)
         if 'nopol' in df.columns:
             t = list(set(df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper().tolist()))
-            pb = st.progress(0, "Deleting..."); batch = 200
+            pb = st.progress(0, "Deleting..."); batch = 1000 # Naikkan juga batch hapus
             for i in range(0, len(t), batch):
-                supabase.table('kendaraan').delete().in_('nopol', t[i:i+batch]).execute()
+                try: supabase.table('kendaraan').delete().in_('nopol', t[i:i+batch]).execute()
+                except: pass
                 pb.progress(min((i+batch)/len(t), 1.0))
             st.success("DELETED"); time.sleep(1); st.rerun()
 
-# --- TAB 5: LIVE OPS MONITORING (TODAY ONLY + PHONE NUMBER) ---
+# --- TAB 5: LIVE OPS MONITORING ---
 with tab5:
     st.markdown("### 📡 REALTIME OPERATIONS CENTER (TODAY'S ACTIVITY)")
     users_resp = supabase.table('users').select('nama_lengkap, agency, role, last_seen, status, no_hp').execute()
@@ -508,101 +505,54 @@ with tab5:
             df_live['last_seen'] = pd.to_datetime(df_live['last_seen'], errors='coerce')
             if df_live['last_seen'].dt.tz is None: df_live['last_seen'] = df_live['last_seen'].dt.tz_localize('UTC').dt.tz_convert(TZ)
             else: df_live['last_seen'] = df_live['last_seen'].dt.tz_convert(TZ)
-            
             now = datetime.now(TZ)
             today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            
             df_display = df_live.dropna(subset=['last_seen']).copy()
             df_display = df_display[df_display['last_seen'] >= today_start]
-            
             if not df_display.empty:
                 limit_30m = now - timedelta(minutes=30)
-                
                 def get_status_label(row):
                     t = row['last_seen']
                     if pd.isna(t): return "⚫ OFFLINE"
                     if t >= limit_30m: return "🟢 ONLINE"
                     return "🟡 IDLE"
-                    
                 df_display['STATUS'] = df_display.apply(get_status_label, axis=1)
                 df_display['TIME'] = df_display['last_seen'].dt.strftime('%H:%M:%S')
-                
-                # [CRITICAL FIX V10.2] Gunakan nama kolom asli 'no_hp' sebelum rename
                 final_view = df_display[['STATUS', 'TIME', 'nama_lengkap', 'agency', 'role', 'no_hp']]
                 final_view.columns = ['STATUS', 'LAST ACTIVE', 'USER', 'AGENCY', 'ROLE', 'NO. HP']
                 final_view = final_view.sort_values(by='LAST ACTIVE', ascending=False)
-                
                 st.dataframe(final_view, hide_index=True, use_container_width=True, column_config={"STATUS": st.column_config.TextColumn("STATUS", width="small"), "LAST ACTIVE": st.column_config.TextColumn("JAM (WIB)", width="small")})
             else: st.info("💤 Belum ada aktivitas user hari ini (Sejak 00:00 WIB).")
         else: st.warning("⚠️ Database belum mencatat waktu (Kolom last_seen kosong).")
 
-# --- TAB 6: DAFTAR USER EXPIRED (AUDIT & RETENSI) ---
+# --- TAB 6: DAFTAR USER EXPIRED ---
 with tab6:
     st.markdown("### 💀 DAFTAR USER HABIS MASA AKTIF")
     st.info("Halaman ini menampilkan seluruh user yang tanggal expired-nya sudah lewat. Silakan download data ini untuk melakukan follow-up / penagihan.")
-    
     if not df_u.empty:
-        # 1. Konversi & Filter Data
         now_date = datetime.now(TZ_JAKARTA).date()
-        
-        # Pastikan kolom expiry bisa dibaca tanggalnya
         df_u['tgl_exp_obj'] = pd.to_datetime(df_u['expiry_date'], errors='coerce').dt.date
-        
-        # Filter: Tanggal < Hari Ini DAN Status != Banned (Kalau sudah dibanned biarin aja)
         df_audit = df_u[ (df_u['tgl_exp_obj'] < now_date) & (df_u['status'] != 'banned') ].copy()
-        
-        # Urutkan dari yang paling lama expirednya
         df_audit = df_audit.sort_values(by='tgl_exp_obj', ascending=True)
 
         if not df_audit.empty:
-            # 2. Tampilkan Metrik Ringkas
             c1, c2 = st.columns(2)
             c1.metric("TOTAL EXPIRED", f"{len(df_audit)} User", "Potensi Revenue", delta_color="inverse")
             c2.metric("TERLAMA SEJAK", f"{df_audit['tgl_exp_obj'].iloc[0]}", "Perlu Tindakan")
-            
             st.divider()
-
-            # 3. Siapkan Tabel Cantik
-            # Format tanggal jadi String biar rapi di tabel
             df_audit['expiry_date_str'] = pd.to_datetime(df_audit['expiry_date']).dt.strftime('%Y-%m-%d')
-            
-            # Pilih kolom yang penting saja untuk penagihan
             df_show = df_audit[['nama_lengkap', 'no_hp', 'agency', 'role', 'expiry_date_str', 'status']]
-            
             st.dataframe(
                 df_show,
-                column_config={
-                    "nama_lengkap": "Nama User",
-                    "no_hp": "WhatsApp",
-                    "agency": "Agency/PT",
-                    "role": "Jabatan",
-                    "expiry_date_str": "Tgl Expired",
-                    "status": "Status Sistem"
-                },
-                hide_index=True,
-                use_container_width=True,
-                height=500
+                column_config={"nama_lengkap": "Nama User", "no_hp": "WhatsApp", "agency": "Agency/PT", "role": "Jabatan", "expiry_date_str": "Tgl Expired", "status": "Status Sistem"},
+                hide_index=True, use_container_width=True, height=500
             )
-            
-            # 4. Fitur Download (PENTING untuk Admin WA)
-            # Konversi ke CSV
             csv = df_show.to_csv(index=False).encode('utf-8')
-            
-            st.download_button(
-                label="📥 DOWNLOAD DATA EXPIRED (CSV)",
-                data=csv,
-                file_name=f"DATA_EXPIRED_ONEASPAL_{now_date}.csv",
-                mime='text/csv',
-                type='primary',
-                use_container_width=True
-            )
-            
+            st.download_button(label="📥 DOWNLOAD DATA EXPIRED (CSV)", data=csv, file_name=f"DATA_EXPIRED_ONEASPAL_{now_date}.csv", mime='text/csv', type='primary', use_container_width=True)
         else:
-            st.success("✅ LUAR BIASA! Tidak ada user expired yang menunggak. Semua akun sehat.", icon="🌟")
+            st.success("✅ LUAR BIASA! Tidak ada user expired yang menunggak.", icon="🌟")
             st.balloons()
-            
-    else:
-        st.warning("Belum ada data user di database.")
+    else: st.warning("Belum ada data user di database.")
 
 st.markdown("<br><hr style='border-color: #00f2ff; opacity: 0.3;'><br>", unsafe_allow_html=True)
 cf1, cf2, cf3 = st.columns([1, 2, 1])
@@ -610,4 +560,4 @@ with cf1:
     if st.button("🔄 REFRESH SYSTEM", key="footer_refresh"): st.cache_data.clear(); st.rerun()
 with cf3:
     if st.button("🚪 LOGOUT SESSION", key="footer_logout"): st.session_state['authenticated'] = False; st.rerun()
-st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v10.2</div>""", unsafe_allow_html=True)
+st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v10.3</div>""", unsafe_allow_html=True)
