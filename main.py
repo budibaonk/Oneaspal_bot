@@ -738,87 +738,135 @@ async def rekap_harian(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Rekap Error: {e}")
         await msg.edit_text(f"❌ Gagal menarik data rekap: {e}")
 
-# --- [UPDATE FINAL] MASTER REKAP ENGINE (ADMIN, PIC, KORLAP) ---
+# ==============================================================================
+# HELPER: PEMBERSIH NAMA PT (Agar "PT. ABC" match dengan "ABC")
+# ==============================================================================
+def clean_pt_name(text):
+    if not text: return ""
+    # Hapus PT, CV, titik, dan spasi berlebih
+    text = str(text).upper().replace("PT.", "").replace("PT ", "").replace("CV.", "").replace("CV ", "")
+    return text.strip()
+
+# ==============================================================================
+# BAGIAN 11: REKAP ENGINE & CEK AGENCY (FIXED)
+# ==============================================================================
+
 async def rekap_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     u = get_user(user_id)
     
-    # 1. CEK OTORITAS & IDENTITAS
+    # 1. CEK OTORITAS
     if not u or u.get('role') not in ['admin', 'superadmin', 'korlap', 'pic']:
-        return # User biasa (Matel) tidak bisa akses
+        return # User biasa (Matel) lewat
     
     role = u.get('role')
-    my_agency = str(u.get('agency', '')).upper().strip() # Untuk PIC/Korlap
+    my_agency = str(u.get('agency', '')).upper().strip()
     
-    # 2. PARSING KEYWORD
-    # Input: /rekap atau /rekapBCA atau /rekapElang
-    raw_text = update.message.text.split()[0]
-    keyword = raw_text.lower().replace("/rekap", "").replace("_", "").strip().upper()
+    # 2. PARSING KEYWORD YANG LEBIH CERDAS
+    # Support: /rekapBCA (nempel) ATAU /rekap BCA (spasi)
+    full_text = update.message.text.strip()
     
-    msg = await update.message.reply_text(f"⏳ **Mengolah Data Harian...**", parse_mode='Markdown')
+    if " " in full_text:
+        # Jika pakai spasi: "/cekagency Lucretia" -> keyword="LUCRETIA"
+        keyword = full_text.split(" ", 1)[1].upper().strip()
+    else:
+        # Jika nempel: "/rekapBCA" -> keyword="BCA"
+        command = full_text.split()[0] # /rekapBCA
+        base_cmd = "/cekagency" if "/cekagency" in command.lower() else "/rekap"
+        keyword = command.lower().replace(base_cmd, "").upper().strip()
+
+    # Feedback awal biar user tau bot kerja
+    status_msg = await update.message.reply_text(f"⏳ **Sedang mengaudit data...**", parse_mode='Markdown')
 
     try:
-        # 3. TARIK DATA HARIAN (Global dulu, baru difilter)
+        # 3. TARIK DATA HARIAN (Optimized)
         now = datetime.now(TZ_JAKARTA)
         start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
         
+        # Ambil semua log hari ini
         res = supabase.table('finding_logs').select("*").gte('created_at', start_of_day.isoformat()).execute()
         all_logs = res.data
         
         if not all_logs:
-            return await msg.edit_text(f"📊 **REKAP HARIAN**\n\nNihil. Belum ada unit ditemukan hari ini (Global).")
+            return await status_msg.edit_text(f"📊 **REKAP HARIAN**\n\nNihil. Belum ada unit ditemukan hari ini (Global).")
 
-        # 4. LOGIKA FILTERING (CORE ENGINE)
+        # 4. LOGIKA FILTERING (CORE ENGINE V2)
         target_data = []
-        mode_tampilan = "SUMMARY" # Default: Statistik Angka
         header_context = "GLOBAL"
+        mode_tampilan = "SUMMARY"
 
         # --- SKENARIO A: ADMIN / SUPERADMIN ---
         if role in ['admin', 'superadmin']:
             if not keyword: 
-                # Jika cuma /rekap -> Tampilkan SEMUA (Global Summary)
+                # Global Recap
                 target_data = all_logs
                 header_context = "GLOBAL (ADMIN)"
             else:
-                # Jika /rekapBCA -> Cari di Leasing ATAU PT
-                target_data = [l for l in all_logs if keyword in (str(l.get('leasing',''))+str(l.get('nama_pt',''))).upper().replace(" ","")]
-                mode_tampilan = "DETAIL" # Admin minta spesifik -> kasih detil
+                # Search Mode (Bisa cari Nama PT atau Leasing)
+                # Kita pakai "Smart Search"
+                target_data = []
+                keyword_clean = clean_pt_name(keyword) # Bersihkan keyword admin (misal: "Lucretia")
+                
+                for l in all_logs:
+                    # Cek Leasing
+                    l_leasing = str(l.get('leasing','')).upper()
+                    # Cek PT (Bersihkan dulu "PT"-nya dari log)
+                    l_pt = clean_pt_name(l.get('nama_pt',''))
+                    
+                    if keyword_clean in l_leasing or keyword_clean in l_pt:
+                        target_data.append(l)
+                        
+                mode_tampilan = "DETAIL"
                 header_context = f"SEARCH: {keyword}"
 
         # --- SKENARIO B: PIC LEASING ---
         elif role == 'pic':
-            # PIC otomatis terkunci ke Leasingnya sendiri (misal: BCA)
-            # Standarisasi nama leasing dari profil user
             my_leasing_std = standardize_leasing_name(my_agency)
-            
             # Filter logs yang leasingnya mengandung nama leasing PIC
             target_data = [l for l in all_logs if my_leasing_std in str(l.get('leasing','')).upper()]
-            
             header_context = f"INTERNAL {my_leasing_std}"
-            mode_tampilan = "DETAIL" # PIC biasanya ingin lihat rincian langsung
+            mode_tampilan = "DETAIL"
 
-        # --- SKENARIO C: KORLAP / AGENCY ---
+        # --- SKENARIO C: KORLAP / AGENCY (FIX LOGIC) ---
         elif role == 'korlap':
+            # Bersihkan nama agency Korlap (Hapus PT/CV)
+            my_agency_clean = clean_pt_name(my_agency)
+            
             if not keyword:
-                # Jika cuma /rekap -> Otomatis filter Agency dia sendiri
-                # Gunakan logic string contain sederhana
-                target_data = [l for l in all_logs if my_agency in str(l.get('nama_pt','')).upper()]
+                # Tampilkan semua temuan tim dia
+                target_data = []
+                for l in all_logs:
+                    log_pt_clean = clean_pt_name(l.get('nama_pt',''))
+                    # Match jika "ELANG MAUT" ada di dalam "ELANG MAUT INDONESIA"
+                    if my_agency_clean in log_pt_clean or log_pt_clean in my_agency_clean:
+                        target_data.append(l)
+                
                 header_context = f"AGENCY {my_agency}"
             else:
-                # Jika /rekapBCA -> Dia ingin lihat Agency Dia TAPI khusus Leasing BCA
-                target_data = [l for l in all_logs if my_agency in str(l.get('nama_pt','')).upper() and keyword in str(l.get('leasing','')).upper()]
+                # Korlap filter leasing tertentu
+                target_data = []
+                for l in all_logs:
+                    log_pt_clean = clean_pt_name(l.get('nama_pt',''))
+                    log_leasing = str(l.get('leasing','')).upper()
+                    
+                    is_my_team = (my_agency_clean in log_pt_clean or log_pt_clean in my_agency_clean)
+                    is_target_leasing = (keyword in log_leasing)
+                    
+                    if is_my_team and is_target_leasing:
+                        target_data.append(l)
+                        
                 mode_tampilan = "DETAIL"
                 header_context = f"{my_agency} ({keyword})"
 
         # 5. RENDER TAMPILAN
         if not target_data:
-             return await msg.edit_text(f"🔍 **Data Kosong**\nKonteks: {header_context}\nTidak ada temuan hari ini.")
+             return await status_msg.edit_text(f"🔍 **HASIL PENCARIAN KOSONG**\n\nKonteks: {header_context}\nKeyword: {keyword}\n\n_Tidak ada data yang cocok hari ini._", parse_mode='Markdown')
 
-        # TAMPILAN DETAIL (List Nopol)
+        # FORMAT LAPORAN (Sama seperti sebelumnya, tapi lebih rapi)
         if mode_tampilan == "DETAIL":
             rpt = (
                 f"📋 **RINCIAN TEMUAN HARIAN**\n"
-                f"🔍 **Konteks:** {header_context}\n"
+                f"🔍 **Filter:** {header_context}\n"
                 f"📅 **Tanggal:** {now.strftime('%d %b %Y')}\n"
                 f"🔥 **Total:** {len(target_data)} Unit\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
@@ -828,32 +876,31 @@ async def rekap_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 nopol = d.get('nopol', '-')
                 unit = d.get('unit', '-')
                 matel = d.get('nama_matel', 'Anonim')
-                hp = d.get('no_hp', '-')
                 leasing_lbl = d.get('leasing', '-')
                 pt_lbl = d.get('nama_pt', '-')
                 
                 # Format Baris
                 row = f"{i+1}. **{nopol}** | {unit}\n"
-                # Jika Admin, tampilkan PT juga. Jika Agency, tampilkan Leasing.
                 if role in ['admin', 'superadmin']:
-                    row += f"   └ 🏢 {pt_lbl} | 🏦 {leasing_lbl}\n"
+                    row += f"   🏢 {pt_lbl} | 🏦 {leasing_lbl}\n"
                 else:
-                    row += f"   └ 🏦 {leasing_lbl} | 👤 {matel}\n"
+                    row += f"   👤 {matel} | 🏦 {leasing_lbl}\n"
                 
                 if len(rpt + body + row) > 3800:
                     body += "\n...(Data terpotong, terlalu banyak)..."
                     break
                 body += row
             
-            await msg.edit_text(rpt + body, parse_mode='Markdown')
+            await status_msg.edit_text(rpt + body, parse_mode='Markdown')
 
-        # TAMPILAN SUMMARY (Statistik Angka)
         else:
-            # Hitung Statistik by Leasing
+            # STATISTIK SUMMARY
             stats = {}
             for x in target_data:
-                ls_name = x.get('leasing', 'UNKNOWN')
-                stats[ls_name] = stats.get(ls_name, 0) + 1
+                # Statistik berdasarkan LEASING
+                k = x.get('leasing', 'UNKNOWN')
+                stats[k] = stats.get(k, 0) + 1
+            
             sorted_stats = sorted(stats.items(), key=lambda item: item[1], reverse=True)
             
             rpt = (
@@ -863,15 +910,19 @@ async def rekap_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🔥 **TOTAL GLOBAL:** {len(target_data)} Unit\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
             )
-            for ls, count in sorted_stats:
-                rpt += f"🔹 **{ls}:** {count} Unit\n"
+            for k, count in sorted_stats:
+                rpt += f"🔹 **{k}:** {count} Unit\n"
             
-            rpt += "\n💡 *Ketik /rekap[Nama] untuk filter spesifik.*"
-            await msg.edit_text(rpt, parse_mode='Markdown')
+            rpt += "\n💡 *Gunakan /cekagency [Nama PT] untuk detail.*"
+            await status_msg.edit_text(rpt, parse_mode='Markdown')
 
     except Exception as e:
         logger.error(f"Master Rekap Error: {e}")
-        await msg.edit_text(f"❌ Error: {e}")
+        await status_msg.edit_text(f"❌ Terjadi kesalahan sistem: {e}")
+
+# Agar /cekagency juga jalan, kita arahkan ke handler yang sama
+async def cek_agency_redirect(update, context):
+    await rekap_handler(update, context)
 
 async def list_users(update, context):
     if update.effective_user.id != ADMIN_ID: return
@@ -3262,9 +3313,12 @@ if __name__ == '__main__':
     print("🚀 ONEASPAL BOT v6.30 (INTELLIGENCE READY) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
-    app.add_handler(CommandHandler('stop', stop_upload_command)) # Priority
+    # ==========================================================================
+    # 1. PRIORITY HANDLERS (Stop, Cancel, Upload)
+    # ==========================================================================
+    app.add_handler(CommandHandler('stop', stop_upload_command))
     
-   # UPDATE HANDLER UPLOAD
+    # HANDLER UPLOAD FILE (Conversational)
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Document.ALL, upload_start)],
         states={
@@ -3275,13 +3329,36 @@ if __name__ == '__main__':
         fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
     ))
 
+    # ==========================================================================
+    # 2. ADMIN & USER MANAGEMENT HANDLERS
+    # ==========================================================================
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
     app.add_handler(MessageHandler(filters.Regex(r'^/cek_\d+$'), cek_user_pending))
-    app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(admin_action_start, pattern='^adm_(ban|unban|del)_')], states={ADMIN_ACT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_action_complete)]}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]))
-    app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(reject_start, pattern='^reju_')], states={REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, reject_complete)]}, fallbacks=[CommandHandler('cancel', cancel)]))
-    app.add_handler(ConversationHandler(entry_points=[CallbackQueryHandler(val_reject_start, pattern='^v_rej_')], states={VAL_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, val_reject_complete)]}, fallbacks=[CommandHandler('cancel', cancel)]))
     
-    # [UPDATE] REGISTER HANDLER DENGAN FOTO ID
+    # Handler Admin Action (Ban/Unban/Delete User)
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(admin_action_start, pattern='^adm_(ban|unban|del)_')], 
+        states={ADMIN_ACT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_action_complete)]}, 
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+    ))
+    
+    # Handler Reject User
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(reject_start, pattern='^reju_')], 
+        states={REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, reject_complete)]}, 
+        fallbacks=[CommandHandler('cancel', cancel)]
+    ))
+    
+    # Handler Validasi Reject
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(val_reject_start, pattern='^v_rej_')], 
+        states={VAL_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, val_reject_complete)]}, 
+        fallbacks=[CommandHandler('cancel', cancel)]
+    ))
+    
+    # ==========================================================================
+    # 3. REGISTRATION HANDLER (Full Flow)
+    # ==========================================================================
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('register', register_start)], 
         states={
@@ -3291,52 +3368,106 @@ if __name__ == '__main__':
             R_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_email)], 
             R_KOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], 
             R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], 
-
-            # --- UPDATE: TAMBAHKAN HANDLER INI ---
             R_BRANCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_branch)],
-            # -------------------------------------
-            
-            # --- STATE BARU: HANDLER FOTO ID CARD ---
             R_PHOTO_ID: [MessageHandler(filters.PHOTO, register_photo_id)],
-            # ----------------------------------------
-
             R_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_confirm)]
         }, 
         fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
     ))
     
-    conv_add_manual = ConversationHandler(entry_points=[CommandHandler('tambah', add_manual_start)], states={ADD_NOPOL: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_nopol)], ADD_UNIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_unit)], ADD_LEASING: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_leasing)], ADD_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_phone)], ADD_NOTE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_note)], ADD_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_save)],}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex("^❌ BATAL$"), cancel)])
+    # ==========================================================================
+    # 4. UNIT MANAGEMENT HANDLERS (Add, Delete, Lapor)
+    # ==========================================================================
+    conv_add_manual = ConversationHandler(
+        entry_points=[CommandHandler('tambah', add_manual_start)], 
+        states={
+            ADD_NOPOL: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_nopol)], 
+            ADD_UNIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_unit)], 
+            ADD_LEASING: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_leasing)], 
+            ADD_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_phone)], 
+            ADD_NOTE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_note)], 
+            ADD_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_save)],
+        }, 
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex("^❌ BATAL$"), cancel)]
+    )
     app.add_handler(conv_add_manual)
 
-    app.add_handler(ConversationHandler(entry_points=[CommandHandler('lapor', lapor_delete_start)], states={L_NOPOL: [MessageHandler(filters.TEXT, lapor_delete_check)], L_REASON: [MessageHandler(filters.TEXT, lapor_reason)], L_CONFIRM: [MessageHandler(filters.TEXT, lapor_delete_confirm)]}, fallbacks=[CommandHandler('cancel', cancel)]))
-    app.add_handler(ConversationHandler(entry_points=[CommandHandler('hapus', delete_unit_start)], states={D_NOPOL: [MessageHandler(filters.TEXT, delete_unit_check)], D_CONFIRM: [MessageHandler(filters.TEXT, delete_unit_confirm)]}, fallbacks=[CommandHandler('cancel', cancel)]))
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('lapor', lapor_delete_start)], 
+        states={
+            L_NOPOL: [MessageHandler(filters.TEXT, lapor_delete_check)], 
+            L_REASON: [MessageHandler(filters.TEXT, lapor_reason)], 
+            L_CONFIRM: [MessageHandler(filters.TEXT, lapor_delete_confirm)]
+        }, 
+        fallbacks=[CommandHandler('cancel', cancel)]
+    ))
+    
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('hapus', delete_unit_start)], 
+        states={
+            D_NOPOL: [MessageHandler(filters.TEXT, delete_unit_check)], 
+            D_CONFIRM: [MessageHandler(filters.TEXT, delete_unit_confirm)]
+        }, 
+        fallbacks=[CommandHandler('cancel', cancel)]
+    ))
 
+    # ==========================================================================
+    # 5. SUPPORT & HELP HANDLERS
+    # ==========================================================================
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('admin', contact_admin), MessageHandler(filters.Regex('^📞 BANTUAN TEKNIS$'), contact_admin)], 
+        states={SUPPORT_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, support_send)]}, 
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+    )) 
+    
+    app.add_handler(CommandHandler('panduan', panduan))
+    app.add_handler(CommandHandler('adminhelp', admin_help)) 
+    app.add_handler(CommandHandler('setinfo', set_info)) 
+    app.add_handler(CommandHandler('delinfo', del_info)) 
+
+    # ==========================================================================
+    # 6. GENERAL COMMAND HANDLERS
+    # ==========================================================================
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('cekkuota', cek_kuota))
     app.add_handler(CommandHandler('infobayar', info_bayar)) 
     app.add_handler(CommandHandler('topup', admin_topup))
     app.add_handler(CommandHandler('stats', get_stats))
     app.add_handler(CommandHandler('leasing', get_leasing_list)) 
-    app.add_handler(CommandHandler('rekap', rekap_harian))
+    
+    # --- [UPDATE] REKAP & REPORTING ---
+    # app.add_handler(CommandHandler('rekap', rekap_harian)) # --> INI SAYA NON-AKTIFKAN KARENA DIGANTI FITUR BARU
     app.add_handler(CommandHandler("rekap_member", rekap_member))
+    
+    # 1. Handler Audit Khusus (Cek Agency)
+    app.add_handler(CommandHandler("cekagency", rekap_handler))
+
+    # 2. Handler Rekap Sakti (Menangani /rekap, /rekapBCA, /rekapElang)
+    app.add_handler(MessageHandler(filters.Regex(r'(?i)^/rekap'), rekap_handler))
+    # ----------------------------------
+
+    # ==========================================================================
+    # 7. ADMIN TOOLS
+    # ==========================================================================
     app.add_handler(CommandHandler('users', list_users))
     app.add_handler(CommandHandler('angkat_korlap', angkat_korlap)) 
     app.add_handler(CommandHandler('testgroup', test_group))
     app.add_handler(CommandHandler('balas', admin_reply))
     app.add_handler(CommandHandler('setgroup', set_leasing_group)) 
     app.add_handler(CommandHandler('setagency', set_agency_group))
-    app.add_handler(ConversationHandler(entry_points=[CommandHandler('admin', contact_admin), MessageHandler(filters.Regex('^📞 BANTUAN TEKNIS$'), contact_admin)], states={SUPPORT_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, support_send)]}, fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)])) 
-    app.add_handler(CommandHandler('panduan', panduan))
-    app.add_handler(CommandHandler('setinfo', set_info)) 
-    app.add_handler(CommandHandler('delinfo', del_info))        
     app.add_handler(CommandHandler('addagency', add_agency)) 
-    app.add_handler(CommandHandler('adminhelp', admin_help)) 
-    # Tangkap semua command yang diawali /rekap...
-    app.add_handler(MessageHandler(filters.Regex(r'^/rekap.*') & filters.COMMAND, rekap_handler))
+    
+    # ==========================================================================
+    # 8. GENERAL MESSAGE & CALLBACK (LOWEST PRIORITY)
+    # ==========================================================================
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo_topup))
     app.add_handler(CallbackQueryHandler(callback_handler))
+    
+    # WAJIB PALING BAWAH: Handler Pencarian Nopol (Menangkap teks apapun)
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
+    # ==========================================================================
+     
     job_queue = app.job_queue
     # Perhatikan "time=" tetap, tapi isinya jadi "dt_time"
     # job_queue.run_daily(auto_cleanup_logs, time=dt_time(hour=3, minute=0, second=0, tzinfo=TZ_JAKARTA), days=(0, 1, 2, 3, 4, 5, 6))
