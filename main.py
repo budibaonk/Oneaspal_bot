@@ -756,113 +756,94 @@ async def rekap_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = get_user(user_id)
     
     # 1. CEK OTORITAS
+    # Hanya Admin, Superadmin, Korlap, dan PIC yang boleh akses
     if not u or u.get('role') not in ['admin', 'superadmin', 'korlap', 'pic']:
-        return # User biasa (Matel) lewat
+        return 
     
     role = u.get('role')
     my_agency = str(u.get('agency', '')).upper().strip()
     
-    # 2. PARSING KEYWORD YANG LEBIH CERDAS
-    # Support: /rekapBCA (nempel) ATAU /rekap BCA (spasi)
+    # 2. PARSING KEYWORD
+    # Support format: "/rekap" atau "/rekapBCA" atau "/cekagency ELANG"
     full_text = update.message.text.strip()
-    
     if " " in full_text:
-        # Jika pakai spasi: "/cekagency Lucretia" -> keyword="LUCRETIA"
         keyword = full_text.split(" ", 1)[1].upper().strip()
     else:
-        # Jika nempel: "/rekapBCA" -> keyword="BCA"
-        command = full_text.split()[0] # /rekapBCA
+        command = full_text.split()[0] 
         base_cmd = "/cekagency" if "/cekagency" in command.lower() else "/rekap"
         keyword = command.lower().replace(base_cmd, "").upper().strip()
 
-    # Feedback awal biar user tau bot kerja
     status_msg = await update.message.reply_text(f"⏳ **Sedang mengaudit data...**", parse_mode='Markdown')
 
     try:
-        # 3. TARIK DATA HARIAN (Optimized)
+        # 3. TARIK DATA HARIAN (DATABASE)
         now = datetime.now(TZ_JAKARTA)
         start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
         
-        # Ambil semua log hari ini
+        # Ambil semua log temuan hari ini
         res = supabase.table('finding_logs').select("*").gte('created_at', start_of_day.isoformat()).execute()
         all_logs = res.data
         
         if not all_logs:
             return await status_msg.edit_text(f"📊 **REKAP HARIAN**\n\nNihil. Belum ada unit ditemukan hari ini (Global).")
 
-        # 4. LOGIKA FILTERING (CORE ENGINE V2)
+        # 4. LOGIKA FILTERING (SESUAI JABATAN)
         target_data = []
         header_context = "GLOBAL"
         mode_tampilan = "SUMMARY"
 
-        # --- SKENARIO A: ADMIN / SUPERADMIN ---
+        # --- A. LOGIKA ADMIN (Bisa lihat semua) ---
         if role in ['admin', 'superadmin']:
             if not keyword: 
-                # Global Recap
                 target_data = all_logs
                 header_context = "GLOBAL (ADMIN)"
             else:
-                # Search Mode (Bisa cari Nama PT atau Leasing)
-                # Kita pakai "Smart Search"
                 target_data = []
-                keyword_clean = clean_pt_name(keyword) # Bersihkan keyword admin (misal: "Lucretia")
-                
+                keyword_clean = clean_pt_name(keyword)
                 for l in all_logs:
-                    # Cek Leasing
                     l_leasing = str(l.get('leasing','')).upper()
-                    # Cek PT (Bersihkan dulu "PT"-nya dari log)
                     l_pt = clean_pt_name(l.get('nama_pt',''))
-                    
                     if keyword_clean in l_leasing or keyword_clean in l_pt:
                         target_data.append(l)
-                        
                 mode_tampilan = "DETAIL"
                 header_context = f"SEARCH: {keyword}"
 
-        # --- SKENARIO B: PIC LEASING ---
+        # --- B. LOGIKA PIC LEASING (Hanya lihat leasing sendiri) ---
         elif role == 'pic':
             my_leasing_std = standardize_leasing_name(my_agency)
-            # Filter logs yang leasingnya mengandung nama leasing PIC
+            # Filter hanya data milik leasing dia
             target_data = [l for l in all_logs if my_leasing_std in str(l.get('leasing','')).upper()]
-            header_context = f"INTERNAL {my_leasing_std}"
-            mode_tampilan = "DETAIL"
-
-        # --- SKENARIO C: KORLAP / AGENCY (FIX LOGIC) ---
-        elif role == 'korlap':
-            # Bersihkan nama agency Korlap (Hapus PT/CV)
-            my_agency_clean = clean_pt_name(my_agency)
             
+            header_context = f"INTERNAL {my_leasing_std}"
+            mode_tampilan = "DETAIL" # PIC Selalu melihat detail
+
+        # --- C. LOGIKA KORLAP (Hanya lihat tim sendiri) ---
+        elif role == 'korlap':
+            my_agency_clean = clean_pt_name(my_agency)
             if not keyword:
-                # Tampilkan semua temuan tim dia
                 target_data = []
                 for l in all_logs:
                     log_pt_clean = clean_pt_name(l.get('nama_pt',''))
-                    # Match jika "ELANG MAUT" ada di dalam "ELANG MAUT INDONESIA"
+                    # Match nama PT (Flexible)
                     if my_agency_clean in log_pt_clean or log_pt_clean in my_agency_clean:
                         target_data.append(l)
-                
                 header_context = f"AGENCY {my_agency}"
             else:
-                # Korlap filter leasing tertentu
+                # Filter tim sendiri + leasing tertentu
                 target_data = []
                 for l in all_logs:
                     log_pt_clean = clean_pt_name(l.get('nama_pt',''))
                     log_leasing = str(l.get('leasing','')).upper()
-                    
-                    is_my_team = (my_agency_clean in log_pt_clean or log_pt_clean in my_agency_clean)
-                    is_target_leasing = (keyword in log_leasing)
-                    
-                    if is_my_team and is_target_leasing:
+                    if (my_agency_clean in log_pt_clean or log_pt_clean in my_agency_clean) and (keyword in log_leasing):
                         target_data.append(l)
-                        
                 mode_tampilan = "DETAIL"
                 header_context = f"{my_agency} ({keyword})"
 
-        # 5. RENDER TAMPILAN
+        # 5. RENDER TAMPILAN (FORMAT LENGKAP)
         if not target_data:
              return await status_msg.edit_text(f"🔍 **HASIL PENCARIAN KOSONG**\n\nKonteks: {header_context}\nKeyword: {keyword}\n\n_Tidak ada data yang cocok hari ini._", parse_mode='Markdown')
 
-        # FORMAT LAPORAN (Sama seperti sebelumnya, tapi lebih rapi)
+        # === TAMPILAN DETAIL (BERLAKU UNTUK ADMIN, PIC, DAN KORLAP) ===
         if mode_tampilan == "DETAIL":
             rpt = (
                 f"📋 **RINCIAN TEMUAN HARIAN**\n"
@@ -879,12 +860,12 @@ async def rekap_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 leasing_lbl = d.get('leasing', '-')
                 pt_lbl = d.get('nama_pt', '-')
                 
-                # Format Baris
+                # --- FORMAT BARIS LENGKAP (ADMIN/PIC/KORLAP SAMA) ---
+                # Baris 1: Nomor Urut | Plat Nomor | Nama Unit
                 row = f"{i+1}. **{nopol}** | {unit}\n"
-                if role in ['admin', 'superadmin']:
-                    row += f"   🏢 {pt_lbl} | 🏦 {leasing_lbl}\n"
-                else:
-                    row += f"   👤 {matel} | 🏦 {leasing_lbl}\n"
+                # Baris 2: Nama Matel | Nama PT/Agency | Nama Leasing
+                row += f"   👤 {matel} | 🏢 {pt_lbl} | 🏦 {leasing_lbl}\n"
+                # ----------------------------------------------------
                 
                 if len(rpt + body + row) > 3800:
                     body += "\n...(Data terpotong, terlalu banyak)..."
@@ -894,13 +875,11 @@ async def rekap_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status_msg.edit_text(rpt + body, parse_mode='Markdown')
 
         else:
-            # STATISTIK SUMMARY
+            # TAMPILAN SUMMARY (HANYA MUNCUL JIKA ADMIN KETIK /REKAP TANPA KEYWORD)
             stats = {}
             for x in target_data:
-                # Statistik berdasarkan LEASING
                 k = x.get('leasing', 'UNKNOWN')
                 stats[k] = stats.get(k, 0) + 1
-            
             sorted_stats = sorted(stats.items(), key=lambda item: item[1], reverse=True)
             
             rpt = (
