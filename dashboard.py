@@ -538,33 +538,113 @@ with tab5:
         else: st.warning("⚠️ Database belum mencatat waktu (Kolom last_seen kosong).")
 
 # --- TAB 6: DAFTAR USER EXPIRED ---
+# --- TAB 6: DAFTAR USER EXPIRED (AUDIT & RETENSI + PUSH REMINDER) ---
 with tab6:
     st.markdown("### 💀 DAFTAR USER HABIS MASA AKTIF")
-    st.info("Halaman ini menampilkan seluruh user yang tanggal expired-nya sudah lewat. Silakan download data ini untuk melakukan follow-up / penagihan.")
+    st.info("Halaman ini menampilkan user yang expired. Centang kotak 'PILIH' lalu klik tombol di bawah untuk mengirim notifikasi penagihan otomatis ke Telegram mereka.")
+    
     if not df_u.empty:
+        # 1. Konversi & Filter Data
         now_date = datetime.now(TZ_JAKARTA).date()
         df_u['tgl_exp_obj'] = pd.to_datetime(df_u['expiry_date'], errors='coerce').dt.date
+        
+        # Filter: Tanggal < Hari Ini DAN Status != Banned
         df_audit = df_u[ (df_u['tgl_exp_obj'] < now_date) & (df_u['status'] != 'banned') ].copy()
         df_audit = df_audit.sort_values(by='tgl_exp_obj', ascending=True)
 
         if not df_audit.empty:
+            # 2. Metrik Ringkas
             c1, c2 = st.columns(2)
             c1.metric("TOTAL EXPIRED", f"{len(df_audit)} User", "Potensi Revenue", delta_color="inverse")
             c2.metric("TERLAMA SEJAK", f"{df_audit['tgl_exp_obj'].iloc[0]}", "Perlu Tindakan")
             st.divider()
+
+            # 3. Siapkan Tabel dengan Checkbox
             df_audit['expiry_date_str'] = pd.to_datetime(df_audit['expiry_date']).dt.strftime('%Y-%m-%d')
-            df_show = df_audit[['nama_lengkap', 'no_hp', 'agency', 'role', 'expiry_date_str', 'status']]
-            st.dataframe(
+            
+            # Tambahkan kolom boolean untuk checkbox
+            df_audit.insert(0, "PILIH", False)
+            
+            # Pilih kolom display
+            df_show = df_audit[['PILIH', 'nama_lengkap', 'no_hp', 'agency', 'role', 'expiry_date_str', 'user_id']]
+            
+            # Tampilkan Editable Dataframe (Agar bisa dicentang)
+            edited_df = st.data_editor(
                 df_show,
-                column_config={"nama_lengkap": "Nama User", "no_hp": "WhatsApp", "agency": "Agency/PT", "role": "Jabatan", "expiry_date_str": "Tgl Expired", "status": "Status Sistem"},
-                hide_index=True, use_container_width=True, height=500
+                column_config={
+                    "PILIH": st.column_config.CheckboxColumn("TAGIH?", help="Centang untuk kirim reminder", default=False),
+                    "nama_lengkap": "Nama User",
+                    "no_hp": "WhatsApp",
+                    "agency": "Agency/PT",
+                    "role": "Jabatan",
+                    "expiry_date_str": "Tgl Expired",
+                    "user_id": st.column_config.TextColumn("User ID", disabled=True) # Read only
+                },
+                hide_index=True,
+                use_container_width=True,
+                height=400,
+                key="editor_expired_users"
             )
-            csv = df_show.to_csv(index=False).encode('utf-8')
-            st.download_button(label="📥 DOWNLOAD DATA EXPIRED (CSV)", data=csv, file_name=f"DATA_EXPIRED_ONEASPAL_{now_date}.csv", mime='text/csv', type='primary', use_container_width=True)
+            
+            # 4. Logika Tombol Eksekusi
+            # Ambil data yang dicentang (True)
+            targets = edited_df[edited_df['PILIH'] == True]
+            
+            col_act1, col_act2 = st.columns([1, 2])
+            
+            with col_act1:
+                # Tombol Download (Tetap Ada)
+                csv = df_show.drop(columns=['PILIH']).to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 DOWNLOAD CSV",
+                    data=csv,
+                    file_name=f"DATA_EXPIRED_ONEASPAL_{now_date}.csv",
+                    mime='text/csv',
+                    use_container_width=True
+                )
+                
+            with col_act2:
+                # TOMBOL SAKTI: BLAST REMINDER
+                if not targets.empty:
+                    if st.button(f"📢 KIRIM PENGINGAT KE {len(targets)} USER", type="primary", use_container_width=True):
+                        succ_count = 0
+                        fail_count = 0
+                        
+                        prog_bar = st.progress(0, "Mengirim Notifikasi...")
+                        
+                        for idx, row in targets.iterrows():
+                            # Pesan Reminder yang Sopan tapi Tegas
+                            msg_reminder = (
+                                f"🔔 <b>PENGINGAT MASA AKTIF</b>\n\n"
+                                f"Halo <b>{row['nama_lengkap']}</b>,\n"
+                                f"Masa aktif akun One Aspal Anda telah berakhir pada tanggal <b>{row['expiry_date_str']}</b>.\n\n"
+                                f"⛔ Saat ini akses pencarian data Anda dihentikan sementara.\n"
+                                f"Silakan hubungi Admin/Korlap untuk melakukan perpanjangan agar dapat kembali bekerja maksimal.\n\n"
+                                f"<i>Tetap Semangat! 🦅</i>"
+                            )
+                            
+                            # Kirim via Bot Telegram
+                            is_sent = send_telegram_message(row['user_id'], msg_reminder)
+                            if is_sent: succ_count += 1
+                            else: fail_count += 1
+                            
+                            # Update Progress
+                            prog_bar.progress((idx + 1) / len(targets))
+                            time.sleep(0.1) # Jeda dikit biar gak spamming parah
+                            
+                        # Laporan Akhir
+                        st.toast(f"Selesai! ✅ {succ_count} Terkirim | ❌ {fail_count} Gagal", icon="📨")
+                        time.sleep(1)
+                        st.rerun()
+                else:
+                    st.button("📢 PILIH USER DULU", disabled=True, use_container_width=True)
+
         else:
-            st.success("✅ LUAR BIASA! Tidak ada user expired yang menunggak.", icon="🌟")
+            st.success("✅ LUAR BIASA! Tidak ada user expired yang menunggak. Semua akun sehat.", icon="🌟")
             st.balloons()
-    else: st.warning("Belum ada data user di database.")
+            
+    else:
+        st.warning("Belum ada data user di database.")
 
 st.markdown("<br><hr style='border-color: #00f2ff; opacity: 0.3;'><br>", unsafe_allow_html=True)
 cf1, cf2, cf3 = st.columns([1, 2, 1])
