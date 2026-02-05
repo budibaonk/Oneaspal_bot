@@ -1187,42 +1187,75 @@ async def cek_user_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # BAGIAN 9: USER FEATURES & NOTIFIKASI (UPDATE: SHARE WA & COPY BUTTON)
 # ##############################################################################
 
-async def cek_kuota(update, context):
-    user = update.effective_user
-    uid = user.id
-    u = get_user(uid)
+async def cek_kuota(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    u = get_user(user_id)
     if not u or u['status'] != 'active': return
     
     global GLOBAL_INFO
     info_banner = f"📢 <b>INFO PUSAT:</b> {clean_text(GLOBAL_INFO)}\n━━━━━━━━━━━━━━━━━━\n" if GLOBAL_INFO else ""
 
-    is_admin = (uid == ADMIN_ID) or (str(uid) in ADMIN_IDS)
+    is_admin = (str(user_id) in ADMIN_IDS)
     is_pic = (u.get('role') == 'pic')
+    is_korlap = (u.get('role') == 'korlap')
 
-    # === DASHBOARD PIC / ADMIN ===
-    if is_pic or is_admin:
-        # Tentukan Awal Bulan Ini
-        now = datetime.now(TZ_JAKARTA)
-        month_name = now.strftime('%B %Y')
+    now = datetime.now(TZ_JAKARTA)
+    month_name = now.strftime('%B %Y')
+    start_month = now.replace(day=1, hour=0, minute=0, second=0).isoformat()
+
+    # === SKENARIO 1: DASHBOARD KORLAP (NEW FEATURE) ===
+    if is_korlap:
+        my_agency = clean_pt_name(u.get('agency', ''))
         
-        # Admin Global
+        # Hitung Total Temuan Tim Bulan Ini
+        # Filter: nama_pt ILIKE %my_agency%
+        q_hits = supabase.table('finding_logs').select('*', count='exact', head=True)\
+            .ilike('nama_pt', f"%{my_agency}%")\
+            .gte('created_at', start_month)
+            
+        try: total_hits = q_hits.execute().count or 0
+        except: total_hits = 0
+        
+        # Hitung Total Anggota Tim
+        q_members = supabase.table('users').select('*', count='exact', head=True)\
+            .ilike('agency', f"%{my_agency}%")
+        try: total_members = q_members.execute().count or 0
+        except: total_members = 0
+
+        msg = (
+            f"{info_banner}"
+            f"🛡️ <b>DASHBOARD KORLAP</b>\n"
+            f"🏢 <b>Agency:</b> {u.get('agency')}\n"
+            f"📅 <b>Periode:</b> {month_name}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👥 <b>Total Anggota:</b> {total_members} Personil\n"
+            f"🔥 <b>Total Temuan Tim:</b> {total_hits} Unit\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"💡 <i>Download laporan kinerja tim Anda:</i>"
+        )
+        
+        kb = [[InlineKeyboardButton("📈 DOWNLOAD LAPORAN TIM (BULAN INI)", callback_data="dl_korlap_mtd")]]
+        await update.message.reply_text(msg, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(kb))
+        return
+
+    # === SKENARIO 2: DASHBOARD PIC / ADMIN ===
+    elif is_pic or is_admin:
+        # (Kode lama Komandan tetap dipakai di sini, tidak berubah)
         if is_admin:
             leasing_name = "GLOBAL (ADMIN)"
             query_total = supabase.table('kendaraan').select('*', count='exact', head=True)
-            # Logika Hitung Total Temuan Global Bulan Ini
-            start_month = now.replace(day=1, hour=0, minute=0, second=0).isoformat()
             query_hits = supabase.table('finding_logs').select('*', count='exact', head=True).gte('created_at', start_month)
-
-        # PIC Leasing
         else:
             leasing_name = standardize_leasing_name(u.get('agency'))
             query_total = supabase.table('kendaraan').select('*', count='exact', head=True).eq('finance', leasing_name)
-            # Logika Hitung Total Temuan Leasing Ini Bulan Ini
-            start_month = now.replace(day=1, hour=0, minute=0, second=0).isoformat()
+            # Filter Cabang untuk PIC
+            user_branch = str(u.get('wilayah_korlap', '')).strip().upper()
+            if user_branch not in ['HO', 'PUSAT', 'NASIONAL', '']:
+                query_total = query_total.ilike('branch', f"%{user_branch}%")
+            
             query_hits = supabase.table('finding_logs').select('*', count='exact', head=True)\
                 .ilike('leasing', f"%{leasing_name}%").gte('created_at', start_month)
-        
-        # Eksekusi Count (Safe Mode)
+
         try: total_unit = query_total.execute().count or 0
         except: total_unit = 0
         try: total_hits = query_hits.execute().count or 0
@@ -1239,17 +1272,16 @@ async def cek_kuota(update, context):
             f"💡 <i>Pilih jenis laporan yang ingin diunduh:</i>"
         )
         
-        # 2 TOMBOL DOWNLOAD
         kb = [
-            [InlineKeyboardButton("📂 DOWNLOAD DATABASE ASET (SEMUA)", callback_data="dl_assets")],
-            [InlineKeyboardButton("📈 DOWNLOAD LAPORAN TEMUAN (MTD)", callback_data="dl_findings")]
+            [InlineKeyboardButton("📂 DOWNLOAD DATABASE ASET", callback_data="dl_assets")],
+            [InlineKeyboardButton("📈 DOWNLOAD LAPORAN TEMUAN", callback_data="dl_findings")]
         ]
-        
         await update.message.reply_text(msg, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(kb))
         return
 
-    # === TAMPILAN MATEL (USER BIASA) ===
+    # === SKENARIO 3: MATEL BIASA ===
     else:
+        # (Kode lama Komandan untuk Matel tetap dipakai)
         exp_date = u.get('expiry_date')
         status_aktif = "❌ SUDAH EXPIRED" 
         
@@ -1270,12 +1302,10 @@ async def cek_kuota(update, context):
             except ValueError:
                 status_aktif = "❌ ERROR: Format Tanggal Invalid"
 
-        role_msg = f"🎖️ **KORLAP {u.get('wilayah_korlap','')}**" if u.get('role')=='korlap' else f"🛡️ **MITRA LAPANGAN**"
-        
         msg = (
             f"{info_banner}💳 **INFO LANGGANAN**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"{role_msg}\n"
+            f"🛡️ **MITRA LAPANGAN**\n"
             f"👤 {u.get('nama_lengkap')}\n\n"
             f"{status_aktif}\n"
             f"📊 <b>Cek Hari Ini:</b> {u.get('daily_usage', 0)}x\n"
@@ -1579,6 +1609,84 @@ async def download_finding_report(update, context):
         logger.error(f"DL Report Err: {e}")
         try: await sts.edit_text(f"❌ Error: {e}")
         except: pass
+
+async def download_korlap_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = update.effective_user.id
+    u = get_user(user_id)
+    
+    if u.get('role') != 'korlap':
+        return await query.answer("⛔ Anda bukan Korlap.", show_alert=True)
+        
+    my_agency = clean_pt_name(u.get('agency', ''))
+    
+    await query.answer("⏳ Menyiapkan Laporan Tim...", show_alert=False)
+    sts = await context.bot.send_message(query.message.chat_id, f"⏳ <b>GENERATING REPORT</b>\n🏢 Agency: {u.get('agency')}\n🔄 <i>Mengambil data performa tim...</i>", parse_mode='HTML')
+
+    try:
+        def fetch_report():
+            now = datetime.now(TZ_JAKARTA)
+            start_month = now.replace(day=1, hour=0, minute=0, second=0).isoformat()
+            
+            # Ambil Finding Logs Tim Bulan Ini (Filter by Agency Name)
+            res = supabase.table('finding_logs').select('*')\
+                .ilike('nama_pt', f"%{my_agency}%")\
+                .gte('created_at', start_month)\
+                .order('created_at', desc=True)\
+                .execute()
+                
+            if not res.data: return None
+            
+            df = pd.DataFrame(res.data)
+            
+            # Formatting Kolom (Bahasa Indonesia)
+            cols_export = {
+                'created_at': 'WAKTU',
+                'nopol': 'NOPOL',
+                'unit': 'UNIT',
+                'leasing': 'LEASING',
+                'nama_matel': 'ANGGOTA',
+                'no_hp': 'NO HP',
+                'lokasi': 'LOKASI'
+            }
+            avail_cols = [c for c in cols_export.keys() if c in df.columns]
+            df = df[avail_cols].rename(columns=cols_export)
+            
+            # Bersihkan Waktu
+            if 'WAKTU' in df.columns:
+                df['WAKTU'] = pd.to_datetime(df['WAKTU']).dt.strftime('%d-%m-%Y %H:%M')
+            
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                df.to_excel(writer, index=False, sheet_name='KINERJA TIM')
+                ws = writer.sheets['KINERJA TIM']
+                # Style Header
+                format_header = writer.book.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
+                for col_num, value in enumerate(df.columns.values):
+                    ws.write(0, col_num, value, format_header)
+                ws.set_column('A:Z', 18)
+                
+            output.seek(0)
+            return output
+
+        excel_file = await asyncio.to_thread(fetch_report)
+        
+        if not excel_file:
+            await sts.edit_text("⚠️ <b>DATA KOSONG</b>\nTim Anda belum mendapatkan unit bulan ini.")
+            return
+
+        fname = f"LAPORAN_TIM_{my_agency.replace(' ','_')}_{datetime.now().strftime('%b%Y')}.xlsx"
+        await context.bot.send_document(
+            chat_id=query.message.chat_id,
+            document=excel_file,
+            filename=fname,
+            caption=f"📈 <b>LAPORAN KINERJA TIM</b>\n🏢 {u.get('agency')}\n📅 Bulan: {datetime.now().strftime('%B %Y')}"
+        )
+        await sts.delete()
+
+    except Exception as e:
+        logger.error(f"Korlap DL Error: {e}")
+        await sts.edit_text(f"❌ Error: {e}")
 
 async def info_bayar(update, context):
     msg = ("💰 **PAKET LANGGANAN (UNLIMITED CEK)**\n━━━━━━━━━━━━━━━━━━\n1️⃣ **5 HARI** = Rp 25.000\n2️⃣ **10 HARI** = Rp 50.000\n3️⃣ **20 HARI** = Rp 75.000\n🔥 **30 HARI** = Rp 100.000 (BEST DEAL!)\n\n" + f"{BANK_INFO}")
@@ -3284,15 +3392,18 @@ async def callback_handler(update, context):
             await context.bot.send_message(user_id_pelapor, "⚠️ Laporan penghapusan unit Anda ditolak oleh Admin. Data dinilai masih valid.", parse_mode='HTML')
         except: pass
 
-# ... di dalam callback_handler ...
-
-    # 11. DOWNLOAD ASET (DATABASE)
-    elif data == "dl_assets":
+# === HANDLER DOWNLOAD CENTER ===
+    if data == "dl_assets":
+        # Download Database Aset (PIC/Admin)
         await download_asset_data(update, context)
-
-    # 12. DOWNLOAD TEMUAN (LAPORAN KINERJA)
+        
     elif data == "dl_findings":
+        # Download Laporan Temuan (PIC/Admin)
         await download_finding_report(update, context)
+        
+    elif data == "dl_korlap_mtd":
+        # Download Laporan Tim (Korlap) --> INI YANG BARU
+        await download_korlap_report(update, context)
 
 
 if __name__ == '__main__':
