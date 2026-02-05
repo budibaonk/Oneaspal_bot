@@ -672,30 +672,37 @@ async def admin_help(update, context):
     if str(update.effective_user.id) not in ADMIN_IDS: return
 
     msg = (
-        "🔐 **ADMIN COMMANDS v6.29**\n\n"
-        "📢 **INFO / PENGUMUMAN**\n"
-        "• `/setinfo [Pesan]` (Pasang Banner)\n"
-        "• `/delinfo` (Hapus Banner)\n\n"
+        "🔐 **ADMIN COMMANDS v6.31**\n\n"
+        
+        "📊 **ANALYTICS & AUDIT (NEW)**\n"
+        "• `/rekap` (Global Summary Hari Ini)\n"
+        "• `/rekap [Leasing]` (Audit Leasing. Cth: `/rekap BCA`)\n"
+        "• `/cekagency [PT]` (Audit Mitra. Cth: `/cekagency ELANG`) 🆕\n"
+        "• `/stats` (Total Database Unit)\n"
+        "• `/leasing` (Ranking Jumlah Data per Leasing)\n\n"
+
+        "📢 **INFO & PENGUMUMAN**\n"
+        "• `/setinfo [Pesan]` (Pasang Banner Info)\n"
+        "• `/delinfo` (Hapus Banner Info)\n\n"
+
         "👮‍♂️ **ROLE & AGENCY**\n"
         "• `/angkat_korlap [ID] [KOTA]`\n"
-        "• `/addagency [NAMA_PT]` (Tambah DB Agency)\n\n"
-        "📊 **ANALYTICS**\n"
-        "• `/rekap` (Rekap Global Hari Ini)\n"
-        "• `/rekap[Leasing]` (Contoh: `/rekapBCA`)\n"
-        "• `/stats` (Total Data)\n"
-        "• `/leasing` (Audit Jumlah Data)\n\n"
-        "🏢 **GROUP NOTIFIKASI**\n"
-        "• `/setgroup [NAMA_LEASING]` (Utk Leasing)\n"
-        "• `/setagency [NAMA_PT]` (Utk Agency B2B)\n"
-        "• `/testgroup` (Cek Koneksi Admin Pusat)\n\n"
-        "👥 **USERS**\n"
-        "• `/rekap_member` (Rekap Member Baru) 🆕\n"
+        "• `/addagency [NAMA_PT]` (Tambah Database Agency)\n"
+        "• `/rekap_member` (Cek Registrasi Member Baru)\n\n"
+
+        "🏢 **SETUP GROUP NOTIFIKASI**\n"
+        "• `/setgroup [NAMA_LEASING]` (Set Group Leasing)\n"
+        "• `/setagency [NAMA_PT]` (Set Group Agency/Korlap)\n"
+        "• `/testgroup` (Tes Koneksi Bot ke Group)\n\n"
+
+        "👥 **USER MANAGEMENT**\n"
         "• `/users` (List User Aktif)\n"
-        "• `/m_ID` (Manage User per ID)\n"
-        "• `/topup [ID] [HARI]`\n"
-        "• `/balas [ID] [MSG]`\n\n"
+        "• `/m_ID` (Edit User via ID. Cth: `/m_12345`)\n"
+        "• `/topup [ID] [HARI]` (Tambah Masa Aktif)\n"
+        "• `/balas [ID] [MSG]` (Balas Chat User)\n\n"
+
         "⚙️ **SYSTEM & DATA**\n"
-        "• `/stop` (Hentikan Upload)\n"
+        "• `/stop` (Emergency Stop Upload)\n"
         "• `/hapus` (Hapus Unit Manual)\n"
     )
     await update.message.reply_text(msg, parse_mode='Markdown')
