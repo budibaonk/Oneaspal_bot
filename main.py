@@ -2431,7 +2431,9 @@ async def register_confirm(update, context):
                         chat_id=target_id, 
                         text=msg_notif, 
                         reply_markup=InlineKeyboardMarkup(kb), 
-                        parse_mode='HTML'
+                        parse_mode='HTML',
+                        # 👇👇👇 INI DIA OBATNYA 👇👇👇
+                        link_preview_options=LinkPreviewOptions(is_disabled=True)
                     )
             except Exception as e:
                 logger.error(f"Gagal kirim notif ke approver {target_id}: {e}")
