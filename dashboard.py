@@ -428,6 +428,7 @@ with tab3:
                 st.session_state['upload_stage']='idle'; st.rerun()
         with c2:
             if st.button("🚀 EKSEKUSI UPDATE", key="btn_update"):
+                # ... (Logika cleaning nopol & kolom sama seperti sebelumnya) ...
                 if l_in: df['finance'] = standardize_leasing_name(l_in)
                 df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
                 df['nopol'] = df['nopol'].replace({'': np.nan, 'NAN': np.nan, 'NONE': np.nan})
@@ -435,7 +436,8 @@ with tab3:
                 df = df.drop_duplicates(subset=['nopol'])
                 
                 now = datetime.now(TZ_JAKARTA)
-                df['data_month'] = now.strftime('%m%y')
+                # Gunakan format MMYY (Contoh: 0226)
+                df['data_month'] = now.strftime('%m%y') 
 
                 required_cols = ['type','finance','tahun','warna','noka','nosin','ovd','branch','data_month']
                 for c in required_cols:
@@ -444,27 +446,37 @@ with tab3:
                 
                 recs = df[['nopol'] + required_cols].to_dict('records')
                 
-                # --- [OPTIMASI] BATCH SIZE 1000 UNTUK KECEPATAN ---
-                BATCH_SIZE = 1000 
+                # ==============================================================
+                # 🔥 FIX ANTI-TIMEOUT: BATCH KECIL (200) + AGGRESSIVE RETRY
+                # ==============================================================
+                BATCH_SIZE = 200 # <-- KUNCI SUKSES (Jangan 1000, Server Ngambek)
+                
                 s, f = 0, 0
-                pb = st.progress(0, f"Memproses {len(recs)} data (Batch {BATCH_SIZE})...")
                 total_recs = len(recs)
+                pb = st.progress(0, f"Memproses {total_recs} data (Mode Aman: Batch {BATCH_SIZE})...")
                 last_error = ""
                 
                 for i in range(0, total_recs, BATCH_SIZE):
                     batch = recs[i:i+BATCH_SIZE]
-                    # Retry logic sederhana (Coba 3x jika gagal)
-                    for attempt in range(3):
+                    
+                    # RETRY LOGIC (Coba 5 Kali sebelum menyerah)
+                    success_batch = False
+                    for attempt in range(5):
                         try: 
+                            # Upsert ke Supabase
                             supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
                             s += len(batch)
-                            break # Berhasil, keluar loop retry
+                            success_batch = True
+                            break # Berhasil? Keluar loop retry
                         except Exception as e: 
-                            if attempt == 2: # Jika sudah 3x gagal
+                            # Gagal? Tunggu sebentar (Exponential Backoff)
+                            wait_time = (attempt + 1) * 2 # 2s, 4s, 6s...
+                            time.sleep(wait_time) 
+                            if attempt == 4: # Jika sudah 5x gagal
                                 f += len(batch)
                                 last_error = str(e)
-                            time.sleep(1) # Tunggu 1 detik sebelum retry
                     
+                    # Update Progress Bar
                     pb.progress(min((i+BATCH_SIZE)/total_recs, 1.0))
                 
                 st.session_state['upload_result'] = {'suc': s, 'fail': f, 'err': last_error}
