@@ -2284,12 +2284,30 @@ async def register_photo_id(update, context):
     return R_CONFIRM
 
 # --- UPDATE FUNGSI REGISTER CONFIRM ---
+# --- UPDATE FIX: PIC UNLIMITED ---
 async def register_confirm(update, context):
     if update.message.text != "✅ KIRIM": return await cancel(update, context)
     
     d = context.user_data
     role_db = d.get('reg_role', 'matel')
-    quota_init = 5000 if role_db == 'pic' else 1000
+    
+    # ==========================================================================
+    # ⚙️ FIX LOGIC: MASA AKTIF & KUOTA (PIC vs MATEL)
+    # ==========================================================================
+    now = datetime.now(TZ_JAKARTA)
+    
+    if role_db == 'pic':
+        # PIC LEASING: VIP (10 Tahun / 3650 Hari)
+        expiry_dt = now + timedelta(days=3650)
+        quota_init = 100000 # Kuota Jumbo
+    else:
+        # MATEL: TRIAL (3 Hari)
+        expiry_dt = now + timedelta(days=3)
+        quota_init = 1000   # Kuota Standar Trial
+
+    # Convert ke String ISO agar Database Supabase mau menerimanya
+    expiry_str = expiry_dt.isoformat()
+    # ==========================================================================
     
     # Ambil data cabang (Jika PIC), jika Matel kosongkan/pakai data kota
     branch_val = d.get('r_branch_code') if role_db == 'pic' else None
@@ -2302,7 +2320,8 @@ async def register_confirm(update, context):
         "email": d['r_email'], 
         "alamat": d['r_kota'], 
         "agency": d['r_agency'], 
-        "quota": quota_init, 
+        "quota": quota_init,        # <--- UPDATED
+        "expiry_date": expiry_str,  # <--- UPDATED (KUNCI FIX-NYA DI SINI)
         "status": "pending", 
         "role": role_db, 
         "ref_korlap": None,
@@ -2314,20 +2333,20 @@ async def register_confirm(update, context):
         supabase.table('users').insert(data_user).execute()
         
         # 2. Tentukan Siapa yang Harus Meng-Approve
-        approver_list = [] # List ID Telegram penerima notif
+        approver_list = [] 
         is_routed_to_korlap = False
         
         # Jika pendaftar adalah MATEL, cek apakah ada KORLAP di agency tersebut?
         if role_db == 'matel':
+            # Pastikan fungsi helper ini ada di atas
             korlap_data = get_korlaps_by_agency(d['r_agency'])
             if korlap_data:
-                # Ada Korlap! Kirim notif ke mereka
                 approver_list = [k['user_id'] for k in korlap_data]
                 is_routed_to_korlap = True
         
         # Jika tidak ada Korlap (atau user adalah PIC), kirim ke ADMIN PUSAT
         if not approver_list:
-            approver_list = [ADMIN_ID] # ID Admin Default (Pastikan variabel ADMIN_ID sudah ada)
+            approver_list = [ADMIN_ID] 
 
         # 3. Kirim Balasan ke User Pendaftar
         if role_db == 'pic': 
@@ -2336,7 +2355,7 @@ async def register_confirm(update, context):
             verifikator = "KORLAP AGENCY" if is_routed_to_korlap else "ADMIN PUSAT"
             await update.message.reply_text(f"✅ **PENDAFTARAN TERKIRIM**\nData Anda telah dikirim ke **{verifikator}** untuk verifikasi.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
         
-        # 4. Susun Pesan Notifikasi untuk Approver (Korlap/Admin)
+        # 4. Susun Pesan Notifikasi untuk Approver
         wa_link = format_wa_link(d['r_hp']) 
         
         header_title = f"🔔 <b>PERMINTAAN ANGGOTA BARU</b>" if is_routed_to_korlap else f"🔔 <b>REGISTRASI BARU ({role_db.upper()})</b>"
@@ -2351,6 +2370,7 @@ async def register_confirm(update, context):
             f"📍 <b>Area:</b> {clean_text(d['r_kota'])}\n"
             f"📱 <b>HP/WA:</b> {wa_link}\n"
             f"📧 <b>Email:</b> {clean_text(d['r_email'])}\n"
+            f"⏳ <b>Masa Aktif:</b> {'UNLIMITED (PIC)' if role_db=='pic' else '3 HARI (TRIAL)'}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"{sub_info}\n"
         )
@@ -2360,7 +2380,6 @@ async def register_confirm(update, context):
         # 5. Eksekusi Pengiriman Notif
         for target_id in approver_list:
             try:
-                # Jika ada foto (Biasanya PIC), kirim foto
                 if 'r_photo_proof' in d and role_db == 'pic':
                     await context.bot.send_photo(
                         chat_id=target_id, 
@@ -2370,13 +2389,11 @@ async def register_confirm(update, context):
                         parse_mode='HTML'
                     )
                 else:
-                    # Kirim Teks Biasa (Matel)
                     await context.bot.send_message(
                         chat_id=target_id, 
                         text=msg_notif, 
                         reply_markup=InlineKeyboardMarkup(kb), 
-                        parse_mode='HTML', 
-                        link_preview_options=LinkPreviewOptions(is_disabled=True)
+                        parse_mode='HTML'
                     )
             except Exception as e:
                 logger.error(f"Gagal kirim notif ke approver {target_id}: {e}")
