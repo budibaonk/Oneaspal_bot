@@ -103,12 +103,12 @@ print("🔍 SYSTEM DIAGNOSTIC STARTUP (v6.30)")
 print("="*50)
 
 try:
-    # Coba ambil dari ENV
+    # Cek Environment Dulu
     env_id = int(os.environ.get("ADMIN_ID", 0))
     
-    # [FIX CRITICAL] Jika ENV 0, Ambil dari Hardcoded List
-    if env_id == 0 and len(ADMIN_IDS) > 0:
-        ADMIN_ID = int(ADMIN_IDS[0])
+    # [FIX] Jika Env Kosong, Ambil dari LIST MANUAL di atas
+    if env_id == 0 and 'ADMIN_IDS' in globals() and len(ADMIN_IDS) > 0:
+        ADMIN_ID = int(ADMIN_IDS[0]) 
         print(f"⚠️ ADMIN_ID ENV KOSONG! Menggunakan Fallback Hardcoded: {ADMIN_ID}")
     else:
         ADMIN_ID = env_id
@@ -1751,63 +1751,51 @@ async def panduan_buktibayar(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Logika Pengambilan File ID (Bisa dari Foto Galeri ATAU File Dokumen)
+    # --- LOGIKA BARU: BISA BACA FOTO & DOKUMEN ---
     file_id = None
     msg = update.message
     
     if msg.photo:
         file_id = msg.photo[-1].file_id
     elif msg.document:
-        # Cek apakah dokumen ini gambar?
+        # Cek apakah ini file gambar?
         fname = (msg.document.file_name or "").lower()
         if fname.endswith(('.jpg', '.jpeg', '.png', '.webp')):
             file_id = msg.document.file_id
             
-    # Jika tidak ada file gambar valid, berhenti.
+    # Jika bukan gambar, berhenti (biar gak ganggu fitur lain)
     if not file_id: return 
 
-    # 1. Cek Private Chat
+    # --- LOGIKA LAMA (VALIDASI) ---
     if update.effective_chat.type != "private":
-        await update.message.reply_text("❌ Kirim bukti transfer lewat JAPRI saja ya.", quote=True)
+        await update.message.reply_text("❌ Kirim bukti lewat JAPRI ya.", quote=True)
         return
 
-    # 2. Cek User
     u = get_user(update.effective_user.id)
     if not u:
-        await update.message.reply_text("⚠️ Ketik /start dulu sebelum kirim bukti.", quote=True)
+        await update.message.reply_text("⚠️ Ketik /start dulu.", quote=True)
         return
 
-    # 3. Kirim Konfirmasi
     await update.message.reply_text("✅ **Bukti diterima!** Sedang diverifikasi Admin...", quote=True, parse_mode='Markdown')
     
-    # 4. Teruskan ke Admin
-    expiry_info = u.get('expiry_date') or "EXPIRED"
-    role_user = u.get('role', 'User').upper()
-
-    caption_msg = (
+    # --- KIRIM KE ADMIN (PASTI MASUK) ---
+    caption = (
         f"💰 **TOPUP REQUEST**\n"
         f"👤 {u['nama_lengkap']}\n"
-        f"🔰 Role: **{role_user}**\n"
         f"🆔 `{u['user_id']}`\n"
-        f"📅 Expired: {expiry_info}\n"
         f"📝 Note: {msg.caption or '-'}\n\n"
         f"👉 <b>Manual:</b> <code>/topup {u['user_id']} [HARI]</code>"
     )
+    kb = [[InlineKeyboardButton("✅ 5 HARI", callback_data=f"topup_{u['user_id']}_5"), InlineKeyboardButton("✅ 30 HARI", callback_data=f"topup_{u['user_id']}_30")],
+          [InlineKeyboardButton("🔢 MANUAL", callback_data=f"man_topup_{u['user_id']}"), InlineKeyboardButton("❌ TOLAK", callback_data=f"topup_{u['user_id']}_rej")]]
     
-    kb = [
-        [InlineKeyboardButton("✅ 5 HARI", callback_data=f"topup_{u['user_id']}_5"), InlineKeyboardButton("✅ 30 HARI", callback_data=f"topup_{u['user_id']}_30")],
-        [InlineKeyboardButton("🔢 MANUAL", callback_data=f"man_topup_{u['user_id']}"), InlineKeyboardButton("❌ TOLAK", callback_data=f"topup_{u['user_id']}_rej")]
-    ]
-    
-    await context.bot.send_photo(
-        chat_id=ADMIN_ID, 
-        photo=file_id, 
-        caption=caption_msg, 
-        reply_markup=InlineKeyboardMarkup(kb), 
-        parse_mode='HTML'
-    )
-    
-    # PENTING: Return END agar tidak lanjut ke percakapan upload jika dipanggil dari sana
+    # [FIX] Pakai ADMIN_ID yang sudah pasti benar
+    try:
+        await context.bot.send_photo(chat_id=ADMIN_ID, photo=file_id, caption=caption, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+    except Exception as e:
+        print(f"❌ Gagal Kirim ke Admin: {e}")
+        
+    # [PENTING] Return END agar tidak lanjut ke upload data jika dipanggil dari sana
     return ConversationHandler.END
 
 # --- [BARU] HELPER: TOMBOL AKSI GRUP (HUBUNGI + SHARE WA + SALIN) ---
@@ -2153,19 +2141,15 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
             except: pass
 
 async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # --- POS PEMERIKSAAN (GATEKEEPER) ---
+    # --- [NEW] POS PEMERIKSAAN (GATEKEEPER) ---
     msg = update.message
     if msg.document:
         fname = (msg.document.file_name or "").lower()
-        
-        # 1. JIKA GAMBAR -> OPER KE FITUR TOPUP
+        # 1. Jika File Gambar -> OPER KE TOPUP
         if fname.endswith(('.jpg', '.jpeg', '.png', '.webp')):
-            # Panggil fungsi Topup secara manual
             return await handle_photo_topup(update, context)
-            
-        # 2. JIKA BUKAN EXCEL/DATA -> ABAIKAN
-        allowed_data = ('.xlsx', '.xls', '.csv', '.zip', '.topaz', '.txt', '.json')
-        if not fname.endswith(allowed_data):
+        # 2. Jika Bukan Excel/CSV -> ABAIKAN
+        if not fname.endswith(('.xlsx', '.xls', '.csv', '.zip', '.topaz', '.txt', '.json')):
             return ConversationHandler.END
 
     # --- JIKA LOLOS, LANJUT PROSES UPLOAD DATA ---
