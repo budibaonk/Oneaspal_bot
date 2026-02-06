@@ -1705,16 +1705,18 @@ async def download_korlap_report(update: Update, context: ContextTypes.DEFAULT_T
 async def info_bayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     qris_filename = 'qris.jpg'
     caption_msg = (
-        "💰 **PAKET LANGGANAN**\n"
+        "💰 **PAKET LANGGANAN (UNLIMITED CEK)**\n"
         "━━━━━━━━━━━━━━━━━━\n"
         "1️⃣ **5 HARI** = Rp 25.000\n"
         "2️⃣ **10 HARI** = Rp 50.000\n"
         "3️⃣ **20 HARI** = Rp 75.000\n"
-        "🔥 **30 HARI** = Rp 100.000\n\n"
+        "🔥 **30 HARI** = Rp 100.000 (BEST DEAL!)\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
         "💳 **METODE BAYAR: QRIS (B-ONE ENTERPRISE)**\n"
-        "Scan QR Code di atas.\n\n"
+        "✅ *Support: BCA, Mandiri, BRI, BNI, GoPay, Dana, OVO, ShopeePay.*\n\n"
         "📝 **SUDAH TRANSFER?**\n"
-        "Upload bukti Anda dengan perintah:\n"
+        "Silakan upload bukti transfer Anda dengan mengetik perintah:\n"
+        "👉 /buktibayar\n"
         "👉 /buktibayar"
     )
 
@@ -1727,24 +1729,22 @@ async def info_bayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Gagal memuat info pembayaran: {e}")
 
-# --- [FITUR BARU] JALUR KHUSUS BUKTI BAYAR ---
-# State khusus untuk upload bukti
-WAIT_BUKTI = 99 
-
+# 2. FITUR KHUSUS: /buktibayar (Jalur VIP)
 async def buktibayar_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Langkah 1: User mengetik /buktibayar"""
-    await update.message.reply_text(
+    msg = (
         "📸 **UPLOAD BUKTI BAYAR**\n"
         "━━━━━━━━━━━━━━━━━━\n"
         "Silakan **Kirim Foto / File Gambar** bukti transfer Anda sekarang.\n\n"
-        "❌ *Ketik /cancel untuk batal.*",
-        parse_mode='Markdown'
+        "❌ *Ketik /cancel untuk membatalkan.*"
     )
+    await update.message.reply_text(msg, parse_mode='Markdown')
     return WAIT_BUKTI
 
 async def buktibayar_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Langkah 2: Menerima Foto dan Oper ke Fungsi Topup"""
-    # Kita panggil fungsi handle_photo_topup yang sudah ada agar tidak duplikasi kode
+    """Langkah 2: User mengirim foto (Jalur VIP)"""
+    # Panggil fungsi handle_photo_topup secara manual agar tidak duplikasi kode
+    # Karena handle_photo_topup sudah punya logika deteksi foto/file yang canggih
     await handle_photo_topup(update, context)
     return ConversationHandler.END
 
@@ -1768,25 +1768,26 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if fname.endswith(('.jpg', '.jpeg', '.png', '.webp')):
             file_id = msg.document.file_id
             
-    # Jika bukan gambar, berhenti (biar gak ganggu fitur lain)
-    if not file_id: return 
+    # Jika bukan gambar
+    if not file_id: 
+        # Jika dipanggil dari Command /buktibayar, kasih tau user salah kirim
+        # Cara taunya: Cek apakah update.message.text kosong (berarti kiriman media)
+        if not msg.text: 
+             await update.message.reply_text("⚠️ **Bukan Gambar!**\nHarap kirim FOTO atau FILE GAMBAR (Jpg/Png).", parse_mode='Markdown')
+        return # Berhenti diam-diam jika dari auto-detect
 
-    # --- LOGIKA LAMA (VALIDASI) ---
-    if update.effective_chat.type != "private":
-        await update.message.reply_text("❌ Kirim bukti lewat JAPRI ya.", quote=True)
-        return
-
+    # --- VALIDASI ---
     u = get_user(update.effective_user.id)
     if not u:
-        await update.message.reply_text("⚠️ Ketik /start dulu.", quote=True)
-        return
+        await update.message.reply_text("⚠️ Anda belum terdaftar. Ketik /start.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
 
-    await update.message.reply_text("✅ **Bukti diterima!** Sedang diverifikasi Admin...", quote=True, parse_mode='Markdown')
+    await update.message.reply_text("✅ **Bukti diterima!** Sedang diverifikasi Admin...", quote=True, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
     
     # --- KIRIM KE ADMIN (PASTI MASUK) ---
     role_user = u.get('role', 'User').upper()
     expiry_info = u.get('expiry_date') or "EXPIRED"
-
+    
     caption = (
         f"💰 **TOPUP REQUEST**\n"
         f"👤 {u['nama_lengkap']}\n"
@@ -1801,13 +1802,10 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     # [FIX] Pakai ADMIN_ID yang sudah pasti benar
     try:
-        # Pastikan ADMIN_ID sudah terisi di awal script (Fallback)
-        target_admin = ADMIN_ID if ADMIN_ID != 0 else 7530512170
-        await context.bot.send_photo(chat_id=target_admin, photo=file_id, caption=caption, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+        await context.bot.send_photo(chat_id=ADMIN_ID, photo=file_id, caption=caption, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
     except Exception as e:
         print(f"❌ Gagal Kirim ke Admin: {e}")
         
-    # [PENTING] Return END agar tidak lanjut ke upload data jika dipanggil dari sana
     return ConversationHandler.END
 
 # --- [BARU] HELPER: TOMBOL AKSI GRUP (HUBUNGI + SHARE WA + SALIN) ---
