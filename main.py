@@ -1756,55 +1756,70 @@ async def panduan_buktibayar(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # 4. HANDLER INTI: PROSES FOTO TOPUP (Bisa dipanggil dari mana saja)
 async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # --- LOGIKA BARU: BISA BACA FOTO & DOKUMEN ---
+    # Debugging: Kasih respon loading dulu biar tau bot hidup
+    msg_wait = await update.message.reply_text("⏳ *Memproses gambar...*", parse_mode='Markdown')
+    
     file_id = None
     msg = update.message
     
-    if msg.photo:
-        file_id = msg.photo[-1].file_id
-    elif msg.document:
-        # Cek apakah ini file gambar?
-        fname = (msg.document.file_name or "").lower()
-        if fname.endswith(('.jpg', '.jpeg', '.png', '.webp')):
-            file_id = msg.document.file_id
-            
-    # Jika bukan gambar
-    if not file_id: 
-        # Jika dipanggil dari Command /buktibayar, kasih tau user salah kirim
-        # Cara taunya: Cek apakah update.message.text kosong (berarti kiriman media)
-        if not msg.text: 
-             await update.message.reply_text("⚠️ **Bukan Gambar!**\nHarap kirim FOTO atau FILE GAMBAR (Jpg/Png).", parse_mode='Markdown')
-        return # Berhenti diam-diam jika dari auto-detect
-
-    # --- VALIDASI ---
-    u = get_user(update.effective_user.id)
-    if not u:
-        await update.message.reply_text("⚠️ Anda belum terdaftar. Ketik /start.", reply_markup=ReplyKeyboardRemove())
+    # 1. Cek Sumber Gambar
+    try:
+        if msg.photo:
+            # Ambil foto kualitas terbaik
+            file_id = msg.photo[-1].file_id
+        elif msg.document:
+            # Cek MIME TYPE atau Ekstensi
+            mime = str(msg.document.mime_type).lower()
+            fname = str(msg.document.file_name).lower()
+            if "image" in mime or fname.endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                file_id = msg.document.file_id
+    except Exception as e:
+        await msg_wait.edit_text(f"❌ Error saat baca file: {e}")
         return ConversationHandler.END
 
-    await update.message.reply_text("✅ **Bukti diterima!** Sedang diverifikasi Admin...", quote=True, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
-    
-    # --- KIRIM KE ADMIN (PASTI MASUK) ---
-    role_user = u.get('role', 'User').upper()
-    expiry_info = u.get('expiry_date') or "EXPIRED"
-    
-    caption = (
-        f"💰 **TOPUP REQUEST**\n"
-        f"👤 {u['nama_lengkap']}\n"
-        f"🔰 Role: **{role_user}**\n"
-        f"🆔 `{u['user_id']}`\n"
-        f"📅 Expired: {expiry_info}\n"
-        f"📝 Note: {msg.caption or '-'}\n\n"
-        f"👉 <b>Manual:</b> <code>/topup {u['user_id']} [HARI]</code>"
-    )
-    kb = [[InlineKeyboardButton("✅ 5 HARI", callback_data=f"topup_{u['user_id']}_5"), InlineKeyboardButton("✅ 30 HARI", callback_data=f"topup_{u['user_id']}_30")],
-          [InlineKeyboardButton("🔢 MANUAL", callback_data=f"man_topup_{u['user_id']}"), InlineKeyboardButton("❌ TOLAK", callback_data=f"topup_{u['user_id']}_rej")]]
-    
-    # [FIX] Pakai ADMIN_ID yang sudah pasti benar
+    # 2. Jika File Tidak Ditemukan / Bukan Gambar
+    if not file_id: 
+        await msg_wait.edit_text("❌ **Gagal Membaca Gambar!**\nPastikan yang dikirim adalah FOTO atau FILE GAMBAR (JPG/PNG).")
+        return ConversationHandler.END
+
+    # 3. Cek User di Database
+    u = get_user(update.effective_user.id)
+    if not u:
+        await msg_wait.edit_text("⚠️ **User Tidak Terdaftar.**\nKetik /start untuk register.")
+        return ConversationHandler.END
+
+    # 4. Kirim ke Admin
     try:
-        await context.bot.send_photo(chat_id=ADMIN_ID, photo=file_id, caption=caption, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+        # Gunakan ID Admin Manual Komandan jika ENV bermasalah
+        target_admin = 7530512170 
+        
+        caption = (
+            f"💰 **TOPUP REQUEST**\n"
+            f"👤 {u.get('nama_lengkap', 'Unknown')}\n"
+            f"🆔 `{u['user_id']}`\n"
+            f"📅 Exp: {u.get('expiry_date', '-')}\n"
+            f"📝 Note: {msg.caption or '-'}\n\n"
+            f"👉 <b>Manual:</b> <code>/topup {u['user_id']} [HARI]</code>"
+        )
+        
+        kb = [
+            [InlineKeyboardButton("✅ 5 HARI", callback_data=f"topup_{u['user_id']}_5"), InlineKeyboardButton("✅ 30 HARI", callback_data=f"topup_{u['user_id']}_30")],
+            [InlineKeyboardButton("🔢 MANUAL", callback_data=f"man_topup_{u['user_id']}"), InlineKeyboardButton("❌ TOLAK", callback_data=f"topup_{u['user_id']}_rej")]
+        ]
+        
+        await context.bot.send_photo(
+            chat_id=target_admin, 
+            photo=file_id, 
+            caption=caption, 
+            reply_markup=InlineKeyboardMarkup(kb), 
+            parse_mode='HTML'
+        )
+        
+        # Sukses
+        await msg_wait.edit_text("✅ **BUKTI DITERIMA!**\nAdmin telah menerima foto Anda. Mohon tunggu verifikasi.")
+        
     except Exception as e:
-        print(f"❌ Gagal Kirim ke Admin: {e}")
+        await msg_wait.edit_text(f"❌ **Gagal Kirim ke Admin:**\n{e}\n\n(Pastikan Admin sudah Chat Bot minimal 1x)")
         
     return ConversationHandler.END
 
@@ -3503,24 +3518,21 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v6.49 (FULL FIX: BUKTIBAYAR & UPLOAD) STARTING...")
+    print("🚀 ONEASPAL BOT v6.50 (DEBUG PHOTO MODE) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
-    # ==========================================================================
-    # 1. PRIORITY HANDLERS (Stop & Cancel)
-    # ==========================================================================
+    # 1. Stop Command (Paling Atas)
     app.add_handler(CommandHandler('stop', stop_upload_command))
     
-    # ==========================================================================
-    # 2. HANDLER KHUSUS: /buktibayar (JALUR VIP FOTO)
-    # ==========================================================================
-    # Ditaruh PALING ATAS agar user yang ketik /buktibayar langsung dilayani
-    # tanpa terganggu filter upload dokumen.
+    # 2. HANDLER BUKTI BAYAR (PRIORITAS TINGGI)
+    # Masukkan ini SEBELUM handler upload Excel
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('buktibayar', buktibayar_start)],
         states={
             WAIT_BUKTI: [
+                # Menangkap Foto Biasa
                 MessageHandler(filters.PHOTO, buktibayar_process),
+                # Menangkap File Apapun (Nanti difilter di dalam fungsi)
                 MessageHandler(filters.Document.ALL, buktibayar_process)
             ]
         },
