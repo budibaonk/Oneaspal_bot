@@ -3484,13 +3484,17 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v6.30 (INTELLIGENCE READY) STARTING...")
+    print("🚀 ONEASPAL BOT v6.32 (FIX PHOTO TOPUP) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     # ==========================================================================
-    # 1. PRIORITY HANDLERS (Stop, Cancel, Upload)
+    # 1. PRIORITY HANDLERS (Stop, Cancel, Upload, PHOTO TOPUP)
     # ==========================================================================
     app.add_handler(CommandHandler('stop', stop_upload_command))
+    
+    # [FIX] PINDAHKAN HANDLER FOTO TOPUP KE SINI (PRIORITAS TINGGI)
+    # Agar tidak tertimpa oleh ConversationHandler lain
+    app.add_handler(MessageHandler(filters.PHOTO & (~filters.COMMAND), handle_photo_topup))
     
     # HANDLER UPLOAD FILE (Conversational)
     app.add_handler(ConversationHandler(
@@ -3543,6 +3547,7 @@ if __name__ == '__main__':
             R_KOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], 
             R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], 
             R_BRANCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_branch)],
+            # Pastikan filter di sini spesifik agar tidak tabrakan
             R_PHOTO_ID: [MessageHandler(filters.PHOTO, register_photo_id)],
             R_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_confirm)]
         }, 
@@ -3609,16 +3614,9 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('stats', get_stats))
     app.add_handler(CommandHandler('leasing', get_leasing_list)) 
     
-    # --- [UPDATE] REKAP & REPORTING ---
-    # app.add_handler(CommandHandler('rekap', rekap_harian)) # --> INI SAYA NON-AKTIFKAN KARENA DIGANTI FITUR BARU
     app.add_handler(CommandHandler("rekap_member", rekap_member))
-    
-    # 1. Handler Audit Khusus (Cek Agency)
     app.add_handler(CommandHandler("cekagency", rekap_handler))
-
-    # 2. Handler Rekap Sakti (Menangani /rekap, /rekapBCA, /rekapElang)
     app.add_handler(MessageHandler(filters.Regex(r'(?i)^/rekap'), rekap_handler))
-    # ----------------------------------
 
     # ==========================================================================
     # 7. ADMIN TOOLS
@@ -3634,19 +3632,19 @@ if __name__ == '__main__':
     # ==========================================================================
     # 8. GENERAL MESSAGE & CALLBACK (LOWEST PRIORITY)
     # ==========================================================================
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo_topup))
+    # [HAPUS HANDLER FOTO LAMA YANG DI SINI]
+    
     app.add_handler(CallbackQueryHandler(callback_handler))
     
     # WAJIB PALING BAWAH: Handler Pencarian Nopol (Menangkap teks apapun)
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
     # ==========================================================================
-     
+      
     job_queue = app.job_queue
-    # Perhatikan "time=" tetap, tapi isinya jadi "dt_time"
     # job_queue.run_daily(auto_cleanup_logs, time=dt_time(hour=3, minute=0, second=0, tzinfo=TZ_JAKARTA), days=(0, 1, 2, 3, 4, 5, 6))
     
     print("⏰ Jadwal Cleanup Otomatis: AKTIF (Jam 03:00 WIB)")
 
-    print("🚀 ONEASPAL BOT v6.31 (DIRECT UPLOAD MODE) STARTING...")
+    print("🚀 ONEASPAL BOT v6.32 (DIRECT UPLOAD MODE) STARTING...")
     app.run_polling()
