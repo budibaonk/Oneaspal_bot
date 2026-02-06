@@ -1731,7 +1731,7 @@ async def info_bayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Gagal memuat info pembayaran: {e}")
 
 async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 1. Logika Pengambilan File ID (Bisa dari Foto Galeri ATAU File Dokumen)
+    # Logika Pengambilan File ID (Bisa dari Foto Galeri ATAU File Dokumen)
     file_id = None
     msg = update.message
     
@@ -1746,25 +1746,30 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Jika tidak ada file gambar valid, berhenti.
     if not file_id: return 
 
-    # 2. Cek Private Chat
+    # 1. Cek Private Chat
     if update.effective_chat.type != "private":
         await update.message.reply_text("❌ Kirim bukti transfer lewat JAPRI saja ya.", quote=True)
         return
 
-    # 3. Cek User
+    # 2. Cek User
     u = get_user(update.effective_user.id)
     if not u:
         await update.message.reply_text("⚠️ Ketik /start dulu sebelum kirim bukti.", quote=True)
         return
 
-    # 4. Kirim Konfirmasi
+    # 3. Kirim Konfirmasi
     await update.message.reply_text("✅ **Bukti diterima!** Sedang diverifikasi Admin...", quote=True, parse_mode='Markdown')
     
-    # 5. Teruskan ke Admin
+    # 4. Teruskan ke Admin
+    expiry_info = u.get('expiry_date') or "EXPIRED"
+    role_user = u.get('role', 'User').upper()
+
     caption_msg = (
         f"💰 **TOPUP REQUEST**\n"
         f"👤 {u['nama_lengkap']}\n"
+        f"🔰 Role: **{role_user}**\n"
         f"🆔 `{u['user_id']}`\n"
+        f"📅 Expired: {expiry_info}\n"
         f"📝 Note: {msg.caption or '-'}\n\n"
         f"👉 <b>Manual:</b> <code>/topup {u['user_id']} [HARI]</code>"
     )
@@ -1781,6 +1786,9 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
         reply_markup=InlineKeyboardMarkup(kb), 
         parse_mode='HTML'
     )
+    
+    # PENTING: Return END agar tidak lanjut ke percakapan upload jika dipanggil dari sana
+    return ConversationHandler.END
 
 # --- [BARU] HELPER: TOMBOL AKSI GRUP (HUBUNGI + SHARE WA + SALIN) ---
 def get_action_buttons(matel_user, unit_data):
@@ -2126,7 +2134,6 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
 
 async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- POS PEMERIKSAAN (GATEKEEPER) ---
-    # Cek dulu jenis filenya sebelum memproses lebih jauh
     msg = update.message
     if msg.document:
         fname = (msg.document.file_name or "").lower()
@@ -2137,31 +2144,25 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await handle_photo_topup(update, context)
             
         # 2. JIKA BUKAN EXCEL/DATA -> ABAIKAN
-        # (Agar bot tidak merespon file .pdf, .docx, dll yang tidak relevan)
         allowed_data = ('.xlsx', '.xls', '.csv', '.zip', '.topaz', '.txt', '.json')
         if not fname.endswith(allowed_data):
             return ConversationHandler.END
 
-    # --- JIKA LOLOS, BERARTI FILE DATA (LANJUTKAN PROSES UPLOAD) ---
-    
+    # --- JIKA LOLOS, LANJUT PROSES UPLOAD DATA ---
     uid = update.effective_user.id
     u = get_user(uid)
     
-    # Cek Validasi User
     if not u or u['status'] != 'active': 
         return await update.message.reply_text("⛔ Akses Ditolak.")
     
-    # Simpan File ID untuk diproses nanti
     context.user_data['upload_file_id'] = update.message.document.file_id
     context.user_data['upload_file_name'] = update.message.document.file_name
     
     # === JALUR 1: PIC LEASING (MENU SIMPEL) ===
     if u.get('role') == 'pic':
-        # 1. Otomatis Deteksi Leasing
         my_leasing = standardize_leasing_name(u.get('agency'))
         context.user_data['target_leasing'] = my_leasing
         
-        # 2. Tampilkan Menu Pilihan (Update / Hapus)
         msg_text = (
             f"📥 **FILE DITERIMA (PIC MODE)**\n"
             f"👤 User: {clean_text(u.get('nama_lengkap'))}\n"
@@ -2169,20 +2170,9 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"━━━━━━━━━━━━━━━━━━\n"
             f"Silakan pilih tindakan untuk file ini:"
         )
+        keyboard = [["📂 UPDATE DATA", "🗑️ HAPUS DATA"], ["❌ BATAL"]]
         
-        # Keyboard Pilihan
-        keyboard = [
-            ["📂 UPDATE DATA", "🗑️ HAPUS DATA"],
-            ["❌ BATAL"]
-        ]
-        
-        await update.message.reply_text(
-            msg_text, 
-            parse_mode='HTML', 
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        )
-        
-        # Langsung lompat ke konfirmasi (Skip Preview Admin)
+        await update.message.reply_text(msg_text, parse_mode='HTML', reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
         return U_CONFIRM_UPLOAD
 
     # === JALUR 2: ADMIN (FULL PREVIEW) ===
@@ -2218,7 +2208,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg_wait.edit_text(f"❌ Error: {e}")
             return ConversationHandler.END
 
-    # === JALUR 3: USER BIASA (LAPOR) ===
+    # === JALUR 3: USER BIASA ===
     else:
         await update.message.reply_text("📄 File diterima. Leasing?", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
         return U_LEASING_USER
@@ -3507,7 +3497,7 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v6.41 (SOLID UPLOAD & PHOTO FIX) STARTING...")
+    print("🚀 ONEASPAL BOT v6.42 (LOGIC SPLIT FINAL) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     # 1. STOP COMMAND
