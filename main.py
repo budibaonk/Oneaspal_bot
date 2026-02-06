@@ -103,21 +103,28 @@ print("🔍 SYSTEM DIAGNOSTIC STARTUP (v6.30)")
 print("="*50)
 
 try:
-    ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
+    # Coba ambil dari ENV
+    env_id = int(os.environ.get("ADMIN_ID", 0))
+    
+    # [FIX CRITICAL] Jika ENV 0, Ambil dari Hardcoded List
+    if env_id == 0 and len(ADMIN_IDS) > 0:
+        ADMIN_ID = int(ADMIN_IDS[0])
+        print(f"⚠️ ADMIN_ID ENV KOSONG! Menggunakan Fallback Hardcoded: {ADMIN_ID}")
+    else:
+        ADMIN_ID = env_id
+
     LOG_GROUP_ID = int(os.environ.get("LOG_GROUP_ID", 0))
-    print(f"✅ ADMIN ID TERDETEKSI: {ADMIN_ID}")
+    print(f"✅ ADMIN ID AKTIF: {ADMIN_ID}")
     
     if LOG_GROUP_ID == 0:
         print("⚠️ PERINGATAN: LOG_GROUP_ID BERNILAI 0!")
-        print("   Notifikasi ke Group Pusat TIDAK AKAN JALAN.")
-        print("   Cek file .env Anda, pastikan LOG_GROUP_ID diisi dengan benar.")
     else:
         print(f"✅ LOG_GROUP_ID TERDETEKSI: {LOG_GROUP_ID}")
         
 except ValueError:
     ADMIN_ID = 0
     LOG_GROUP_ID = 0
-    print("❌ ERROR: ADMIN_ID atau LOG_GROUP_ID di .env bukan angka!")
+    print("❌ ERROR: ADMIN_ID atau LOG_GROUP_ID bukan angka!")
 
 if not URL or not KEY or not TOKEN:
     print("❌ CRITICAL: TOKEN/URL/KEY Supabase Hilang dari .env")
@@ -1730,6 +1737,19 @@ async def info_bayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Error handling agar bot tidak crash
         await update.message.reply_text(f"❌ Gagal memuat info pembayaran: {e}")
 
+async def panduan_buktibayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = (
+        "📸 **CARA UPLOAD BUKTI BAYAR**\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "Silakan **Kirim Langsung** Foto/File Gambar bukti transfer Anda ke chat ini.\n\n"
+        "💡 **Tips:**\n"
+        "• Bisa kirim via **Gallery** (Foto biasa).\n"
+        "• Bisa kirim via **File/Document** (Agar gambar jernih/HD).\n"
+        "• Bot akan otomatis mendeteksi dan meneruskannya ke Admin.\n\n"
+        "👇 *Silakan kirim foto Anda sekarang...*"
+    )
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
 async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Logika Pengambilan File ID (Bisa dari Foto Galeri ATAU File Dokumen)
     file_id = None
@@ -2766,6 +2786,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Contoh: <code>B1234ABC</code>\n\n"
                 f"💡 <b>SHORTCUT:</b>\n"
                 f"/cekkuota - Sisa paket\n"
+                f"/infobayar - Info Rekening & QRIS\n"
+                f"/buktibayar - Cara Upload Bukti\n"
                 f"/lapor - Lapor unit aman\n"
                 f"/admin - Bantuan Admin\n\n"
                 f"<i>Salam Satu Aspal! 🏴‍☠️</i>"
@@ -3604,7 +3626,8 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('delinfo', del_info)) 
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('cekkuota', cek_kuota))
-    app.add_handler(CommandHandler('infobayar', info_bayar)) 
+    app.add_handler(CommandHandler('infobayar', info_bayar))
+    app.add_handler(CommandHandler('buktibayar', panduan_buktibayar)) 
     app.add_handler(CommandHandler('topup', admin_topup))
     app.add_handler(CommandHandler('stats', get_stats))
     app.add_handler(CommandHandler('leasing', get_leasing_list)) 
