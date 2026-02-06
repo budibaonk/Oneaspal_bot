@@ -1731,13 +1731,52 @@ async def info_bayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Gagal memuat info pembayaran: {e}")
 
 async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.type != "private": return
-    u = get_user(update.effective_user.id); 
-    if not u: return
-    await update.message.reply_text("✅ **Bukti diterima!** Sedang diverifikasi Admin...", quote=True)
+    # 1. CEK PRIVATE CHAT
+    # Jika dikirim di grup, bot akan kasih tau biar user sadar
+    if update.effective_chat.type != "private":
+        # Opsional: Jika tidak ingin berisik di grup, baris bawah ini bisa dihapus/comment
+        await update.message.reply_text("❌ Bukti Transfer harap dikirim lewat **JAPRI (Private Chat)** ke Bot ya, jangan di Grup.", quote=True, parse_mode='Markdown')
+        return
+
+    # 2. CEK DATABASE USER
+    user_id = update.effective_user.id
+    u = get_user(user_id)
+    
+    if not u:
+        # INI PENTING: Kasih tau PIC kalau mereka belum terdaftar
+        await update.message.reply_text(
+            "⚠️ **IDENTITAS TIDAK DITEMUKAN**\n\n"
+            "Maaf, data Anda belum ada di sistem kami.\n"
+            "Silakan ketik /start terlebih dahulu untuk registrasi otomatis, lalu kirim ulang fotonya.",
+            quote=True
+        )
+        return
+
+    # 3. PROSES DATA (Jika Lolos)
+    await update.message.reply_text("✅ **Bukti diterima!** Sedang diverifikasi Admin...", quote=True, parse_mode='Markdown')
+    
     expiry_info = u.get('expiry_date') or "EXPIRED"
-    msg = (f"💰 **TOPUP DURASI REQUEST**\n👤 {u['nama_lengkap']}\n🆔 `{u['user_id']}`\n📅 Expired: {expiry_info}\n📝 Note: {update.message.caption or '-'}\n\n👉 <b>Manual:</b> <code>/topup {u['user_id']} [HARI]</code>")
-    kb = [[InlineKeyboardButton("✅ 5 HARI", callback_data=f"topup_{u['user_id']}_5"), InlineKeyboardButton("✅ 10 HARI", callback_data=f"topup_{u['user_id']}_10")], [InlineKeyboardButton("✅ 20 HARI", callback_data=f"topup_{u['user_id']}_20"), InlineKeyboardButton("✅ 30 HARI", callback_data=f"topup_{u['user_id']}_30")], [InlineKeyboardButton("🔢 MANUAL / CUSTOM", callback_data=f"man_topup_{u['user_id']}")], [InlineKeyboardButton("❌ TOLAK", callback_data=f"topup_{u['user_id']}_rej")]]
+    
+    # Ambil Role User (Biar Admin tau ini PIC atau Mitra)
+    role_user = u.get('role', 'User').upper()
+
+    msg = (
+        f"💰 **TOPUP DURASI REQUEST**\n"
+        f"👤 {u['nama_lengkap']}\n"
+        f"🔰 Role: **{role_user}**\n" # <-- Saya tambahkan info Role
+        f"🆔 `{u['user_id']}`\n"
+        f"📅 Expired: {expiry_info}\n"
+        f"📝 Note: {update.message.caption or '-'}\n\n"
+        f"👉 <b>Manual:</b> <code>/topup {u['user_id']} [HARI]</code>"
+    )
+    
+    kb = [
+        [InlineKeyboardButton("✅ 5 HARI", callback_data=f"topup_{u['user_id']}_5"), InlineKeyboardButton("✅ 10 HARI", callback_data=f"topup_{u['user_id']}_10")], 
+        [InlineKeyboardButton("✅ 20 HARI", callback_data=f"topup_{u['user_id']}_20"), InlineKeyboardButton("✅ 30 HARI", callback_data=f"topup_{u['user_id']}_30")], 
+        [InlineKeyboardButton("🔢 MANUAL / CUSTOM", callback_data=f"man_topup_{u['user_id']}")], 
+        [InlineKeyboardButton("❌ TOLAK", callback_data=f"topup_{u['user_id']}_rej")]
+    ]
+    
     await context.bot.send_photo(ADMIN_ID, update.message.photo[-1].file_id, caption=msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
 
 
