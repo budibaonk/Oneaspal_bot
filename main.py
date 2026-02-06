@@ -2166,39 +2166,58 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
             except: pass
 
 async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # --- [NEW] POS PEMERIKSAAN (GATEKEEPER) ---
+    # 1. BERIKAN FEEDBACK LANGSUNG (Supaya tidak dikira Stuck)
+    status_msg = await update.message.reply_text("⏳ **Menganalisa File...**", parse_mode='Markdown')
+    
     msg = update.message
+    fname = ""
+    
+    # 2. DETEKSI JENIS FILE
     if msg.document:
         fname = (msg.document.file_name or "").lower()
-        # 1. Jika File Gambar -> OPER KE TOPUP
-        if fname.endswith(('.jpg', '.jpeg', '.png', '.webp')):
-            return await handle_photo_topup(update, context)
-        # 2. Jika Bukan Excel/CSV -> ABAIKAN
-        if not fname.endswith(('.xlsx', '.xls', '.csv', '.zip', '.topaz', '.txt', '.json')):
-            return ConversationHandler.END
         
-    # --- JIKA LOLOS, LANJUT PROSES UPLOAD DATA ---
+        # A. JIKA GAMBAR -> OPER KE FITUR BUKTI BAYAR
+        if fname.endswith(('.jpg', '.jpeg', '.png', '.webp')):
+            await status_msg.delete() # Hapus pesan loading
+            return await handle_photo_topup(update, context)
+            
+        # B. JIKA BUKAN EXCEL DAN BUKAN GAMBAR -> TOLAK
+        valid_ext = ('.xlsx', '.xls', '.csv', '.zip', '.topaz', '.txt', '.json')
+        if not fname.endswith(valid_ext):
+            await status_msg.edit_text("❌ **Format File Ditolak.**\nHanya menerima: Excel, CSV, ZIP, Topaz, atau Foto (JPG/PNG).")
+            return ConversationHandler.END
+
+    # 3. CEK USER
     uid = update.effective_user.id
     u = get_user(uid)
-    if not u or u['status'] != 'active': return await update.message.reply_text("⛔ Akses Ditolak.")
+    if not u or u['status'] != 'active': 
+        await status_msg.edit_text("⛔ Akses Ditolak. Akun tidak aktif.")
+        return ConversationHandler.END
     
+    # Simpan info file
     context.user_data['upload_file_id'] = update.message.document.file_id
-    context.user_data['upload_file_name'] = update.message.document.file_nam
+    context.user_data['upload_file_name'] = update.message.document.file_name
     
-    # === JALUR 1: PIC LEASING (MENU SIMPEL) ===
+    # 4. MODE PIC (USER LEASING)
     if u.get('role') == 'pic':
+        await status_msg.delete()
         my_leasing = standardize_leasing_name(u.get('agency'))
         context.user_data['target_leasing'] = my_leasing
         kb = [["📂 UPDATE DATA", "🗑️ HAPUS DATA"], ["❌ BATAL"]]
-        await update.message.reply_text(f"📥 **FILE DITERIMA (PIC MODE)**\nUser: {u.get('nama_lengkap')}\nTarget: {my_leasing}", reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True, resize_keyboard=True))
+        await update.message.reply_text(
+            f"📥 **FILE DITERIMA (PIC MODE)**\nUser: {u.get('nama_lengkap')}\nTarget: {my_leasing}", 
+            reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True, resize_keyboard=True)
+        )
         return U_CONFIRM_UPLOAD
 
-    # === JALUR 2: ADMIN (FULL PREVIEW) ===
+    # 5. MODE ADMIN (SUPER USER)
+    # Cek apakah user ini Admin
     is_admin = (uid == ADMIN_ID) or (str(uid) in ADMIN_IDS)
+    
     if is_admin:
-        path = f"temp_{uid}_{int(time.time())}_{update.message.document.file_name}"
-        msg_wait = await update.message.reply_text("⏳ **Analisa File (Admin Mode)...**")
         try:
+            # Download dan Baca File
+            path = f"temp_{uid}_{int(time.time())}_{fname}"
             f = await update.message.document.get_file()
             await f.download_to_drive(path)
             
@@ -2207,28 +2226,32 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             df = fix_header_position(df)
             df, found = smart_rename_columns(df)
             
+            # Validasi Kolom NOPOL
             if 'nopol' not in df.columns: 
-                os.remove(path)
-                return await msg_wait.edit_text("❌ Kolom NOPOL tidak ditemukan.")
-                
+                if os.path.exists(path): os.remove(path)
+                await status_msg.edit_text("❌ **ERROR:** Kolom NOPOL tidak ditemukan dalam file.")
+                return ConversationHandler.END
+            
+            # Simpan Data Sementara
             context.user_data['upload_path'] = path
             context.user_data['preview'] = df.head(1).to_dict('records')
             context.user_data['cols'] = df.columns.tolist()
-            await msg_wait.delete()
             
+            await status_msg.delete()
             await update.message.reply_text(
-                f"✅ **SCAN OK**\nCols: {', '.join(found)}\nTotal: {len(df):,}\n\n👉 Nama Leasing (atau SKIP):", 
+                f"✅ **SCAN OK**\nCols: {', '.join(found)}\nTotal Baris: {len(df):,}\n\n👉 **Masukkan Nama Leasing** (atau pilih SKIP):", 
                 reply_markup=ReplyKeyboardMarkup([["SKIP"], ["❌ BATAL"]], resize_keyboard=True)
             )
             return U_LEASING_ADMIN
-        
+            
         except Exception as e:
             if os.path.exists(path): os.remove(path)
-            await msg_wait.edit_text(f"❌ Error: {e}")
+            await status_msg.edit_text(f"❌ Error System: {e}")
             return ConversationHandler.END
-
-    # === JALUR 3: USER BIASA ===
+            
+    # 6. MODE USER BIASA (Mungkin Lapor Unit)
     else:
+        await status_msg.delete()
         await update.message.reply_text("📄 File diterima. Leasing?", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
         return U_LEASING_USER
 
