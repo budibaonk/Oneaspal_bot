@@ -3484,29 +3484,52 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v6.34 (FINAL FIXED - 8 SECTIONS) STARTING...")
+    print("🚀 ONEASPAL BOT v6.35 (CRASH FIX - CUSTOM FILTERS) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     # ==========================================================================
-    # 🛠️ DEFINISI SMART FILTER (AGAR BOT PINTAR MEMBEDAKAN FILE vs FOTO)
+    # 🛠️ DEFINISI SMART FILTER (MANUAL MODE - ANTI CRASH)
     # ==========================================================================
-    # 1. Filter Khusus Data (Hanya terima Excel/CSV/ZIP/Topaz)
-    FILTER_DATA = filters.Document.FileExtension(["xlsx", "xls", "csv", "zip", "txt", "topaz", "json"])
     
-    # 2. Filter Khusus Bukti Bayar (Terima FOTO GALERI + FOTO DOKUMEN)
-    FILTER_BUKTI_BAYAR = (filters.PHOTO | filters.Document.IMAGE) & (~filters.COMMAND)
+    # 1. Fungsi Cek File Data (Excel/CSV/ZIP/Topaz)
+    def check_data_file(update: object):
+        # Ambil message, handle jika update bukan message
+        msg = update.message if isinstance(update, Update) else None
+        if not msg or not msg.document or not msg.document.file_name:
+            return False
+        # Daftar ekstensi yang diizinkan
+        allowed = ('.xlsx', '.xls', '.csv', '.zip', '.txt', '.topaz', '.json')
+        return msg.document.file_name.lower().endswith(allowed)
+
+    # Buat filternya
+    FILTER_DATA = filters.create(check_data_file)
+    
+    # 2. Fungsi Cek Bukti Bayar (Foto Kompres atau File Gambar)
+    def check_bukti_bayar(update: object):
+        msg = update.message if isinstance(update, Update) else None
+        if not msg: return False
+        
+        # Lolos jika itu FOTO biasa (Gallery)
+        if msg.photo: return True
+        
+        # Lolos jika itu DOKUMEN tapi tipe gambarnya image/...
+        if msg.document and msg.document.mime_type:
+            if msg.document.mime_type.startswith('image/'):
+                return True
+        return False
+
+    # Buat filternya (dan pastikan bukan command)
+    FILTER_BUKTI_BAYAR = filters.create(check_bukti_bayar) & (~filters.COMMAND)
 
     # ==========================================================================
     # 1. PRIORITY HANDLERS (Stop, Cancel, & BUKTI BAYAR)
     # ==========================================================================
     app.add_handler(CommandHandler('stop', stop_upload_command))
     
-    # [FIX UTAMA DISINI] 
-    # Handler Foto Topup ditaruh di NO.1 agar tidak tertimpa fitur lain.
-    # Menggunakan FILTER_BUKTI_BAYAR agar bisa baca gambar yang dikirim sebagai file.
+    # Handler Foto Topup (Menggunakan Filter Manual di atas)
     app.add_handler(MessageHandler(FILTER_BUKTI_BAYAR, handle_photo_topup))
     
-    # HANDLER UPLOAD FILE (Hanya Menerima FILTER_DATA)
+    # HANDLER UPLOAD FILE (Menggunakan Filter Manual di atas)
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(FILTER_DATA, upload_start)],
         states={
@@ -3523,21 +3546,18 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
     app.add_handler(MessageHandler(filters.Regex(r'^/cek_\d+$'), cek_user_pending))
     
-    # Handler Admin Action (Ban/Unban/Delete User)
     app.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(admin_action_start, pattern='^adm_(ban|unban|del)_')], 
         states={ADMIN_ACT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_action_complete)]}, 
         fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
     ))
     
-    # Handler Reject User
     app.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(reject_start, pattern='^reju_')], 
         states={REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, reject_complete)]}, 
         fallbacks=[CommandHandler('cancel', cancel)]
     ))
     
-    # Handler Validasi Reject
     app.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(val_reject_start, pattern='^v_rej_')], 
         states={VAL_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, val_reject_complete)]}, 
@@ -3653,5 +3673,5 @@ if __name__ == '__main__':
     
     print("⏰ Jadwal Cleanup Otomatis: AKTIF (Jam 03:00 WIB)")
 
-    print("🚀 ONEASPAL BOT v6.34 (FULL 8 POINTS FIX) STARTING...")
+    print("🚀 ONEASPAL BOT v6.35 (FINAL FIXED - NO CRASH) STARTING...")
     app.run_polling()
