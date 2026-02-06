@@ -1688,9 +1688,47 @@ async def download_korlap_report(update: Update, context: ContextTypes.DEFAULT_T
         logger.error(f"Korlap DL Error: {e}")
         await sts.edit_text(f"❌ Error: {e}")
 
-async def info_bayar(update, context):
-    msg = ("💰 **PAKET LANGGANAN (UNLIMITED CEK)**\n━━━━━━━━━━━━━━━━━━\n1️⃣ **5 HARI** = Rp 25.000\n2️⃣ **10 HARI** = Rp 50.000\n3️⃣ **20 HARI** = Rp 75.000\n🔥 **30 HARI** = Rp 100.000 (BEST DEAL!)\n\n" + f"{BANK_INFO}")
-    await update.message.reply_text(msg, parse_mode='HTML')
+async def info_bayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Nama file QRIS (Pastikan file ini ada di folder bot)
+    qris_filename = 'qris.jpg'
+    
+    # Caption: Gabungan Daftar Harga Paket + Instruksi QRIS
+    # (Saya konversi format HTML lama ke Markdown agar konsisten dengan code baru)
+    caption_msg = (
+        "💰 **PAKET LANGGANAN (UNLIMITED CEK)**\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "1️⃣ **5 HARI** = Rp 25.000\n"
+        "2️⃣ **10 HARI** = Rp 50.000\n"
+        "3️⃣ **20 HARI** = Rp 75.000\n"
+        "🔥 **30 HARI** = Rp 100.000 (BEST DEAL!)\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "💳 **METODE BAYAR: QRIS (B-ONE ENTERPRISE)**\n"
+        "✅ *Support: BCA, Mandiri, BRI, BNI, GoPay, Dana, OVO, ShopeePay.*\n\n"
+        "📝 **CARA AKTIVASI OTOMATIS:**\n"
+        "1. Klik gambar QR di atas ⬆️\n"
+        "2. Save/Screenshot lalu Scan di M-Banking/E-Wallet.\n"
+        "3. **Kirim Bukti Transfer (Foto)** langsung ke chat ini.\n"
+    )
+
+    try:
+        if os.path.exists(qris_filename):
+            with open(qris_filename, 'rb') as photo_file:
+                await update.message.reply_photo(
+                    photo=photo_file,
+                    caption=caption_msg,
+                    parse_mode='Markdown'
+                )
+        else:
+            # Fallback jika file qris.jpg belum diupload
+            # Tetap tampilkan harga tapi info text saja
+            await update.message.reply_text(
+                caption_msg + "\n⚠️ *Gambar QRIS belum tersedia. Hubungi Admin.*",
+                parse_mode='Markdown'
+            )
+            
+    except Exception as e:
+        # Error handling agar bot tidak crash
+        await update.message.reply_text(f"❌ Gagal memuat info pembayaran: {e}")
 
 async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != "private": return
