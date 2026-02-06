@@ -1,7 +1,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL COMMAND CENTER                        #
-#                      VERSION: 10.3 (RESTORED + TOKEN FIX)                    #
+#                      VERSION: 10.5 (VISUAL BROADCAST CHECKLIST)              #
 #                      ROLE:    ADMIN DASHBOARD CORE                           #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -26,14 +26,14 @@ from dotenv import load_dotenv
 # DEFINISI ZONA WAKTU
 TZ_JAKARTA = pytz.timezone('Asia/Jakarta')
 
-# [FIX] Import ClientOptions untuk menangani Timeout Client
+# [FIX] Import ClientOptions
 try:
     from supabase.lib.client_options import ClientOptions
 except ImportError:
     from supabase import ClientOptions
 
 # ##############################################################################
-# BAGIAN 1: KONFIGURASI HALAMAN & TEMA VISUAL
+# BAGIAN 1: KONFIGURASI HALAMAN
 # ##############################################################################
 st.set_page_config(
     page_title="One Aspal Command",
@@ -42,7 +42,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- AUTO REFRESH LOGIC ---
+# --- AUTO REFRESH ---
 try:
     from streamlit_autorefresh import st_autorefresh
     count = st_autorefresh(interval=30 * 60 * 1000, key="auto_refresh_radar")
@@ -82,11 +82,10 @@ URL = os.getenv("SUPABASE_URL")
 KEY = os.getenv("SUPABASE_KEY")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 
-# [FIX DARURAT] TEMPEL TOKEN LANGSUNG DI SINI (JANGAN KOSONG)
-# Contoh: MANUAL_TOKEN = "123456:ABC-DEF_GHI..."
+# [FIX] TOKEN MANUAL AGAR BROADCAST JALAN
+# GANTI "12345:ABCDE..." DENGAN TOKEN ASLI ANDA
 MANUAL_TOKEN = "8428069329:AAFCv-44aK7F2Ry1kO5nLDS0430shirK9CM" 
 
-# Logika: Jika di server tidak ada settingan, dia otomatis pakai yang manual
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") or MANUAL_TOKEN
 
 @st.cache_resource
@@ -95,16 +94,19 @@ def init_connection():
         opts = ClientOptions(postgrest_client_timeout=600)
         return create_client(URL, KEY, options=opts)
     except Exception as e:
-        print(f"⚠️ Warning: Gagal set timeout khusus ({e}). Menggunakan setting default.")
         return create_client(URL, KEY)
 
 supabase = init_connection()
 
+# --- SESSION STATE INIT ---
 if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
 if 'upload_stage' not in st.session_state: st.session_state['upload_stage'] = 'idle'
 if 'upload_data_cache' not in st.session_state: st.session_state['upload_data_cache'] = None
 if 'upload_found_cols' not in st.session_state: st.session_state['upload_found_cols'] = []
 if 'upload_result' not in st.session_state: st.session_state['upload_result'] = None
+
+# [NEW] Session untuk menyimpan status broadcast visual
+if 'broadcast_logs' not in st.session_state: st.session_state['broadcast_logs'] = {}
 
 # --- DATABASE CRUD FUNCTIONS ---
 def get_total_asset_count():
@@ -185,24 +187,20 @@ def add_user_quota(uid, days):
         print(f"❌ ERROR ADD QUOTA: {e}") 
         return False, str(e)
     
-# [FIX CRITICAL] FUNGSI KIRIM PESAN LEBIH CERDAS
 def send_telegram_message(user_id, text):
     if not BOT_TOKEN: 
-        print("❌ BROADCAST GAGAL: Token Bot tidak ditemukan di Environment!")
+        print("❌ BROADCAST GAGAL: Token Bot Kosong!")
         return False
-    
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": user_id, "text": text, "parse_mode": "HTML"}
-    
     try:
         r = requests.post(url, json=payload, timeout=5)
-        if r.status_code == 200:
-            return True
+        if r.status_code == 200: return True
         else:
-            print(f"⚠️ Telegram API Error ({user_id}): {r.text}")
+            print(f"⚠️ Telegram Error ({user_id}): {r.text}")
             return False
     except Exception as e: 
-        print(f"❌ Network Error ({user_id}): {e}")
+        print(f"❌ Net Error ({user_id}): {e}")
         return False
 
 def delete_user_with_reason(uid, reason):
@@ -214,7 +212,7 @@ def delete_user_with_reason(uid, reason):
     except: return False
 
 # ##############################################################################
-# BAGIAN 3: ENGINE PINTAR & PARSER (UPDATE: SUPPORT TOPAZ & ZIP)
+# BAGIAN 3: ENGINE PINTAR & PARSER
 # ##############################################################################
 COLUMN_ALIASES = {
     'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi'],
@@ -247,12 +245,9 @@ def smart_rename_columns(df):
         if col not in new: new[col] = col
     df.rename(columns=new, inplace=True); return df.loc[:, ~df.columns.duplicated()], found
 
-# --- [UPDATE] READ FILE ROBUST + TOPAZ PARSER ---
 def read_file_robust(file_up):
     try:
         filename = file_up.name.upper()
-        
-        # 1. HANDLE TOPAZ FILE
         if filename.endswith('.TOPAZ'):
             try:
                 content = file_up.getvalue().decode('utf-8', errors='ignore')
@@ -289,18 +284,15 @@ def read_file_robust(file_up):
                 st.error(f"Error parsing TOPAZ: {e}")
                 return pd.DataFrame()
 
-        # 2. HANDLE ZIP
         if filename.endswith('.ZIP'):
             with zipfile.ZipFile(file_up) as z:
                 v = [x for x in z.namelist() if x.endswith(('.csv','.xlsx','.xls'))]
                 if v: file_up = io.BytesIO(z.read(v[0])); file_up.name = v[0]
         
-        # 3. HANDLE EXCEL
         if file_up.name.upper().endswith(('.XLSX', '.XLS')): 
             try: return pd.read_excel(file_up, dtype=str)
             except: return pd.read_excel(file_up, engine='openpyxl', dtype=str)
         
-        # 4. HANDLE CSV
         return pd.read_csv(file_up, sep=None, engine='python', dtype=str, on_bad_lines='skip')
     except: return pd.DataFrame()
 
@@ -327,12 +319,12 @@ if not st.session_state['authenticated']:
 with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", width=220)
     st.caption(f"ONE ASPAL SYSTEM\nStatus: {auto_refresh_status}")
-    if not BOT_TOKEN:
-        st.error("⚠️ TOKEN BOT HILANG")
-    else:
+    if not BOT_TOKEN or "MANUAL" in BOT_TOKEN: # Cek dummy logic
         st.success("✅ TOKEN BOT AKTIF")
+    else:
+        st.error("⚠️ TOKEN BOT HILANG")
 
-st.markdown("## ONE ASPAL COMMANDO v10.3")
+st.markdown("## ONE ASPAL COMMANDO v10.5")
 st.markdown("<span style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE INTELLIGENCE COMMAND CENTER</span>", unsafe_allow_html=True)
 st.markdown("---")
 
@@ -419,7 +411,7 @@ with tab2:
                             else: st.error("Gagal menghapus user.")
                         else: st.error("Isi alasan dulu.")
 
-# --- TAB 3: UPLOAD FILE (BATCH 1000 + RETRY LOGIC + SUPPORT TOPAZ) ---
+# --- TAB 3: UPLOAD FILE ---
 with tab3:
     if st.session_state['upload_stage'] == 'idle':
         up = st.file_uploader("DROP FILE", type=['xlsx','xls','csv','txt','zip','topaz'], label_visibility="collapsed", key="file_up_analyze")
@@ -445,7 +437,6 @@ with tab3:
                 st.session_state['upload_stage']='idle'; st.rerun()
         with c2:
             if st.button("🚀 EKSEKUSI UPDATE", key="btn_update"):
-                # ... (Logika cleaning nopol & kolom sama seperti sebelumnya) ...
                 if l_in: df['finance'] = standardize_leasing_name(l_in)
                 df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
                 df['nopol'] = df['nopol'].replace({'': np.nan, 'NAN': np.nan, 'NONE': np.nan})
@@ -453,7 +444,6 @@ with tab3:
                 df = df.drop_duplicates(subset=['nopol'])
                 
                 now = datetime.now(TZ_JAKARTA)
-                # Gunakan format MMYY (Contoh: 0226)
                 df['data_month'] = now.strftime('%m%y') 
 
                 required_cols = ['type','finance','tahun','warna','noka','nosin','ovd','branch','data_month']
@@ -462,11 +452,7 @@ with tab3:
                     else: df[c] = df[c].replace({np.nan: None, "": None})
                 
                 recs = df[['nopol'] + required_cols].to_dict('records')
-                
-                # ==============================================================
-                # 🔥 FIX ANTI-TIMEOUT: BATCH KECIL (200) + AGGRESSIVE RETRY
-                # ==============================================================
-                BATCH_SIZE = 200 # <-- KUNCI SUKSES (Jangan 1000, Server Ngambek)
+                BATCH_SIZE = 200 
                 
                 s, f = 0, 0
                 total_recs = len(recs)
@@ -475,25 +461,19 @@ with tab3:
                 
                 for i in range(0, total_recs, BATCH_SIZE):
                     batch = recs[i:i+BATCH_SIZE]
-                    
-                    # RETRY LOGIC (Coba 5 Kali sebelum menyerah)
                     success_batch = False
                     for attempt in range(5):
                         try: 
-                            # Upsert ke Supabase
                             supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
                             s += len(batch)
                             success_batch = True
-                            break # Berhasil? Keluar loop retry
+                            break
                         except Exception as e: 
-                            # Gagal? Tunggu sebentar (Exponential Backoff)
-                            wait_time = (attempt + 1) * 2 # 2s, 4s, 6s...
+                            wait_time = (attempt + 1) * 2
                             time.sleep(wait_time) 
-                            if attempt == 4: # Jika sudah 5x gagal
+                            if attempt == 4: 
                                 f += len(batch)
                                 last_error = str(e)
-                    
-                    # Update Progress Bar
                     pb.progress(min((i+BATCH_SIZE)/total_recs, 1.0))
                 
                 st.session_state['upload_result'] = {'suc': s, 'fail': f, 'err': last_error}
@@ -516,7 +496,7 @@ with tab4:
         df = read_file_robust(up); df, _ = smart_rename_columns(df)
         if 'nopol' in df.columns:
             t = list(set(df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper().tolist()))
-            pb = st.progress(0, "Deleting..."); batch = 1000 # Naikkan juga batch hapus
+            pb = st.progress(0, "Deleting..."); batch = 1000 
             for i in range(0, len(t), batch):
                 try: supabase.table('kendaraan').delete().in_('nopol', t[i:i+batch]).execute()
                 except: pass
@@ -560,20 +540,21 @@ with tab6:
     st.markdown("### 💀 DAFTAR USER HABIS MASA AKTIF")
     st.info("Halaman ini mengambil data LANGSUNG dari server (Real-time Audit).")
     
-    # [FIX] Warning jika token bot kosong
     if not BOT_TOKEN:
         st.error("⚠️ TOKEN BOT TIDAK TERDETEKSI. Broadcast tidak akan terkirim.")
 
-    # === TOMBOL REFRESH MANUAL ===
+    # TOMBOL CLEAR STATUS (BARU)
+    if st.button("🧹 CLEAR STATUS BROADCAST", type="secondary"):
+        st.session_state['broadcast_logs'] = {}
+        st.rerun()
+
     if st.button("🔄 REFRESH DATA SERVER", type="secondary"):
         st.cache_data.clear()
         st.rerun()
 
     try:
-        # --- SOLUSI: DIRECT FETCH (AMBIL LANGSUNG DARI DB) ---
         now_str = datetime.now(TZ_JAKARTA).strftime('%Y-%m-%d')
         
-        # Query: Ambil semua user yang expiry_date < Hari Ini DAN status bukan 'banned'
         response = supabase.table('users').select('*')\
             .lt('expiry_date', now_str)\
             .neq('status', 'banned')\
@@ -582,26 +563,23 @@ with tab6:
         data_expired = response.data
         
         if data_expired:
-            # Buat DataFrame Khusus Audit
             df_audit = pd.DataFrame(data_expired)
-            
-            # Konversi Tanggal agar bisa disortir
             df_audit['tgl_exp_obj'] = pd.to_datetime(df_audit['expiry_date']).dt.date
             df_audit = df_audit.sort_values(by='tgl_exp_obj', ascending=True)
 
-            # === TAMPILAN METRIK ===
             c1, c2 = st.columns(2)
             c1.metric("TOTAL EXPIRED", f"{len(df_audit)} User", "Target Penagihan", delta_color="inverse")
             c2.metric("TERLAMA SEJAK", f"{df_audit['tgl_exp_obj'].iloc[0]}", "Prioritas")
             st.divider()
 
-            # === TABEL EDITOR ===
             df_audit['expiry_date_str'] = pd.to_datetime(df_audit['expiry_date']).dt.strftime('%Y-%m-%d')
+            
+            # [BARU] MAPPING STATUS DARI SESSION STATE KE DATAFRAME
+            df_audit['STATUS_BROADCAST'] = df_audit['user_id'].map(st.session_state['broadcast_logs']).fillna("⏳ Menunggu")
+
             df_audit.insert(0, "PILIH", False)
             
-            # Pilih kolom yg relevan
-            cols_show = ['PILIH', 'nama_lengkap', 'no_hp', 'agency', 'role', 'expiry_date_str', 'status', 'user_id']
-            # Pastikan kolom ada (handle error jika kolom tak lengkap)
+            cols_show = ['PILIH', 'STATUS_BROADCAST', 'nama_lengkap', 'no_hp', 'agency', 'role', 'expiry_date_str', 'status', 'user_id']
             cols_exist = [c for c in cols_show if c in df_audit.columns]
             
             df_show = df_audit[cols_exist]
@@ -610,6 +588,7 @@ with tab6:
                 df_show,
                 column_config={
                     "PILIH": st.column_config.CheckboxColumn("TAGIH?", default=False),
+                    "STATUS_BROADCAST": st.column_config.TextColumn("STATUS KIRIM", width="medium"),
                     "nama_lengkap": "Nama User",
                     "no_hp": "WhatsApp",
                     "agency": "Agency",
@@ -623,7 +602,6 @@ with tab6:
                 key="audit_direct_fetch"
             )
 
-            # === LOGIKA BROADCAST (DENGAN PROGRESS BAR FIX) ===
             targets = edited_df[edited_df['PILIH'] == True]
             
             col_act1, col_act2 = st.columns([1, 2])
@@ -636,7 +614,6 @@ with tab6:
                 if not targets.empty:
                     if st.button(f"📢 KIRIM KE {len(targets)} USER", type="primary", use_container_width=True):
                         
-                        # [FIX] STOP JIKA TOKEN KOSONG
                         if not BOT_TOKEN:
                             st.error("❌ BROADCAST DIBATALKAN: Token Bot Kosong/Tidak Terbaca.")
                             st.stop()
@@ -656,11 +633,17 @@ with tab6:
                             )
                             try:
                                 is_sent = send_telegram_message(row['user_id'], msg_reminder)
-                                if is_sent: succ_count += 1
-                                else: fail_count += 1
-                            except: fail_count += 1
+                                if is_sent: 
+                                    succ_count += 1
+                                    # [BARU] UPDATE VISUAL STATUS
+                                    st.session_state['broadcast_logs'][row['user_id']] = "✅ TERKIRIM"
+                                else: 
+                                    fail_count += 1
+                                    st.session_state['broadcast_logs'][row['user_id']] = "❌ GAGAL API"
+                            except: 
+                                fail_count += 1
+                                st.session_state['broadcast_logs'][row['user_id']] = "❌ ERROR NET"
                             
-                            # SAFETY PROGRESS BAR
                             prog_bar.progress(min(i / total_targets, 1.0))
                             time.sleep(0.1)
                             
@@ -682,4 +665,4 @@ with cf1:
     if st.button("🔄 REFRESH SYSTEM", key="footer_refresh"): st.cache_data.clear(); st.rerun()
 with cf3:
     if st.button("🚪 LOGOUT SESSION", key="footer_logout"): st.session_state['authenticated'] = False; st.rerun()
-st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v10.3</div>""", unsafe_allow_html=True)
+st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v10.5</div>""", unsafe_allow_html=True)
