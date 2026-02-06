@@ -3484,52 +3484,54 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v6.35 (CRASH FIX - CUSTOM FILTERS) STARTING...")
+    print("🚀 ONEASPAL BOT v6.36 (MANUAL FILTER FIX) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     # ==========================================================================
-    # 🛠️ DEFINISI SMART FILTER (MANUAL MODE - ANTI CRASH)
+    # 🛠️ DEFINISI FILTER MANUAL (RAKITAN SENDIRI - ANTI CRASH)
     # ==========================================================================
     
-    # 1. Fungsi Cek File Data (Excel/CSV/ZIP/Topaz)
-    def check_data_file(update: object):
-        # Ambil message, handle jika update bukan message
-        msg = update.message if isinstance(update, Update) else None
-        if not msg or not msg.document or not msg.document.file_name:
-            return False
-        # Daftar ekstensi yang diizinkan
-        allowed = ('.xlsx', '.xls', '.csv', '.zip', '.txt', '.topaz', '.json')
-        return msg.document.file_name.lower().endswith(allowed)
-
-    # Buat filternya
-    FILTER_DATA = filters.create(check_data_file)
-    
-    # 2. Fungsi Cek Bukti Bayar (Foto Kompres atau File Gambar)
-    def check_bukti_bayar(update: object):
-        msg = update.message if isinstance(update, Update) else None
-        if not msg: return False
+    # 1. FILTER DATA (Gantikan FileExtension yang error)
+    def custom_filter_data(update: object):
+        # Cek apakah ini pesan dan ada dokumennya?
+        if not isinstance(update, Update) or not update.message: return False
+        doc = update.message.document
+        if not doc or not doc.file_name: return False
         
-        # Lolos jika itu FOTO biasa (Gallery)
+        # Cek akhiran file (Lowercase biar aman)
+        fname = doc.file_name.lower()
+        allowed_ext = ('.xlsx', '.xls', '.csv', '.zip', '.txt', '.topaz', '.json')
+        return fname.endswith(allowed_ext)
+
+    # Bungkus jadi Filter
+    FILTER_DATA = filters.create(custom_filter_data)
+    
+    # 2. FILTER BUKTI BAYAR (Foto Biasa + File Gambar)
+    def custom_filter_bayar(update: object):
+        if not isinstance(update, Update) or not update.message: return False
+        msg = update.message
+        
+        # Lolos jika FOTO GALERI
         if msg.photo: return True
         
-        # Lolos jika itu DOKUMEN tapi tipe gambarnya image/...
+        # Lolos jika FILE GAMBAR (MimeType image/...)
         if msg.document and msg.document.mime_type:
             if msg.document.mime_type.startswith('image/'):
                 return True
         return False
 
-    # Buat filternya (dan pastikan bukan command)
-    FILTER_BUKTI_BAYAR = filters.create(check_bukti_bayar) & (~filters.COMMAND)
+    # Bungkus jadi Filter (Kecuali Command)
+    FILTER_BUKTI_BAYAR = filters.create(custom_filter_bayar) & (~filters.COMMAND)
 
     # ==========================================================================
     # 1. PRIORITY HANDLERS (Stop, Cancel, & BUKTI BAYAR)
     # ==========================================================================
     app.add_handler(CommandHandler('stop', stop_upload_command))
     
-    # Handler Foto Topup (Menggunakan Filter Manual di atas)
+    # HANDLER FOTO TOPUP (Prioritas Utama - Pakai Filter Rakitan)
     app.add_handler(MessageHandler(FILTER_BUKTI_BAYAR, handle_photo_topup))
     
-    # HANDLER UPLOAD FILE (Menggunakan Filter Manual di atas)
+    # HANDLER UPLOAD FILE (Pakai Filter Rakitan)
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(FILTER_DATA, upload_start)],
         states={
@@ -3565,7 +3567,7 @@ if __name__ == '__main__':
     ))
     
     # ==========================================================================
-    # 3. REGISTRATION HANDLER (Full Flow)
+    # 3. REGISTRATION HANDLER
     # ==========================================================================
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('register', register_start)], 
@@ -3584,7 +3586,7 @@ if __name__ == '__main__':
     ))
     
     # ==========================================================================
-    # 4. UNIT MANAGEMENT HANDLERS (Add, Delete, Lapor)
+    # 4. UNIT MANAGEMENT HANDLERS
     # ==========================================================================
     conv_add_manual = ConversationHandler(
         entry_points=[CommandHandler('tambah', add_manual_start)], 
@@ -3634,7 +3636,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('delinfo', del_info)) 
 
     # ==========================================================================
-    # 6. GENERAL COMMAND HANDLERS
+    # 6. GENERAL COMMANDS
     # ==========================================================================
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('cekkuota', cek_kuota))
@@ -3642,14 +3644,9 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('topup', admin_topup))
     app.add_handler(CommandHandler('stats', get_stats))
     app.add_handler(CommandHandler('leasing', get_leasing_list)) 
-    
     app.add_handler(CommandHandler("rekap_member", rekap_member))
     app.add_handler(CommandHandler("cekagency", rekap_handler))
     app.add_handler(MessageHandler(filters.Regex(r'(?i)^/rekap'), rekap_handler))
-
-    # ==========================================================================
-    # 7. ADMIN TOOLS
-    # ==========================================================================
     app.add_handler(CommandHandler('users', list_users))
     app.add_handler(CommandHandler('angkat_korlap', angkat_korlap)) 
     app.add_handler(CommandHandler('testgroup', test_group))
@@ -3658,20 +3655,13 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('setagency', set_agency_group))
     app.add_handler(CommandHandler('addagency', add_agency)) 
     
-    # ==========================================================================
-    # 8. GENERAL MESSAGE & CALLBACK (LOWEST PRIORITY)
-    # ==========================================================================
     app.add_handler(CallbackQueryHandler(callback_handler))
     
-    # WAJIB PALING BAWAH: Handler Pencarian Nopol (Menangkap teks apapun)
+    # ==========================================================================
+    # 8. FALLBACK SEARCH (TEXT)
+    # ==========================================================================
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    # ==========================================================================
-      
-    job_queue = app.job_queue
-    # job_queue.run_daily(auto_cleanup_logs, time=dt_time(hour=3, minute=0, second=0, tzinfo=TZ_JAKARTA), days=(0, 1, 2, 3, 4, 5, 6))
-    
     print("⏰ Jadwal Cleanup Otomatis: AKTIF (Jam 03:00 WIB)")
-
-    print("🚀 ONEASPAL BOT v6.35 (FINAL FIXED - NO CRASH) STARTING...")
+    print("🚀 ONEASPAL BOT v6.36 (MANUAL FILTER - STABLE) RUNNING...")
     app.run_polling()
