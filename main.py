@@ -1731,28 +1731,31 @@ async def info_bayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Gagal memuat info pembayaran: {e}")
 
 async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 1. Pastikan Private Chat
+    # 1. Logika Pengambilan File ID (Bisa dari Foto Galeri ATAU File Dokumen)
+    file_id = None
+    msg = update.message
+    
+    if msg.photo:
+        file_id = msg.photo[-1].file_id
+    elif msg.document:
+        # Cek apakah dokumen ini gambar?
+        fname = (msg.document.file_name or "").lower()
+        if fname.endswith(('.jpg', '.jpeg', '.png', '.webp')):
+            file_id = msg.document.file_id
+            
+    # Jika tidak ada file gambar valid, berhenti.
+    if not file_id: return 
+
+    # 2. Cek Private Chat
     if update.effective_chat.type != "private":
         await update.message.reply_text("❌ Kirim bukti transfer lewat JAPRI saja ya.", quote=True)
         return
 
-    # 2. Cek User
+    # 3. Cek User
     u = get_user(update.effective_user.id)
     if not u:
         await update.message.reply_text("⚠️ Ketik /start dulu sebelum kirim bukti.", quote=True)
         return
-
-    # 3. Logika Simpel: Ambil Foto Terbesar (Sama seperti Register)
-    photo_file = None
-    if update.message.photo:
-        photo_file = update.message.photo[-1].file_id
-    elif update.message.document:
-        # Jaga-jaga kalau user kirim file gambar (biar tidak dicuekin)
-        if "image" in (update.message.document.mime_type or ""):
-            photo_file = update.message.document.file_id
-    
-    if not photo_file:
-        return # Bukan gambar, abaikan.
 
     # 4. Kirim Konfirmasi
     await update.message.reply_text("✅ **Bukti diterima!** Sedang diverifikasi Admin...", quote=True, parse_mode='Markdown')
@@ -1762,7 +1765,7 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"💰 **TOPUP REQUEST**\n"
         f"👤 {u['nama_lengkap']}\n"
         f"🆔 `{u['user_id']}`\n"
-        f"📝 Note: {update.message.caption or '-'}\n\n"
+        f"📝 Note: {msg.caption or '-'}\n\n"
         f"👉 <b>Manual:</b> <code>/topup {u['user_id']} [HARI]</code>"
     )
     
@@ -1773,7 +1776,7 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     await context.bot.send_photo(
         chat_id=ADMIN_ID, 
-        photo=photo_file, 
+        photo=file_id, 
         caption=caption_msg, 
         reply_markup=InlineKeyboardMarkup(kb), 
         parse_mode='HTML'
@@ -2122,8 +2125,29 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
             except: pass
 
 async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # --- POS PEMERIKSAAN (GATEKEEPER) ---
+    # Cek dulu jenis filenya sebelum memproses lebih jauh
+    msg = update.message
+    if msg.document:
+        fname = (msg.document.file_name or "").lower()
+        
+        # 1. JIKA GAMBAR -> OPER KE FITUR TOPUP
+        if fname.endswith(('.jpg', '.jpeg', '.png', '.webp')):
+            # Panggil fungsi Topup secara manual
+            return await handle_photo_topup(update, context)
+            
+        # 2. JIKA BUKAN EXCEL/DATA -> ABAIKAN
+        # (Agar bot tidak merespon file .pdf, .docx, dll yang tidak relevan)
+        allowed_data = ('.xlsx', '.xls', '.csv', '.zip', '.topaz', '.txt', '.json')
+        if not fname.endswith(allowed_data):
+            return ConversationHandler.END
+
+    # --- JIKA LOLOS, BERARTI FILE DATA (LANJUTKAN PROSES UPLOAD) ---
+    
     uid = update.effective_user.id
     u = get_user(uid)
+    
+    # Cek Validasi User
     if not u or u['status'] != 'active': 
         return await update.message.reply_text("⛔ Akses Ditolak.")
     
@@ -2138,7 +2162,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['target_leasing'] = my_leasing
         
         # 2. Tampilkan Menu Pilihan (Update / Hapus)
-        msg = (
+        msg_text = (
             f"📥 **FILE DITERIMA (PIC MODE)**\n"
             f"👤 User: {clean_text(u.get('nama_lengkap'))}\n"
             f"🏦 Target: <b>{my_leasing}</b>\n"
@@ -2153,7 +2177,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         
         await update.message.reply_text(
-            msg, 
+            msg_text, 
             parse_mode='HTML', 
             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         )
@@ -2165,7 +2189,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_admin = (uid == ADMIN_ID) or (str(uid) in ADMIN_IDS)
     if is_admin:
         path = f"temp_{uid}_{int(time.time())}_{update.message.document.file_name}"
-        msg = await update.message.reply_text("⏳ **Analisa File (Admin Mode)...**")
+        msg_wait = await update.message.reply_text("⏳ **Analisa File (Admin Mode)...**")
         try:
             f = await update.message.document.get_file()
             await f.download_to_drive(path)
@@ -2177,12 +2201,12 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if 'nopol' not in df.columns: 
                 os.remove(path)
-                return await msg.edit_text("❌ Kolom NOPOL tidak ditemukan.")
+                return await msg_wait.edit_text("❌ Kolom NOPOL tidak ditemukan.")
                 
             context.user_data['upload_path'] = path
             context.user_data['preview'] = df.head(1).to_dict('records')
             context.user_data['cols'] = df.columns.tolist()
-            await msg.delete()
+            await msg_wait.delete()
             
             await update.message.reply_text(
                 f"✅ **SCAN OK**\nCols: {', '.join(found)}\nTotal: {len(df):,}\n\n👉 Nama Leasing (atau SKIP):", 
@@ -2191,7 +2215,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return U_LEASING_ADMIN
         except Exception as e:
             if os.path.exists(path): os.remove(path)
-            await msg.edit_text(f"❌ Error: {e}")
+            await msg_wait.edit_text(f"❌ Error: {e}")
             return ConversationHandler.END
 
     # === JALUR 3: USER BIASA (LAPOR) ===
@@ -3483,54 +3507,21 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v6.39 (SIMPLE PHOTO FIX) STARTING...")
+    print("🚀 ONEASPAL BOT v6.41 (SOLID UPLOAD & PHOTO FIX) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
-    # ==========================================================================
-    # 1. PRIORITY & REGISTRATION (JANGAN DIUBAH URUTANNYA)
-    # ==========================================================================
+    # 1. STOP COMMAND
     app.add_handler(CommandHandler('stop', stop_upload_command))
     
-    # HANDLER REGISTRASI (Wajib Paling Atas biar foto ID Card masuk sini dulu)
+    # 2. HANDLER FOTO BIASA (Gallery)
+    # Ini menangkap foto yang dikirim sebagai gambar biasa (compressed)
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo_topup))
+    
+    # 3. HANDLER DOKUMEN (Upload Data + File Gambar)
+    # Kita pakai filter STANDARD (Document.ALL) -> Anti Crash 100%
+    # Seleksi "Apakah ini Excel atau Gambar" dilakukan di dalam fungsi 'upload_start'
     app.add_handler(ConversationHandler(
-        entry_points=[CommandHandler('register', register_start)], 
-        states={
-            R_ROLE_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_role_choice)], 
-            R_NAMA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_nama)], 
-            R_HP: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_hp)], 
-            R_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_email)], 
-            R_KOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], 
-            R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], 
-            R_BRANCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_branch)],
-            # Filter PHOTO disini menangkap ID Card saat user sedang register
-            R_PHOTO_ID: [MessageHandler(filters.PHOTO, register_photo_id)], 
-            R_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_confirm)]
-        }, 
-        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
-    ))
-
-    # ==========================================================================
-    # 2. HANDLER BUKTI BAYAR (GLOBAL)
-    # ==========================================================================
-    # Menangkap foto APAPUN yang tidak ditangkap oleh Registration
-    # Filter: Hanya FOTO atau Document Gambar
-    FILTER_FOTO = filters.PHOTO | filters.Document.MimeType("image/jpeg") | filters.Document.MimeType("image/png")
-    app.add_handler(MessageHandler(FILTER_FOTO, handle_photo_topup))
-
-    # ==========================================================================
-    # 3. HANDLER UPLOAD DATA (ANTI CRASH MANUAL FILTER)
-    # ==========================================================================
-    # Kita chain manual agar tidak crash "list has no attribute lower"
-    FILTER_EXCEL = (
-        filters.Document.FileExtension("xlsx") | 
-        filters.Document.FileExtension("xls") | 
-        filters.Document.FileExtension("csv") | 
-        filters.Document.FileExtension("zip") | 
-        filters.Document.FileExtension("topaz")
-    )
-
-    app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(FILTER_EXCEL, upload_start)],
+        entry_points=[MessageHandler(filters.Document.ALL, upload_start)],
         states={
             U_LEASING_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_user)],
             U_LEASING_ADMIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_admin)],
@@ -3538,10 +3529,9 @@ if __name__ == '__main__':
         },
         fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
     ))
-
-    # ==========================================================================
-    # 4. ADMIN & USER MANAGEMENT
-    # ==========================================================================
+    
+    # (Copy-paste saja bagian bawah ini, urutan tidak berubah)
+    
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
     app.add_handler(MessageHandler(filters.Regex(r'^/cek_\d+$'), cek_user_pending))
     
@@ -3563,9 +3553,22 @@ if __name__ == '__main__':
         fallbacks=[CommandHandler('cancel', cancel)]
     ))
     
-    # ==========================================================================
-    # 5. UNIT MANAGEMENT
-    # ==========================================================================
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('register', register_start)], 
+        states={
+            R_ROLE_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_role_choice)], 
+            R_NAMA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_nama)], 
+            R_HP: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_hp)], 
+            R_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_email)], 
+            R_KOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], 
+            R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], 
+            R_BRANCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_branch)],
+            R_PHOTO_ID: [MessageHandler(filters.PHOTO, register_photo_id)], 
+            R_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_confirm)]
+        }, 
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+    ))
+    
     conv_add_manual = ConversationHandler(
         entry_points=[CommandHandler('tambah', add_manual_start)], 
         states={
@@ -3599,9 +3602,6 @@ if __name__ == '__main__':
         fallbacks=[CommandHandler('cancel', cancel)]
     ))
 
-    # ==========================================================================
-    # 6. SUPPORT & GENERAL
-    # ==========================================================================
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('admin', contact_admin), MessageHandler(filters.Regex('^📞 BANTUAN TEKNIS$'), contact_admin)], 
         states={SUPPORT_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, support_send)]}, 
@@ -3630,10 +3630,8 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('addagency', add_agency)) 
     
     app.add_handler(CallbackQueryHandler(callback_handler))
-    
-    # 7. SEARCH HANDLER (TEXT ONLY)
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
     print("⏰ Jadwal Cleanup Otomatis: AKTIF (Jam 03:00 WIB)")
-    print("🚀 ONEASPAL BOT v6.39 (SIMPLE PHOTO FIX) RUNNING...")
+    print("🚀 ONEASPAL BOT v6.40 (LOGIC SPLIT FIX) RUNNING...")
     app.run_polling()
