@@ -175,6 +175,8 @@ ADD_NOPOL, ADD_UNIT, ADD_LEASING, ADD_PHONE, ADD_NOTE, ADD_CONFIRM = range(6)
 L_NOPOL, L_REASON, L_CONFIRM = range(14, 17) 
 D_NOPOL, D_CONFIRM = range(17, 19)
 U_LEASING_USER, U_LEASING_ADMIN, U_CONFIRM_UPLOAD = range(19, 22)
+# [NEW] STATE KHUSUS BUKTI BAYAR
+WAIT_BUKTI = 26
 
 REJECT_REASON = 22
 ADMIN_ACT_REASON = 23
@@ -1695,12 +1697,13 @@ async def download_korlap_report(update: Update, context: ContextTypes.DEFAULT_T
         logger.error(f"Korlap DL Error: {e}")
         await sts.edit_text(f"❌ Error: {e}")
 
+# ==============================================================================
+# BAGIAN 5: HANDLER TOPUP & BUKTI BAYAR (CLEAN & FIXED)
+# ==============================================================================
+
+# 1. INFO BAYAR (Tampilkan QRIS & Instruksi)
 async def info_bayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Nama file QRIS (Pastikan file ini ada di folder bot)
     qris_filename = 'qris.jpg'
-    
-    # Caption: Gabungan Daftar Harga Paket + Instruksi QRIS
-    # (Saya konversi format HTML lama ke Markdown agar konsisten dengan code baru)
     caption_msg = (
         "💰 **PAKET LANGGANAN (UNLIMITED CEK)**\n"
         "━━━━━━━━━━━━━━━━━━\n"
@@ -1711,45 +1714,46 @@ async def info_bayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "━━━━━━━━━━━━━━━━━━\n\n"
         "💳 **METODE BAYAR: QRIS (B-ONE ENTERPRISE)**\n"
         "✅ *Support: BCA, Mandiri, BRI, BNI, GoPay, Dana, OVO, ShopeePay.*\n\n"
-        "📝 **CARA AKTIVASI OTOMATIS:**\n"
-        "1. Klik gambar QR di atas ⬆️\n"
-        "2. Save/Screenshot lalu Scan di M-Banking/E-Wallet.\n"
-        "3. **Kirim Bukti Transfer (Foto)** langsung ke chat ini.\n"
+        "📝 **SUDAH TRANSFER?**\n"
+        "Silakan upload bukti transfer Anda dengan mengetik perintah:\n"
+        "👉 /buktibayar\n"
+        "👉 /buktibayar"
     )
 
     try:
         if os.path.exists(qris_filename):
             with open(qris_filename, 'rb') as photo_file:
-                await update.message.reply_photo(
-                    photo=photo_file,
-                    caption=caption_msg,
-                    parse_mode='Markdown'
-                )
+                await update.message.reply_photo(photo=photo_file, caption=caption_msg, parse_mode='Markdown')
         else:
-            # Fallback jika file qris.jpg belum diupload
-            # Tetap tampilkan harga tapi info text saja
-            await update.message.reply_text(
-                caption_msg + "\n⚠️ *Gambar QRIS belum tersedia. Hubungi Admin.*",
-                parse_mode='Markdown'
-            )
-            
+            await update.message.reply_text(caption_msg + "\n⚠️ *Gambar QRIS belum tersedia. Hubungi Admin.*", parse_mode='Markdown')
     except Exception as e:
-        # Error handling agar bot tidak crash
         await update.message.reply_text(f"❌ Gagal memuat info pembayaran: {e}")
 
-async def panduan_buktibayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# 2. FITUR KHUSUS: /buktibayar (Jalur VIP)
+async def buktibayar_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Langkah 1: User mengetik /buktibayar"""
     msg = (
-        "📸 **CARA UPLOAD BUKTI BAYAR**\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        "Silakan **Kirim Langsung** Foto/File Gambar bukti transfer Anda ke chat ini.\n\n"
-        "💡 **Tips:**\n"
-        "• Bisa kirim via **Gallery** (Foto biasa).\n"
-        "• Bisa kirim via **File/Document** (Agar gambar jernih/HD).\n"
-        "• Bot akan otomatis mendeteksi dan meneruskannya ke Admin.\n\n"
-        "👇 *Silakan kirim foto Anda sekarang...*"
+        "📸 **UPLOAD BUKTI BAYAR**\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "Silakan **Kirim Foto / File Gambar** bukti transfer Anda sekarang.\n\n"
+        "❌ *Ketik /cancel untuk membatalkan.*"
     )
     await update.message.reply_text(msg, parse_mode='Markdown')
+    return WAIT_BUKTI
 
+async def buktibayar_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Langkah 2: User mengirim foto (Jalur VIP)"""
+    # Panggil fungsi handle_photo_topup secara manual agar tidak duplikasi kode
+    # Karena handle_photo_topup sudah punya logika deteksi foto/file yang canggih
+    return await handle_photo_topup(update, context)
+
+# 3. PANDUAN TEKS (Hanya Teks Bantuan)
+async def panduan_buktibayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Fungsi ini HANYA dipanggil jika user ketik /buktibayar tapi handler conversation tidak jalan
+    # (Sebagai fallback)
+    await buktibayar_start(update, context) 
+
+# 4. HANDLER INTI: PROSES FOTO TOPUP (Bisa dipanggil dari mana saja)
 async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- LOGIKA BARU: BISA BACA FOTO & DOKUMEN ---
     file_id = None
@@ -1763,26 +1767,32 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if fname.endswith(('.jpg', '.jpeg', '.png', '.webp')):
             file_id = msg.document.file_id
             
-    # Jika bukan gambar, berhenti (biar gak ganggu fitur lain)
-    if not file_id: return 
+    # Jika bukan gambar
+    if not file_id: 
+        # Jika dipanggil dari Command /buktibayar, kasih tau user salah kirim
+        # Cara taunya: Cek apakah update.message.text kosong (berarti kiriman media)
+        if not msg.text: 
+             await update.message.reply_text("⚠️ **Bukan Gambar!**\nHarap kirim FOTO atau FILE GAMBAR (Jpg/Png).", parse_mode='Markdown')
+        return # Berhenti diam-diam jika dari auto-detect
 
-    # --- LOGIKA LAMA (VALIDASI) ---
-    if update.effective_chat.type != "private":
-        await update.message.reply_text("❌ Kirim bukti lewat JAPRI ya.", quote=True)
-        return
-
+    # --- VALIDASI ---
     u = get_user(update.effective_user.id)
     if not u:
-        await update.message.reply_text("⚠️ Ketik /start dulu.", quote=True)
-        return
+        await update.message.reply_text("⚠️ Anda belum terdaftar. Ketik /start.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
 
-    await update.message.reply_text("✅ **Bukti diterima!** Sedang diverifikasi Admin...", quote=True, parse_mode='Markdown')
+    await update.message.reply_text("✅ **Bukti diterima!** Sedang diverifikasi Admin...", quote=True, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
     
     # --- KIRIM KE ADMIN (PASTI MASUK) ---
+    role_user = u.get('role', 'User').upper()
+    expiry_info = u.get('expiry_date') or "EXPIRED"
+    
     caption = (
         f"💰 **TOPUP REQUEST**\n"
         f"👤 {u['nama_lengkap']}\n"
+        f"🔰 Role: **{role_user}**\n"
         f"🆔 `{u['user_id']}`\n"
+        f"📅 Expired: {expiry_info}\n"
         f"📝 Note: {msg.caption or '-'}\n\n"
         f"👉 <b>Manual:</b> <code>/topup {u['user_id']} [HARI]</code>"
     )
@@ -1795,7 +1805,6 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         print(f"❌ Gagal Kirim ke Admin: {e}")
         
-    # [PENTING] Return END agar tidak lanjut ke upload data jika dipanggil dari sana
     return ConversationHandler.END
 
 # --- [BARU] HELPER: TOMBOL AKSI GRUP (HUBUNGI + SHARE WA + SALIN) ---
@@ -3503,12 +3512,29 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v6.42 (LOGIC SPLIT FINAL) STARTING...")
+    print("🚀 ONEASPAL BOT v6.46 (BUKTIBAYAR COMMAND) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
-    # 1. STOP COMMAND
+    # 1. PRIORITY COMMANDS
     app.add_handler(CommandHandler('stop', stop_upload_command))
     
+    # [NEW] HANDLER KHUSUS /buktibayar (JALUR VIP)
+    # Ditaruh paling atas agar tidak terganggu fitur lain
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('buktibayar', buktibayar_start)],
+        states={
+            WAIT_BUKTI: [
+                MessageHandler(filters.PHOTO, buktibayar_process),
+                MessageHandler(filters.Document.ALL, buktibayar_process) # Handle file gambar juga
+            ]
+        },
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+    ))
+
+    # [FIX] HANDLER FOTO OTOMATIS (CADANGAN)
+    # Tetap dipasang jaga-jaga kalau user lupa pakai command /buktibayar
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo_topup))
+       
     # 2. HANDLER FOTO BIASA (Gallery)
     # Ini menangkap foto yang dikirim sebagai gambar biasa (compressed)
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo_topup))
