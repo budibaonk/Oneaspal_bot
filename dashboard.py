@@ -537,7 +537,7 @@ with tab5:
             else: st.info("💤 Belum ada aktivitas user hari ini (Sejak 00:00 WIB).")
         else: st.warning("⚠️ Database belum mencatat waktu (Kolom last_seen kosong).")
 
-# --- TAB 6: DAFTAR USER EXPIRED ---
+
 # --- TAB 6: DAFTAR USER EXPIRED (AUDIT & RETENSI + PUSH REMINDER) ---
 with tab6:
     st.markdown("### 💀 DAFTAR USER HABIS MASA AKTIF")
@@ -612,7 +612,11 @@ with tab6:
                         
                         prog_bar = st.progress(0, "Mengirim Notifikasi...")
                         
-                        for idx, row in targets.iterrows():
+                        # --- PERBAIKAN UTAMA DISINI ---
+                        # Gunakan enumerate(..., 1) agar 'i' urut 1, 2, 3... berapapun index datanya
+                        total_targets = len(targets)
+                        
+                        for i, (idx, row) in enumerate(targets.iterrows(), 1):
                             # Pesan Reminder yang Sopan tapi Tegas
                             msg_reminder = (
                                 f"🔔 <b>PENGINGAT MASA AKTIF</b>\n\n"
@@ -624,12 +628,19 @@ with tab6:
                             )
                             
                             # Kirim via Bot Telegram
-                            is_sent = send_telegram_message(row['user_id'], msg_reminder)
-                            if is_sent: succ_count += 1
-                            else: fail_count += 1
+                            try:
+                                is_sent = send_telegram_message(row['user_id'], msg_reminder)
+                                if is_sent: succ_count += 1
+                                else: fail_count += 1
+                            except:
+                                fail_count += 1
                             
-                            # Update Progress
-                            prog_bar.progress((idx + 1) / len(targets))
+                            # Update Progress (SAFE MODE)
+                            # Gunakan min() supaya nilainya tidak pernah lebih dari 1.0
+                            current_prog = i / total_targets
+                            safe_prog = min(current_prog, 1.0)
+                            prog_bar.progress(safe_prog)
+                            
                             time.sleep(0.1) # Jeda dikit biar gak spamming parah
                             
                         # Laporan Akhir
