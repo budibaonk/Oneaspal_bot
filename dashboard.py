@@ -587,7 +587,6 @@ with tab6:
             )
             
             # 4. Logika Tombol Eksekusi
-            # Ambil data yang dicentang (True)
             targets = edited_df[edited_df['PILIH'] == True]
             
             col_act1, col_act2 = st.columns([1, 2])
@@ -613,11 +612,12 @@ with tab6:
                         prog_bar = st.progress(0, "Mengirim Notifikasi...")
                         
                         # --- PERBAIKAN UTAMA DISINI ---
-                        # Gunakan enumerate(..., 1) agar 'i' urut 1, 2, 3... berapapun index datanya
                         total_targets = len(targets)
                         
+                        # Gunakan enumerate(..., 1) agar hitungan urut 1, 2, 3... (bukan ambil index acak)
                         for i, (idx, row) in enumerate(targets.iterrows(), 1):
-                            # Pesan Reminder yang Sopan tapi Tegas
+                            
+                            # Pesan Reminder
                             msg_reminder = (
                                 f"🔔 <b>PENGINGAT MASA AKTIF</b>\n\n"
                                 f"Halo <b>{row['nama_lengkap']}</b>,\n"
@@ -636,12 +636,13 @@ with tab6:
                                 fail_count += 1
                             
                             # Update Progress (SAFE MODE)
-                            # Gunakan min() supaya nilainya tidak pernah lebih dari 1.0
+                            # Rumus: (Urutan Saat Ini / Total Target)
+                            # Fungsi min() memastikan nilai tidak pernah > 1.0
                             current_prog = i / total_targets
                             safe_prog = min(current_prog, 1.0)
-                            prog_bar.progress(safe_prog)
                             
-                            time.sleep(0.1) # Jeda dikit biar gak spamming parah
+                            prog_bar.progress(safe_prog)
+                            time.sleep(0.1) # Jeda agar tidak spamming
                             
                         # Laporan Akhir
                         st.toast(f"Selesai! ✅ {succ_count} Terkirim | ❌ {fail_count} Gagal", icon="📨")
