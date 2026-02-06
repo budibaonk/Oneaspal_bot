@@ -103,13 +103,13 @@ print("🔍 SYSTEM DIAGNOSTIC STARTUP (v6.30)")
 print("="*50)
 
 try:
-    # Cek Environment Dulu
+    # Cek ENV dulu
     env_id = int(os.environ.get("ADMIN_ID", 0))
     
-    # [FIX] Jika Env Kosong, Ambil dari LIST MANUAL di atas
+    # [FIX] Jika ENV 0/Error, Ambil dari HARDCODED LIST di atas
     if env_id == 0 and 'ADMIN_IDS' in globals() and len(ADMIN_IDS) > 0:
-        ADMIN_ID = int(ADMIN_IDS[0]) 
-        print(f"⚠️ ADMIN_ID ENV KOSONG! Menggunakan Fallback Hardcoded: {ADMIN_ID}")
+        ADMIN_ID = int(ADMIN_IDS[0])
+        print(f"⚠️ FORCE ADMIN ID: {ADMIN_ID}")
     else:
         ADMIN_ID = env_id
 
@@ -1705,18 +1705,16 @@ async def download_korlap_report(update: Update, context: ContextTypes.DEFAULT_T
 async def info_bayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     qris_filename = 'qris.jpg'
     caption_msg = (
-        "💰 **PAKET LANGGANAN (UNLIMITED CEK)**\n"
+        "💰 **PAKET LANGGANAN**\n"
         "━━━━━━━━━━━━━━━━━━\n"
         "1️⃣ **5 HARI** = Rp 25.000\n"
         "2️⃣ **10 HARI** = Rp 50.000\n"
         "3️⃣ **20 HARI** = Rp 75.000\n"
-        "🔥 **30 HARI** = Rp 100.000 (BEST DEAL!)\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
+        "🔥 **30 HARI** = Rp 100.000\n\n"
         "💳 **METODE BAYAR: QRIS (B-ONE ENTERPRISE)**\n"
-        "✅ *Support: BCA, Mandiri, BRI, BNI, GoPay, Dana, OVO, ShopeePay.*\n\n"
+        "Scan QR Code di atas.\n\n"
         "📝 **SUDAH TRANSFER?**\n"
-        "Silakan upload bukti transfer Anda dengan mengetik perintah:\n"
-        "👉 /buktibayar\n"
+        "Upload bukti Anda dengan perintah:\n"
         "👉 /buktibayar"
     )
 
@@ -1729,23 +1727,26 @@ async def info_bayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Gagal memuat info pembayaran: {e}")
 
-# 2. FITUR KHUSUS: /buktibayar (Jalur VIP)
+# --- [FITUR BARU] JALUR KHUSUS BUKTI BAYAR ---
+# State khusus untuk upload bukti
+WAIT_BUKTI = 99 
+
 async def buktibayar_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Langkah 1: User mengetik /buktibayar"""
-    msg = (
+    await update.message.reply_text(
         "📸 **UPLOAD BUKTI BAYAR**\n"
         "━━━━━━━━━━━━━━━━━━\n"
         "Silakan **Kirim Foto / File Gambar** bukti transfer Anda sekarang.\n\n"
-        "❌ *Ketik /cancel untuk membatalkan.*"
+        "❌ *Ketik /cancel untuk batal.*",
+        parse_mode='Markdown'
     )
-    await update.message.reply_text(msg, parse_mode='Markdown')
     return WAIT_BUKTI
 
 async def buktibayar_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Langkah 2: User mengirim foto (Jalur VIP)"""
-    # Panggil fungsi handle_photo_topup secara manual agar tidak duplikasi kode
-    # Karena handle_photo_topup sudah punya logika deteksi foto/file yang canggih
-    return await handle_photo_topup(update, context)
+    """Langkah 2: Menerima Foto dan Oper ke Fungsi Topup"""
+    # Kita panggil fungsi handle_photo_topup yang sudah ada agar tidak duplikasi kode
+    await handle_photo_topup(update, context)
+    return ConversationHandler.END
 
 # 3. PANDUAN TEKS (Hanya Teks Bantuan)
 async def panduan_buktibayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3504,19 +3505,43 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v6.42 (LOGIC SPLIT FINAL) STARTING...")
+    print("🚀 ONEASPAL BOT v6.49 (FULL FIX: BUKTIBAYAR & UPLOAD) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
-    # 1. STOP COMMAND
+    # ==========================================================================
+    # 1. PRIORITY HANDLERS (Stop & Cancel)
+    # ==========================================================================
     app.add_handler(CommandHandler('stop', stop_upload_command))
     
-    # 2. HANDLER FOTO BIASA (Gallery)
-    # Ini menangkap foto yang dikirim sebagai gambar biasa (compressed)
+    # ==========================================================================
+    # 2. HANDLER KHUSUS: /buktibayar (JALUR VIP FOTO)
+    # ==========================================================================
+    # Ditaruh PALING ATAS agar user yang ketik /buktibayar langsung dilayani
+    # tanpa terganggu filter upload dokumen.
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('buktibayar', buktibayar_start)],
+        states={
+            WAIT_BUKTI: [
+                MessageHandler(filters.PHOTO, buktibayar_process),
+                MessageHandler(filters.Document.ALL, buktibayar_process)
+            ]
+        },
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+    ))
+
+    # ==========================================================================
+    # 3. HANDLER FOTO OTOMATIS (BACKUP)
+    # ==========================================================================
+    # Jika user lupa ketik /buktibayar dan langsung kirim foto (Gallery),
+    # Handler ini akan menangkapnya.
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo_topup))
-    
-    # 3. HANDLER DOKUMEN (Upload Data + File Gambar)
-    # Kita pakai filter STANDARD (Document.ALL) -> Anti Crash 100%
-    # Seleksi "Apakah ini Excel atau Gambar" dilakukan di dalam fungsi 'upload_start'
+
+    # ==========================================================================
+    # 4. HANDLER UPLOAD DATA (EXCEL/CSV)
+    # ==========================================================================
+    # Handler ini menangkap SEMUA dokumen.
+    # Makanya ditaruh DI BAWAH /buktibayar agar tidak memakan foto bukti bayar.
+    # Di dalamnya sudah ada "Satpam" (upload_start) untuk memfilter gambar.
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Document.ALL, upload_start)],
         states={
@@ -3526,9 +3551,10 @@ if __name__ == '__main__':
         },
         fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
     ))
-    
-    # (Copy-paste saja bagian bawah ini, urutan tidak berubah)
-    
+
+    # ==========================================================================
+    # 5. ADMIN & USER MANAGEMENT HANDLERS
+    # ==========================================================================
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
     app.add_handler(MessageHandler(filters.Regex(r'^/cek_\d+$'), cek_user_pending))
     
@@ -3550,6 +3576,9 @@ if __name__ == '__main__':
         fallbacks=[CommandHandler('cancel', cancel)]
     ))
     
+    # ==========================================================================
+    # 6. REGISTRATION & MANUAL INPUT HANDLERS
+    # ==========================================================================
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('register', register_start)], 
         states={
@@ -3605,6 +3634,9 @@ if __name__ == '__main__':
         fallbacks=[CommandHandler('cancel', cancel)]
     )) 
     
+    # ==========================================================================
+    # 7. GENERAL COMMAND HANDLERS
+    # ==========================================================================
     app.add_handler(CommandHandler('panduan', panduan))
     app.add_handler(CommandHandler('adminhelp', admin_help)) 
     app.add_handler(CommandHandler('setinfo', set_info)) 
@@ -3612,7 +3644,10 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('cekkuota', cek_kuota))
     app.add_handler(CommandHandler('infobayar', info_bayar))
+    
+    # [PENTING] Command fallback jika user ketik manual (walau sudah dihandle di atas)
     app.add_handler(CommandHandler('buktibayar', panduan_buktibayar)) 
+    
     app.add_handler(CommandHandler('topup', admin_topup))
     app.add_handler(CommandHandler('stats', get_stats))
     app.add_handler(CommandHandler('leasing', get_leasing_list)) 
@@ -3627,9 +3662,12 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('setagency', set_agency_group))
     app.add_handler(CommandHandler('addagency', add_agency)) 
     
+    # ==========================================================================
+    # 8. CALLBACK & SEARCH HANDLER (Lowest Priority)
+    # ==========================================================================
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
     print("⏰ Jadwal Cleanup Otomatis: AKTIF (Jam 03:00 WIB)")
-    print("🚀 ONEASPAL BOT v6.40 (LOGIC SPLIT FIX) RUNNING...")
+    print("🚀 ONEASPAL BOT v6.49 (READY TO SERVE) RUNNING...")
     app.run_polling()
