@@ -82,8 +82,12 @@ URL = os.getenv("SUPABASE_URL")
 KEY = os.getenv("SUPABASE_KEY")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 
-# [FIX CRITICAL] AMBIL TOKEN DENGAN CARA ROBUST (ENV ATAU FILE)
-BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.environ.get("TELEGRAM_TOKEN")
+# [FIX DARURAT] TEMPEL TOKEN LANGSUNG DI SINI (JANGAN KOSONG)
+# Contoh: MANUAL_TOKEN = "123456:ABC-DEF_GHI..."
+MANUAL_TOKEN = "8428069329:AAFCv-44aK7F2Ry1kO5nLDS0430shirK9CM" 
+
+# Logika: Jika di server tidak ada settingan, dia otomatis pakai yang manual
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") or MANUAL_TOKEN
 
 @st.cache_resource
 def init_connection():
