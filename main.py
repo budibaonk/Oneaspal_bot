@@ -1731,54 +1731,53 @@ async def info_bayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Gagal memuat info pembayaran: {e}")
 
 async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 1. CEK PRIVATE CHAT
-    # Jika dikirim di grup, bot akan kasih tau biar user sadar
+    # 1. Pastikan Private Chat
     if update.effective_chat.type != "private":
-        # Opsional: Jika tidak ingin berisik di grup, baris bawah ini bisa dihapus/comment
-        await update.message.reply_text("❌ Bukti Transfer harap dikirim lewat **JAPRI (Private Chat)** ke Bot ya, jangan di Grup.", quote=True, parse_mode='Markdown')
+        await update.message.reply_text("❌ Kirim bukti transfer lewat JAPRI saja ya.", quote=True)
         return
 
-    # 2. CEK DATABASE USER
-    user_id = update.effective_user.id
-    u = get_user(user_id)
-    
+    # 2. Cek User
+    u = get_user(update.effective_user.id)
     if not u:
-        # INI PENTING: Kasih tau PIC kalau mereka belum terdaftar
-        await update.message.reply_text(
-            "⚠️ **IDENTITAS TIDAK DITEMUKAN**\n\n"
-            "Maaf, data Anda belum ada di sistem kami.\n"
-            "Silakan ketik /start terlebih dahulu untuk registrasi otomatis, lalu kirim ulang fotonya.",
-            quote=True
-        )
+        await update.message.reply_text("⚠️ Ketik /start dulu sebelum kirim bukti.", quote=True)
         return
 
-    # 3. PROSES DATA (Jika Lolos)
+    # 3. Logika Simpel: Ambil Foto Terbesar (Sama seperti Register)
+    photo_file = None
+    if update.message.photo:
+        photo_file = update.message.photo[-1].file_id
+    elif update.message.document:
+        # Jaga-jaga kalau user kirim file gambar (biar tidak dicuekin)
+        if "image" in (update.message.document.mime_type or ""):
+            photo_file = update.message.document.file_id
+    
+    if not photo_file:
+        return # Bukan gambar, abaikan.
+
+    # 4. Kirim Konfirmasi
     await update.message.reply_text("✅ **Bukti diterima!** Sedang diverifikasi Admin...", quote=True, parse_mode='Markdown')
     
-    expiry_info = u.get('expiry_date') or "EXPIRED"
-    
-    # Ambil Role User (Biar Admin tau ini PIC atau Mitra)
-    role_user = u.get('role', 'User').upper()
-
-    msg = (
-        f"💰 **TOPUP DURASI REQUEST**\n"
+    # 5. Teruskan ke Admin
+    caption_msg = (
+        f"💰 **TOPUP REQUEST**\n"
         f"👤 {u['nama_lengkap']}\n"
-        f"🔰 Role: **{role_user}**\n" # <-- Saya tambahkan info Role
         f"🆔 `{u['user_id']}`\n"
-        f"📅 Expired: {expiry_info}\n"
         f"📝 Note: {update.message.caption or '-'}\n\n"
         f"👉 <b>Manual:</b> <code>/topup {u['user_id']} [HARI]</code>"
     )
     
     kb = [
-        [InlineKeyboardButton("✅ 5 HARI", callback_data=f"topup_{u['user_id']}_5"), InlineKeyboardButton("✅ 10 HARI", callback_data=f"topup_{u['user_id']}_10")], 
-        [InlineKeyboardButton("✅ 20 HARI", callback_data=f"topup_{u['user_id']}_20"), InlineKeyboardButton("✅ 30 HARI", callback_data=f"topup_{u['user_id']}_30")], 
-        [InlineKeyboardButton("🔢 MANUAL / CUSTOM", callback_data=f"man_topup_{u['user_id']}")], 
-        [InlineKeyboardButton("❌ TOLAK", callback_data=f"topup_{u['user_id']}_rej")]
+        [InlineKeyboardButton("✅ 5 HARI", callback_data=f"topup_{u['user_id']}_5"), InlineKeyboardButton("✅ 30 HARI", callback_data=f"topup_{u['user_id']}_30")],
+        [InlineKeyboardButton("🔢 MANUAL", callback_data=f"man_topup_{u['user_id']}"), InlineKeyboardButton("❌ TOLAK", callback_data=f"topup_{u['user_id']}_rej")]
     ]
     
-    await context.bot.send_photo(ADMIN_ID, update.message.photo[-1].file_id, caption=msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
-
+    await context.bot.send_photo(
+        chat_id=ADMIN_ID, 
+        photo=photo_file, 
+        caption=caption_msg, 
+        reply_markup=InlineKeyboardMarkup(kb), 
+        parse_mode='HTML'
+    )
 
 # --- [BARU] HELPER: TOMBOL AKSI GRUP (HUBUNGI + SHARE WA + SALIN) ---
 def get_action_buttons(matel_user, unit_data):
@@ -3484,41 +3483,54 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v6.37 (STABLE CHAINING FIX) STARTING...")
+    print("🚀 ONEASPAL BOT v6.39 (SIMPLE PHOTO FIX) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     # ==========================================================================
-    # 🛠️ DEFINISI FILTER MANUAL (METODE CHAINING - ANTI CRASH)
+    # 1. PRIORITY & REGISTRATION (JANGAN DIUBAH URUTANNYA)
     # ==========================================================================
+    app.add_handler(CommandHandler('stop', stop_upload_command))
     
-    # 1. FILTER DATA (Solusi: Chain satu-satu biar gak error List)
-    FILTER_DATA = (
+    # HANDLER REGISTRASI (Wajib Paling Atas biar foto ID Card masuk sini dulu)
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('register', register_start)], 
+        states={
+            R_ROLE_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_role_choice)], 
+            R_NAMA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_nama)], 
+            R_HP: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_hp)], 
+            R_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_email)], 
+            R_KOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], 
+            R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], 
+            R_BRANCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_branch)],
+            # Filter PHOTO disini menangkap ID Card saat user sedang register
+            R_PHOTO_ID: [MessageHandler(filters.PHOTO, register_photo_id)], 
+            R_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_confirm)]
+        }, 
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+    ))
+
+    # ==========================================================================
+    # 2. HANDLER BUKTI BAYAR (GLOBAL)
+    # ==========================================================================
+    # Menangkap foto APAPUN yang tidak ditangkap oleh Registration
+    # Filter: Hanya FOTO atau Document Gambar
+    FILTER_FOTO = filters.PHOTO | filters.Document.MimeType("image/jpeg") | filters.Document.MimeType("image/png")
+    app.add_handler(MessageHandler(FILTER_FOTO, handle_photo_topup))
+
+    # ==========================================================================
+    # 3. HANDLER UPLOAD DATA (ANTI CRASH MANUAL FILTER)
+    # ==========================================================================
+    # Kita chain manual agar tidak crash "list has no attribute lower"
+    FILTER_EXCEL = (
         filters.Document.FileExtension("xlsx") | 
         filters.Document.FileExtension("xls") | 
         filters.Document.FileExtension("csv") | 
         filters.Document.FileExtension("zip") | 
-        filters.Document.FileExtension("txt") | 
-        filters.Document.FileExtension("topaz") | 
-        filters.Document.FileExtension("json")
+        filters.Document.FileExtension("topaz")
     )
-    
-    # 2. FILTER BUKTI BAYAR (Foto Biasa ATAU File Gambar)
-    # Kita pakai filter bawaan library yang pasti ada
-    FILTER_BUKTI_BAYAR = (filters.PHOTO | filters.Document.IMAGE) & (~filters.COMMAND)
 
-    # ==========================================================================
-    # 1. PRIORITY HANDLERS (Stop, Cancel, & BUKTI BAYAR)
-    # ==========================================================================
-    app.add_handler(CommandHandler('stop', stop_upload_command))
-    
-    # [FIX] Handler Foto Topup (Prioritas 1)
-    # Bot akan mengecek: Apakah ini Foto/Gambar? Jika YA -> Masuk Topup.
-    app.add_handler(MessageHandler(FILTER_BUKTI_BAYAR, handle_photo_topup))
-    
-    # [FIX] Handler Upload Data (Prioritas 2)
-    # Bot akan mengecek: Apakah ini File Excel/CSV? Jika YA -> Masuk Upload.
     app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(FILTER_DATA, upload_start)],
+        entry_points=[MessageHandler(FILTER_EXCEL, upload_start)],
         states={
             U_LEASING_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_user)],
             U_LEASING_ADMIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_admin)],
@@ -3528,7 +3540,7 @@ if __name__ == '__main__':
     ))
 
     # ==========================================================================
-    # 2. ADMIN & USER MANAGEMENT HANDLERS
+    # 4. ADMIN & USER MANAGEMENT
     # ==========================================================================
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
     app.add_handler(MessageHandler(filters.Regex(r'^/cek_\d+$'), cek_user_pending))
@@ -3536,7 +3548,7 @@ if __name__ == '__main__':
     app.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(admin_action_start, pattern='^adm_(ban|unban|del)_')], 
         states={ADMIN_ACT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_action_complete)]}, 
-        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+        fallbacks=[CommandHandler('cancel', cancel)]
     ))
     
     app.add_handler(ConversationHandler(
@@ -3552,26 +3564,7 @@ if __name__ == '__main__':
     ))
     
     # ==========================================================================
-    # 3. REGISTRATION HANDLER (Full Flow)
-    # ==========================================================================
-    app.add_handler(ConversationHandler(
-        entry_points=[CommandHandler('register', register_start)], 
-        states={
-            R_ROLE_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_role_choice)], 
-            R_NAMA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_nama)], 
-            R_HP: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_hp)], 
-            R_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_email)], 
-            R_KOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], 
-            R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], 
-            R_BRANCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_branch)],
-            R_PHOTO_ID: [MessageHandler(filters.PHOTO, register_photo_id)],
-            R_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_confirm)]
-        }, 
-        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
-    ))
-    
-    # ==========================================================================
-    # 4. UNIT MANAGEMENT HANDLERS (Add, Delete, Lapor)
+    # 5. UNIT MANAGEMENT
     # ==========================================================================
     conv_add_manual = ConversationHandler(
         entry_points=[CommandHandler('tambah', add_manual_start)], 
@@ -3583,7 +3576,7 @@ if __name__ == '__main__':
             ADD_NOTE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_note)], 
             ADD_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_save)],
         }, 
-        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex("^❌ BATAL$"), cancel)]
+        fallbacks=[CommandHandler('cancel', cancel)]
     )
     app.add_handler(conv_add_manual)
 
@@ -3607,36 +3600,27 @@ if __name__ == '__main__':
     ))
 
     # ==========================================================================
-    # 5. SUPPORT & HELP HANDLERS
+    # 6. SUPPORT & GENERAL
     # ==========================================================================
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('admin', contact_admin), MessageHandler(filters.Regex('^📞 BANTUAN TEKNIS$'), contact_admin)], 
         states={SUPPORT_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, support_send)]}, 
-        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+        fallbacks=[CommandHandler('cancel', cancel)]
     )) 
     
     app.add_handler(CommandHandler('panduan', panduan))
     app.add_handler(CommandHandler('adminhelp', admin_help)) 
     app.add_handler(CommandHandler('setinfo', set_info)) 
     app.add_handler(CommandHandler('delinfo', del_info)) 
-
-    # ==========================================================================
-    # 6. GENERAL COMMAND HANDLERS
-    # ==========================================================================
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('cekkuota', cek_kuota))
     app.add_handler(CommandHandler('infobayar', info_bayar)) 
     app.add_handler(CommandHandler('topup', admin_topup))
     app.add_handler(CommandHandler('stats', get_stats))
     app.add_handler(CommandHandler('leasing', get_leasing_list)) 
-    
     app.add_handler(CommandHandler("rekap_member", rekap_member))
     app.add_handler(CommandHandler("cekagency", rekap_handler))
     app.add_handler(MessageHandler(filters.Regex(r'(?i)^/rekap'), rekap_handler))
-
-    # ==========================================================================
-    # 7. ADMIN TOOLS
-    # ==========================================================================
     app.add_handler(CommandHandler('users', list_users))
     app.add_handler(CommandHandler('angkat_korlap', angkat_korlap)) 
     app.add_handler(CommandHandler('testgroup', test_group))
@@ -3645,20 +3629,11 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('setagency', set_agency_group))
     app.add_handler(CommandHandler('addagency', add_agency)) 
     
-    # ==========================================================================
-    # 8. GENERAL MESSAGE & CALLBACK (LOWEST PRIORITY)
-    # ==========================================================================
     app.add_handler(CallbackQueryHandler(callback_handler))
     
-    # WAJIB PALING BAWAH: Handler Pencarian Nopol (Menangkap teks apapun)
+    # 7. SEARCH HANDLER (TEXT ONLY)
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    # ==========================================================================
-      
-    job_queue = app.job_queue
-    # job_queue.run_daily(auto_cleanup_logs, time=dt_time(hour=3, minute=0, second=0, tzinfo=TZ_JAKARTA), days=(0, 1, 2, 3, 4, 5, 6))
-    
     print("⏰ Jadwal Cleanup Otomatis: AKTIF (Jam 03:00 WIB)")
-
-    print("🚀 ONEASPAL BOT v6.37 (FULL STABLE) STARTING...")
+    print("🚀 ONEASPAL BOT v6.39 (SIMPLE PHOTO FIX) RUNNING...")
     app.run_polling()
