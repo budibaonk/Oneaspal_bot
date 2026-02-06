@@ -3484,21 +3484,31 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v6.32 (FIX PHOTO TOPUP) STARTING...")
+    print("🚀 ONEASPAL BOT v6.34 (FINAL FIXED - 8 SECTIONS) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     # ==========================================================================
-    # 1. PRIORITY HANDLERS (Stop, Cancel, Upload, PHOTO TOPUP)
+    # 🛠️ DEFINISI SMART FILTER (AGAR BOT PINTAR MEMBEDAKAN FILE vs FOTO)
+    # ==========================================================================
+    # 1. Filter Khusus Data (Hanya terima Excel/CSV/ZIP/Topaz)
+    FILTER_DATA = filters.Document.FileExtension(["xlsx", "xls", "csv", "zip", "txt", "topaz", "json"])
+    
+    # 2. Filter Khusus Bukti Bayar (Terima FOTO GALERI + FOTO DOKUMEN)
+    FILTER_BUKTI_BAYAR = (filters.PHOTO | filters.Document.IMAGE) & (~filters.COMMAND)
+
+    # ==========================================================================
+    # 1. PRIORITY HANDLERS (Stop, Cancel, & BUKTI BAYAR)
     # ==========================================================================
     app.add_handler(CommandHandler('stop', stop_upload_command))
     
-    # [FIX] PINDAHKAN HANDLER FOTO TOPUP KE SINI (PRIORITAS TINGGI)
-    # Agar tidak tertimpa oleh ConversationHandler lain
-    app.add_handler(MessageHandler(filters.PHOTO & (~filters.COMMAND), handle_photo_topup))
+    # [FIX UTAMA DISINI] 
+    # Handler Foto Topup ditaruh di NO.1 agar tidak tertimpa fitur lain.
+    # Menggunakan FILTER_BUKTI_BAYAR agar bisa baca gambar yang dikirim sebagai file.
+    app.add_handler(MessageHandler(FILTER_BUKTI_BAYAR, handle_photo_topup))
     
-    # HANDLER UPLOAD FILE (Conversational)
+    # HANDLER UPLOAD FILE (Hanya Menerima FILTER_DATA)
     app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Document.ALL, upload_start)],
+        entry_points=[MessageHandler(FILTER_DATA, upload_start)],
         states={
             U_LEASING_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_user)],
             U_LEASING_ADMIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_admin)],
@@ -3547,7 +3557,6 @@ if __name__ == '__main__':
             R_KOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], 
             R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], 
             R_BRANCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_branch)],
-            # Pastikan filter di sini spesifik agar tidak tabrakan
             R_PHOTO_ID: [MessageHandler(filters.PHOTO, register_photo_id)],
             R_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_confirm)]
         }, 
@@ -3632,8 +3641,6 @@ if __name__ == '__main__':
     # ==========================================================================
     # 8. GENERAL MESSAGE & CALLBACK (LOWEST PRIORITY)
     # ==========================================================================
-    # [HAPUS HANDLER FOTO LAMA YANG DI SINI]
-    
     app.add_handler(CallbackQueryHandler(callback_handler))
     
     # WAJIB PALING BAWAH: Handler Pencarian Nopol (Menangkap teks apapun)
@@ -3646,5 +3653,5 @@ if __name__ == '__main__':
     
     print("⏰ Jadwal Cleanup Otomatis: AKTIF (Jam 03:00 WIB)")
 
-    print("🚀 ONEASPAL BOT v6.32 (DIRECT UPLOAD MODE) STARTING...")
+    print("🚀 ONEASPAL BOT v6.34 (FULL 8 POINTS FIX) STARTING...")
     app.run_polling()
