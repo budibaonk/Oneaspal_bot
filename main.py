@@ -1757,18 +1757,16 @@ async def panduan_buktibayar(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # 4. HANDLER INTI: PROSES FOTO TOPUP (Bisa dipanggil dari mana saja)
 async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Debugging: Kasih respon loading dulu biar tau bot hidup
-    msg_wait = await update.message.reply_text("⏳ *Memproses gambar...*", parse_mode='Markdown')
+    msg_wait = await update.message.reply_text("⏳ *Memproses bukti bayar...*", parse_mode='Markdown')
     
     file_id = None
     msg = update.message
     
-    # 1. Cek Sumber Gambar
+    # 1. Cek Sumber Gambar (LOGIKA INI TIDAK DIUBAH -> AMAN)
     try:
         if msg.photo:
-            # Ambil foto kualitas terbaik
             file_id = msg.photo[-1].file_id
         elif msg.document:
-            # Cek MIME TYPE atau Ekstensi
             mime = str(msg.document.mime_type).lower()
             fname = str(msg.document.file_name).lower()
             if "image" in mime or fname.endswith(('.jpg', '.jpeg', '.png', '.webp')):
@@ -1777,34 +1775,66 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await msg_wait.edit_text(f"❌ Error saat baca file: {e}")
         return ConversationHandler.END
 
-    # 2. Jika File Tidak Ditemukan / Bukan Gambar
+    # 2. Jika File Tidak Ditemukan
     if not file_id: 
         await msg_wait.edit_text("❌ **Gagal Membaca Gambar!**\nPastikan yang dikirim adalah FOTO atau FILE GAMBAR (JPG/PNG).")
         return ConversationHandler.END
 
     # 3. Cek User di Database
-    u = get_user(update.effective_user.id)
+    uid = update.effective_user.id
+    u = get_user(uid)
     if not u:
         await msg_wait.edit_text("⚠️ **User Tidak Terdaftar.**\nKetik /start untuk register.")
         return ConversationHandler.END
 
-    # 4. Kirim ke Admin
+    # 4. Format Tanggal Expired (Agar Rapi: DD-MM-YYYY)
+    raw_exp = u.get('expiry_date')
+    formatted_exp = "BELUM AKTIF"
+    if raw_exp:
+        try:
+            # Coba parsing ISO format
+            if isinstance(raw_exp, str):
+                raw_exp = raw_exp.replace('Z', '+00:00')
+                dt_obj = datetime.fromisoformat(raw_exp)
+                formatted_exp = dt_obj.strftime('%d-%m-%Y %H:%M')
+            else:
+                formatted_exp = str(raw_exp)
+        except:
+            formatted_exp = str(raw_exp)[:10] # Fallback aman
+
+    # 5. Kirim ke Admin (TAMPILAN BARU LENGKAP)
     try:
-        # Gunakan ID Admin Manual Komandan jika ENV bermasalah
-        target_admin = 7530512170 
+        # Gunakan ID Admin Manual Komandan
+        target_admin = ADMIN_ID if ADMIN_ID != 0 else 7530512170 
         
+        # Susun Pesan Laporan
         caption = (
-            f"💰 **TOPUP REQUEST**\n"
-            f"👤 {u.get('nama_lengkap', 'Unknown')}\n"
-            f"🆔 `{u['user_id']}`\n"
-            f"📅 Exp: {u.get('expiry_date', '-')}\n"
-            f"📝 Note: {msg.caption or '-'}\n\n"
-            f"👉 <b>Manual:</b> <code>/topup {u['user_id']} [HARI]</code>"
+            f"💰 <b>PERMINTAAN TOPUP BARU</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Nama:</b> {u.get('nama_lengkap', 'Unknown')}\n"
+            f"🆔 <b>ID:</b> <code>{u['user_id']}</code>\n"
+            f"🏢 <b>PT/Agency:</b> {u.get('agency', '-')}\n"
+            f"📱 <b>WhatsApp:</b> {u.get('no_hp', '-')}\n"
+            f"📅 <b>Exp Saat Ini:</b> {formatted_exp}\n"
+            f"📝 <b>Catatan User:</b> {msg.caption or '-'}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👇 <i>Pilih Paket Durasi untuk di-ACC:</i>"
         )
         
+        # KEYBOARD TOMBOL (LENGKAP: 5, 10, 20, 30, Manual, Tolak)
         kb = [
-            [InlineKeyboardButton("✅ 5 HARI", callback_data=f"topup_{u['user_id']}_5"), InlineKeyboardButton("✅ 30 HARI", callback_data=f"topup_{u['user_id']}_30")],
-            [InlineKeyboardButton("🔢 MANUAL", callback_data=f"man_topup_{u['user_id']}"), InlineKeyboardButton("❌ TOLAK", callback_data=f"topup_{u['user_id']}_rej")]
+            [
+                InlineKeyboardButton("✅ 5 HARI", callback_data=f"topup_{uid}_5"),
+                InlineKeyboardButton("✅ 10 HARI", callback_data=f"topup_{uid}_10")
+            ],
+            [
+                InlineKeyboardButton("✅ 20 HARI", callback_data=f"topup_{uid}_20"),
+                InlineKeyboardButton("🔥 30 HARI", callback_data=f"topup_{uid}_30")
+            ],
+            [
+                InlineKeyboardButton("✏️ MANUAL", callback_data=f"man_topup_{uid}"),
+                InlineKeyboardButton("❌ TOLAK", callback_data=f"topup_{uid}_rej")
+            ]
         ]
         
         await context.bot.send_photo(
@@ -1815,11 +1845,13 @@ async def handle_photo_topup(update: Update, context: ContextTypes.DEFAULT_TYPE)
             parse_mode='HTML'
         )
         
-        # Sukses
+        # Sukses ke User
         await msg_wait.edit_text("✅ **BUKTI DITERIMA!**\nAdmin telah menerima foto Anda. Mohon tunggu verifikasi.")
         
     except Exception as e:
-        await msg_wait.edit_text(f"❌ **Gagal Kirim ke Admin:**\n{e}\n\n(Pastikan Admin sudah Chat Bot minimal 1x)")
+        # Error Handler (Penting biar bot gak diem aja kalau gagal kirim ke admin)
+        print(f"ERROR KIRIM KE ADMIN: {e}")
+        await msg_wait.edit_text(f"❌ **Gagal Kirim ke Admin:**\nBot gagal menghubungi Admin ID {target_admin}.\nError: {e}")
         
     return ConversationHandler.END
 
