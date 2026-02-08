@@ -1,7 +1,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL COMMAND CENTER                        #
-#                      VERSION: 10.5 (VISUAL BROADCAST CHECKLIST)              #
+#                      VERSION: 10.6 (STABLE FIX DATE PARSING)                 #
 #                      ROLE:    ADMIN DASHBOARD CORE                           #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -324,7 +324,7 @@ with st.sidebar:
     else:
         st.error("⚠️ TOKEN BOT HILANG")
 
-st.markdown("## ONE ASPAL COMMANDO v10.5")
+st.markdown("## ONE ASPAL COMMANDO v10.6")
 st.markdown("<span style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE INTELLIGENCE COMMAND CENTER</span>", unsafe_allow_html=True)
 st.markdown("---")
 
@@ -564,7 +564,10 @@ with tab6:
         
         if data_expired:
             df_audit = pd.DataFrame(data_expired)
-            df_audit['tgl_exp_obj'] = pd.to_datetime(df_audit['expiry_date']).dt.date
+            
+            # [FIX CRITICAL] Handle format tanggal ISO dengan microseconds yang bervariasi
+            # Menggunakan format='mixed' dan errors='coerce' agar tidak crash jika format beda
+            df_audit['tgl_exp_obj'] = pd.to_datetime(df_audit['expiry_date'], format='mixed', errors='coerce').dt.date
             df_audit = df_audit.sort_values(by='tgl_exp_obj', ascending=True)
 
             c1, c2 = st.columns(2)
@@ -572,7 +575,8 @@ with tab6:
             c2.metric("TERLAMA SEJAK", f"{df_audit['tgl_exp_obj'].iloc[0]}", "Prioritas")
             st.divider()
 
-            df_audit['expiry_date_str'] = pd.to_datetime(df_audit['expiry_date']).dt.strftime('%Y-%m-%d')
+            # [FIX CRITICAL] Apply ke tampilan juga
+            df_audit['expiry_date_str'] = pd.to_datetime(df_audit['expiry_date'], format='mixed', errors='coerce').dt.strftime('%Y-%m-%d')
             
             # [BARU] MAPPING STATUS DARI SESSION STATE KE DATAFRAME
             df_audit['STATUS_BROADCAST'] = df_audit['user_id'].map(st.session_state['broadcast_logs']).fillna("⏳ Menunggu")
@@ -665,4 +669,4 @@ with cf1:
     if st.button("🔄 REFRESH SYSTEM", key="footer_refresh"): st.cache_data.clear(); st.rerun()
 with cf3:
     if st.button("🚪 LOGOUT SESSION", key="footer_logout"): st.session_state['authenticated'] = False; st.rerun()
-st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v10.5</div>""", unsafe_allow_html=True)
+st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v10.6</div>""", unsafe_allow_html=True)
