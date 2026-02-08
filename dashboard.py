@@ -1,7 +1,7 @@
 ################################################################################
 #                                                                              #
 #                      PROJECT: ONEASPAL COMMAND CENTER                        #
-#                      VERSION: 10.6 (STABLE FIX DATE PARSING)                 #
+#                      VERSION: 10.7 (ADD SELECT ALL FEATURE)                  #
 #                      ROLE:    ADMIN DASHBOARD CORE                           #
 #                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
 #                                                                              #
@@ -83,9 +83,7 @@ KEY = os.getenv("SUPABASE_KEY")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 
 # [FIX] TOKEN MANUAL AGAR BROADCAST JALAN
-# GANTI "12345:ABCDE..." DENGAN TOKEN ASLI ANDA
 MANUAL_TOKEN = "8428069329:AAFCv-44aK7F2Ry1kO5nLDS0430shirK9CM" 
-
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") or MANUAL_TOKEN
 
 @st.cache_resource
@@ -104,8 +102,6 @@ if 'upload_stage' not in st.session_state: st.session_state['upload_stage'] = 'i
 if 'upload_data_cache' not in st.session_state: st.session_state['upload_data_cache'] = None
 if 'upload_found_cols' not in st.session_state: st.session_state['upload_found_cols'] = []
 if 'upload_result' not in st.session_state: st.session_state['upload_result'] = None
-
-# [NEW] Session untuk menyimpan status broadcast visual
 if 'broadcast_logs' not in st.session_state: st.session_state['broadcast_logs'] = {}
 
 # --- DATABASE CRUD FUNCTIONS ---
@@ -319,12 +315,12 @@ if not st.session_state['authenticated']:
 with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", width=220)
     st.caption(f"ONE ASPAL SYSTEM\nStatus: {auto_refresh_status}")
-    if not BOT_TOKEN or "MANUAL" in BOT_TOKEN: # Cek dummy logic
+    if not BOT_TOKEN or "MANUAL" in BOT_TOKEN: 
         st.success("✅ TOKEN BOT AKTIF")
     else:
         st.error("⚠️ TOKEN BOT HILANG")
 
-st.markdown("## ONE ASPAL COMMANDO v10.6")
+st.markdown("## ONE ASPAL COMMANDO v10.7")
 st.markdown("<span style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE INTELLIGENCE COMMAND CENTER</span>", unsafe_allow_html=True)
 st.markdown("---")
 
@@ -543,14 +539,16 @@ with tab6:
     if not BOT_TOKEN:
         st.error("⚠️ TOKEN BOT TIDAK TERDETEKSI. Broadcast tidak akan terkirim.")
 
-    # TOMBOL CLEAR STATUS (BARU)
-    if st.button("🧹 CLEAR STATUS BROADCAST", type="secondary"):
-        st.session_state['broadcast_logs'] = {}
-        st.rerun()
-
-    if st.button("🔄 REFRESH DATA SERVER", type="secondary"):
-        st.cache_data.clear()
-        st.rerun()
+    # TOMBOL CLEAR STATUS & REFRESH
+    cr1, cr2 = st.columns([1, 1])
+    with cr1:
+        if st.button("🧹 CLEAR STATUS BROADCAST", type="secondary"):
+            st.session_state['broadcast_logs'] = {}
+            st.rerun()
+    with cr2:
+        if st.button("🔄 REFRESH DATA SERVER", type="secondary"):
+            st.cache_data.clear()
+            st.rerun()
 
     try:
         now_str = datetime.now(TZ_JAKARTA).strftime('%Y-%m-%d')
@@ -565,8 +563,7 @@ with tab6:
         if data_expired:
             df_audit = pd.DataFrame(data_expired)
             
-            # [FIX CRITICAL] Handle format tanggal ISO dengan microseconds yang bervariasi
-            # Menggunakan format='mixed' dan errors='coerce' agar tidak crash jika format beda
+            # [FIX CRITICAL] Handle format tanggal ISO
             df_audit['tgl_exp_obj'] = pd.to_datetime(df_audit['expiry_date'], format='mixed', errors='coerce').dt.date
             df_audit = df_audit.sort_values(by='tgl_exp_obj', ascending=True)
 
@@ -575,18 +572,31 @@ with tab6:
             c2.metric("TERLAMA SEJAK", f"{df_audit['tgl_exp_obj'].iloc[0]}", "Prioritas")
             st.divider()
 
-            # [FIX CRITICAL] Apply ke tampilan juga
+            # Apply format tampilan
             df_audit['expiry_date_str'] = pd.to_datetime(df_audit['expiry_date'], format='mixed', errors='coerce').dt.strftime('%Y-%m-%d')
             
-            # [BARU] MAPPING STATUS DARI SESSION STATE KE DATAFRAME
+            # MAPPING STATUS
             df_audit['STATUS_BROADCAST'] = df_audit['user_id'].map(st.session_state['broadcast_logs']).fillna("⏳ Menunggu")
 
+            # =========================================================
+            # [NEW FEATURE] LOGIC SELECT ALL
+            # =========================================================
+            # 1. Tambahkan kolom default False
             df_audit.insert(0, "PILIH", False)
             
             cols_show = ['PILIH', 'STATUS_BROADCAST', 'nama_lengkap', 'no_hp', 'agency', 'role', 'expiry_date_str', 'status', 'user_id']
             cols_exist = [c for c in cols_show if c in df_audit.columns]
             
-            df_show = df_audit[cols_exist]
+            df_show = df_audit[cols_exist].copy()
+
+            # 2. Tombol Select All (Di atas tabel)
+            c_sel, c_space = st.columns([2, 5])
+            with c_sel:
+                select_all = st.checkbox("✅ PILIH SEMUA USER", value=False, key="select_all_toggle")
+            
+            # 3. Override nilai jika Select All dicentang
+            if select_all:
+                df_show['PILIH'] = True
 
             edited_df = st.data_editor(
                 df_show,
@@ -639,7 +649,6 @@ with tab6:
                                 is_sent = send_telegram_message(row['user_id'], msg_reminder)
                                 if is_sent: 
                                     succ_count += 1
-                                    # [BARU] UPDATE VISUAL STATUS
                                     st.session_state['broadcast_logs'][row['user_id']] = "✅ TERKIRIM"
                                 else: 
                                     fail_count += 1
@@ -669,4 +678,4 @@ with cf1:
     if st.button("🔄 REFRESH SYSTEM", key="footer_refresh"): st.cache_data.clear(); st.rerun()
 with cf3:
     if st.button("🚪 LOGOUT SESSION", key="footer_logout"): st.session_state['authenticated'] = False; st.rerun()
-st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v10.6</div>""", unsafe_allow_html=True)
+st.markdown("""<div class="footer-quote">"EAGLE ONE, STANDING BY. EYES ON THE STREET, DATA IN THE CLOUD."</div><div class="footer-text">SYSTEM INTELLIGENCE SECURED & ENCRYPTED<br>COPYRIGHT © 2026 <b>BUDIB40NK</b> | ALL RIGHTS RESERVED<br>OPERATIONAL COMMAND CENTER v10.7</div>""", unsafe_allow_html=True)
