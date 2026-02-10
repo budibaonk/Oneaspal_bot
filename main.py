@@ -1698,7 +1698,7 @@ async def download_korlap_report(update: Update, context: ContextTypes.DEFAULT_T
         await sts.edit_text(f"❌ Error: {e}")
 
 # ==============================================================================
-# [BARU] FITUR REKAP ANGGOTA (KHUSUS KORLAP)
+# [UPDATED V2] FITUR REKAP ANGGOTA (FUZZY LOGIC - ANTI TYPO)
 # ==============================================================================
 async def rekap_anggota_korlap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1708,34 +1708,56 @@ async def rekap_anggota_korlap(update: Update, context: ContextTypes.DEFAULT_TYP
     if not u or u.get('role') != 'korlap':
         return await update.message.reply_text("⛔ **AKSES DITOLAK**\nFitur ini khusus untuk akun KORLAP.", parse_mode='Markdown')
 
-    my_agency = u.get('agency', '')
-    if not my_agency:
+    my_agency_raw = u.get('agency', '')
+    if not my_agency_raw:
         return await update.message.reply_text("⚠️ Data Agency Anda tidak valid. Hubungi Admin.")
 
     # Feedback Loading
-    sts = await update.message.reply_text("⏳ **Sedang mendata pasukan Anda...**", parse_mode='Markdown')
+    sts = await update.message.reply_text("⏳ **Sedang mengaudit pasukan (Deep Scan)...**", parse_mode='Markdown')
 
     try:
-        # 2. Query Database (Cari User di bawah Agency Korlap)
-        # Menggunakan logika 'clean_pt_name' agar pencocokan akurat (mengabaikan PT/CV)
-        agency_keyword = clean_pt_name(my_agency)
-        
+        # 2. Query Database (AMBIL SEMUA MATEL DULU)
+        # Kita tarik semua user non-PIC agar bisa kita filter sendiri pakai Python (Fuzzy Logic)
         res = supabase.table('users').select('*')\
             .neq('role', 'pic')\
             .neq('role', 'admin')\
-            .ilike('agency', f"%{agency_keyword}%")\
             .execute()
 
-        members = res.data
+        all_matels = res.data
+        if not all_matels:
+            return await sts.edit_text("📂 Database User Kosong.", parse_mode='Markdown')
+
+        # 3. LOGIKA PENCOCOKAN CERDAS (FUZZY MATCHING)
+        target_agency_clean = clean_pt_name(my_agency_raw) # Bersihkan nama PT Korlap
+        members = []
+
+        for m in all_matels:
+            user_agency_raw = m.get('agency', '')
+            user_agency_clean = clean_pt_name(user_agency_raw)
+            
+            is_match = False
+            
+            # A. Cek Substring (Pasti Benar) -> Contoh: "ELANG" ada di "PT ELANG PERKASA"
+            if target_agency_clean in user_agency_clean or user_agency_clean in target_agency_clean:
+                is_match = True
+            
+            # B. Cek Typo (Fuzzy Logic) -> Contoh: "LUKRETIA" vs "LUCRETIA"
+            if not is_match:
+                # Hitung rasio kemiripan (0.0 - 1.0)
+                similarity = difflib.SequenceMatcher(None, target_agency_clean, user_agency_clean).ratio()
+                if similarity > 0.80: # Jika 80% mirip, anggap SAMA!
+                    is_match = True
+            
+            if is_match:
+                members.append(m)
 
         if not members:
-            return await sts.edit_text(f"📂 **DATA KOSONG**\nBelum ada anggota terdaftar di bawah agency: **{my_agency}**", parse_mode='Markdown')
+            return await sts.edit_text(f"📂 **DATA KOSONG**\nTidak ditemukan anggota yang cocok dengan: **{my_agency_raw}**", parse_mode='Markdown')
 
-        # 3. Proses Data ke Excel
+        # 4. Proses Data ke Excel
         data_export = []
         active_count = 0
         expired_count = 0
-
         now = datetime.now(TZ_JAKARTA)
 
         for m in members:
@@ -1749,7 +1771,6 @@ async def rekap_anggota_korlap(update: Update, context: ContextTypes.DEFAULT_TYP
                     dt = datetime.fromisoformat(str(raw_exp).replace('Z', '+00:00')).astimezone(TZ_JAKARTA)
                     exp_fmt = dt.strftime('%d-%m-%Y')
                     
-                    # Hitung status real (bukan cuma status db, tapi status tanggal)
                     if dt > now:
                         status_calc = "AKTIF"
                         active_count += 1
@@ -1760,52 +1781,49 @@ async def rekap_anggota_korlap(update: Update, context: ContextTypes.DEFAULT_TYP
             else:
                 expired_count += 1
 
-            # Masukkan ke list
+            # Masukkan ke list export
             data_export.append({
                 "NAMA LENGKAP": str(m.get('nama_lengkap', '-')).upper(),
                 "NO HP (WA)": m.get('no_hp', '-'),
+                "AGENCY (INPUT USER)": m.get('agency', '-').upper(), # Biar ketahuan kalau ada yg typo
                 "DOMISILI": m.get('alamat', '-'),
                 "EMAIL": m.get('email', '-'),
                 "TGL EXPIRED": exp_fmt,
-                "STATUS SAAT INI": status_calc,
-                "ROLE": str(m.get('role', '-')).upper()
+                "STATUS": status_calc
             })
 
         # Buat DataFrame Pandas
         df = pd.DataFrame(data_export)
 
-        # 4. Tulis ke Excel (In-Memory)
+        # 5. Tulis ke Excel
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df.to_excel(writer, index=False, sheet_name='DATA ANGGOTA')
             ws = writer.sheets['DATA ANGGOTA']
             
-            # Styling Header
+            # Styling
             fmt_header = writer.book.add_format({'bold': True, 'bg_color': '#4F81BD', 'font_color': 'white', 'border': 1})
-            fmt_body = writer.book.add_format({'border': 1})
-            
-            # Tulis Header & Set Lebar Kolom
             for col_num, value in enumerate(df.columns.values):
                 ws.write(0, col_num, value, fmt_header)
-                ws.set_column(col_num, col_num, 20) # Lebar kolom standar
+                ws.set_column(col_num, col_num, 22)
 
         output.seek(0)
 
-        # 5. Kirim Laporan
+        # 6. Kirim Laporan
         caption_msg = (
-            f"👥 **DATA ANGGOTA TIM**\n"
-            f"🏢 Agency: {my_agency}\n"
-            f"📅 Per Tanggal: {now.strftime('%d %B %Y')}\n"
+            f"👥 **AUDIT ANGGOTA (SMART SCAN)**\n"
+            f"🏢 Agency: {my_agency_raw}\n"
+            f"📅 Tanggal: {now.strftime('%d %B %Y')}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"✅ **Aktif:** {active_count} Personil\n"
-            f"💀 **Expired:** {expired_count} Personil\n"
-            f"∑ **Total Terdaftar:** {len(members)} Personil\n"
+            f"✅ **Aktif:** {active_count}\n"
+            f"💀 **Expired:** {expired_count}\n"
+            f"∑ **Total Terdeteksi:** {len(members)}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"📎 _Silakan download file di atas untuk detail lengkap._"
+            f"💡 _Sistem menggunakan 'Fuzzy Logic' untuk mendeteksi anggota yang salah ketik nama Agency._"
         )
 
-        clean_filename = agency_keyword.replace(" ", "_")
-        fname = f"MEMBER_{clean_filename}_{now.strftime('%d%m%y')}.xlsx"
+        clean_filename = target_agency_clean.replace(" ", "_")[:20]
+        fname = f"SQUAD_{clean_filename}_{now.strftime('%d%m%y')}.xlsx"
 
         await context.bot.send_document(
             chat_id=update.effective_chat.id,
@@ -1818,7 +1836,7 @@ async def rekap_anggota_korlap(update: Update, context: ContextTypes.DEFAULT_TYP
 
     except Exception as e:
         logger.error(f"Rekap Anggota Error: {e}")
-        try: await sts.edit_text(f"❌ Terjadi kesalahan sistem: {e}")
+        try: await sts.edit_text(f"❌ Error: {e}")
         except: pass
 
 # ==============================================================================
