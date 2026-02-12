@@ -2745,31 +2745,54 @@ async def register_branch(update, context):
     )
     return R_PHOTO_ID
     
-async def register_photo_id(update, context):
-    # Cek apakah user mengirim foto
-    if not update.message.photo:
-        await update.message.reply_text("⚠️ Mohon kirimkan **FOTO** ID Card, bukan dokumen/teks.", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
+async def register_photo_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message
+    photo_file = None
+
+    # [LOGIKA BARU] Cek sumber gambar:
+    # 1. Apakah dikirim sebagai Foto biasa (Compressed)?
+    if message.photo:
+        photo_file = message.photo[-1] # Ambil resolusi tertinggi
+        
+    # 2. Apakah dikirim sebagai File/Dokumen (Uncompressed)?
+    elif message.document:
+        # Pastikan tipe filenya adalah gambar
+        if 'image' in str(message.document.mime_type):
+            photo_file = message.document
+            
+    # [VALIDASI] Jika bukan foto dan bukan dokumen gambar valid
+    if not photo_file:
+        await message.reply_text(
+            "⚠️ Format tidak dikenali.\nMohon kirimkan **FOTO** ID Card (Bisa dari Galeri atau File Gambar).", 
+            reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True),
+            parse_mode='Markdown'
+        )
         return R_PHOTO_ID
 
-    # Ambil ID file foto resolusi terbesar
-    photo_file_id = update.message.photo[-1].file_id
-    context.user_data['r_photo_proof'] = photo_file_id
+    # Ambil ID file foto
+    context.user_data['r_photo_proof'] = photo_file.file_id
     
     d = context.user_data
+    
     # Tampilkan Konfirmasi Akhir untuk PIC
     summary = (
         f"📝 **KONFIRMASI REGISTRASI (PIC)**\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"👤 **Nama:** {d['r_nama']}\n"
-        f"📱 **HP:** {d['r_hp']}\n"
-        f"📧 **Email:** {d['r_email']}\n"
-        f"🏢 **Cabang:** {d['r_kota']}\n"
-        f"🏦 **Finance:** {d['r_agency']}\n"
+        f"👤 **Nama:** {d.get('r_nama')}\n"
+        f"📱 **HP:** {d.get('r_hp')}\n"
+        f"📧 **Email:** {d.get('r_email')}\n"
+        f"🏢 **Cabang:** {d.get('r_kota')}\n"
+        f"🏦 **Finance:** {d.get('r_agency')}\n"
         f"📸 **ID Card:** [Terlampir]\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"Kirim data ke Admin untuk verifikasi?"
     )
-    await update.message.reply_text(summary, reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True), parse_mode='Markdown')
+    
+    await message.reply_text(
+        summary, 
+        reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True), 
+        parse_mode='Markdown'
+    )
     return R_CONFIRM
 
 # --- UPDATE FUNGSI REGISTER CONFIRM ---
@@ -3796,7 +3819,8 @@ if __name__ == '__main__':
             R_KOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], 
             R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], 
             R_BRANCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_branch)],
-            R_PHOTO_ID: [MessageHandler(filters.PHOTO, register_photo_id)], 
+            # Tambahkan filters.Document.IMAGE agar file dokumen juga ditangkap# 
+            R_PHOTO_ID: [MessageHandler(filters.PHOTO | filters.Document.IMAGE, register_photo_id)],           
             R_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_confirm)]
         }, 
         fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
