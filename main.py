@@ -2749,32 +2749,29 @@ async def register_photo_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     photo_file = None
 
-    # [LOGIKA BARU] Cek sumber gambar:
-    # 1. Apakah dikirim sebagai Foto biasa (Compressed)?
+    # [FIX] LOGIKA PENANGKAPAN CERDAS
+    # 1. Cek apakah dikirim sebagai Foto Biasa (Compressed)
     if message.photo:
-        photo_file = message.photo[-1] # Ambil resolusi tertinggi
+        photo_file = message.photo[-1]
         
-    # 2. Apakah dikirim sebagai File/Dokumen (Uncompressed)?
+    # 2. Cek apakah dikirim sebagai File Dokumen (Uncompressed)
     elif message.document:
-        # Pastikan tipe filenya adalah gambar
-        if 'image' in str(message.document.mime_type):
+        # Pastikan ini file gambar (image/jpeg, image/png, dll)
+        if 'image' in str(message.document.mime_type).lower():
             photo_file = message.document
-            
-    # [VALIDASI] Jika bukan foto dan bukan dokumen gambar valid
+
+    # Jika BUKAN foto dan BUKAN dokumen gambar -> Tolak
     if not photo_file:
         await message.reply_text(
-            "⚠️ Format tidak dikenali.\nMohon kirimkan **FOTO** ID Card (Bisa dari Galeri atau File Gambar).", 
-            reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True),
-            parse_mode='Markdown'
+            "⚠️ **FORMAT DITOLAK**\nMohon kirimkan FOTO ID Card (Boleh dari Galeri atau File Gambar).", 
+            reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True)
         )
         return R_PHOTO_ID
 
-    # Ambil ID file foto
+    # Ambil File ID dari sumber manapun
     context.user_data['r_photo_proof'] = photo_file.file_id
     
     d = context.user_data
-    
-    # Tampilkan Konfirmasi Akhir untuk PIC
     summary = (
         f"📝 **KONFIRMASI REGISTRASI (PIC)**\n"
         f"━━━━━━━━━━━━━━━━━━\n"
@@ -2787,12 +2784,7 @@ async def register_photo_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"━━━━━━━━━━━━━━━━━━\n"
         f"Kirim data ke Admin untuk verifikasi?"
     )
-    
-    await message.reply_text(
-        summary, 
-        reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True), 
-        parse_mode='Markdown'
-    )
+    await message.reply_text(summary, reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True), parse_mode='Markdown')
     return R_CONFIRM
 
 # --- UPDATE FUNGSI REGISTER CONFIRM ---
