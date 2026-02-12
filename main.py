@@ -3730,77 +3730,20 @@ async def callback_handler(update, context):
 
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v6.50 (DEBUG PHOTO MODE) STARTING...")
+    print("🚀 ONEASPAL BOT v6.60 (FINAL FIX) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
-    # 1. Stop Command (Paling Atas)
+    # ==========================================================================
+    # 1. STOP COMMAND (EMERGENCY)
+    # ==========================================================================
     app.add_handler(CommandHandler('stop', stop_upload_command))
     
-    # 2. HANDLER BUKTI BAYAR (PRIORITAS TINGGI)
-    # Masukkan ini SEBELUM handler upload Excel
-    app.add_handler(ConversationHandler(
-        entry_points=[CommandHandler('buktibayar', buktibayar_start)],
-        states={
-            WAIT_BUKTI: [
-                # Menangkap Foto Biasa
-                MessageHandler(filters.PHOTO, buktibayar_process),
-                # Menangkap File Apapun (Nanti difilter di dalam fungsi)
-                MessageHandler(filters.Document.ALL, buktibayar_process)
-            ]
-        },
-        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
-    ))
-
     # ==========================================================================
-    # 3. HANDLER FOTO OTOMATIS (BACKUP)
+    # 2. FITUR KHUSUS / INTERAKTIF (CONVERSATION HANDLERS)
     # ==========================================================================
-    # Jika user lupa ketik /buktibayar dan langsung kirim foto (Gallery),
-    # Handler ini akan menangkapnya.
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo_topup))
-
-    # ==========================================================================
-    # 4. HANDLER UPLOAD DATA (EXCEL/CSV)
-    # ==========================================================================
-    # Handler ini menangkap SEMUA dokumen.
-    # Makanya ditaruh DI BAWAH /buktibayar agar tidak memakan foto bukti bayar.
-    # Di dalamnya sudah ada "Satpam" (upload_start) untuk memfilter gambar.
-    app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Document.ALL, upload_start)],
-        states={
-            U_LEASING_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_user)],
-            U_LEASING_ADMIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_admin)],
-            U_CONFIRM_UPLOAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_confirm_admin)]
-        },
-        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
-    ))
-
-    # ==========================================================================
-    # 5. ADMIN & USER MANAGEMENT HANDLERS
-    # ==========================================================================
-    app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
-    app.add_handler(MessageHandler(filters.Regex(r'^/cek_\d+$'), cek_user_pending))
     
-    app.add_handler(ConversationHandler(
-        entry_points=[CallbackQueryHandler(admin_action_start, pattern='^adm_(ban|unban|del)_')], 
-        states={ADMIN_ACT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_action_complete)]}, 
-        fallbacks=[CommandHandler('cancel', cancel)]
-    ))
-    
-    app.add_handler(ConversationHandler(
-        entry_points=[CallbackQueryHandler(reject_start, pattern='^reju_')], 
-        states={REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, reject_complete)]}, 
-        fallbacks=[CommandHandler('cancel', cancel)]
-    ))
-    
-    app.add_handler(ConversationHandler(
-        entry_points=[CallbackQueryHandler(val_reject_start, pattern='^v_rej_')], 
-        states={VAL_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, val_reject_complete)]}, 
-        fallbacks=[CommandHandler('cancel', cancel)]
-    ))
-    
-    # ==========================================================================
-    # 6. REGISTRATION & MANUAL INPUT HANDLERS
-    # ==========================================================================
+    # A. REGISTRASI (Perbaikan: Menangkap Foto & Dokumen Gambar)
+    # --------------------------------------------------------------------------
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('register', register_start)], 
         states={
@@ -3811,13 +3754,17 @@ if __name__ == '__main__':
             R_KOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], 
             R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], 
             R_BRANCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_branch)],
-            # Tambahkan filters.Document.IMAGE agar file dokumen juga ditangkap# 
-            R_PHOTO_ID: [MessageHandler(filters.PHOTO | filters.Document.IMAGE, register_photo_id)],           
+            
+            # [FIX] Menerima Foto Biasa (Compressed) ATAU Dokumen Gambar (Uncompressed)
+            R_PHOTO_ID: [MessageHandler(filters.PHOTO | filters.Document.IMAGE, register_photo_id)], 
+            
             R_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_confirm)]
         }, 
         fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
     ))
-    
+
+    # B. TAMBAH DATA MANUAL (DEFINISI DULU BARU DI-ADD)
+    # --------------------------------------------------------------------------
     conv_add_manual = ConversationHandler(
         entry_points=[CommandHandler('tambah', add_manual_start)], 
         states={
@@ -3830,8 +3777,23 @@ if __name__ == '__main__':
         }, 
         fallbacks=[CommandHandler('cancel', cancel)]
     )
-    app.add_handler(conv_add_manual)
+    app.add_handler(conv_add_manual) # <--- SEKARANG AMAN KARENA SUDAH DIDEFINISIKAN DI ATAS
 
+    # C. FORM BUKTI BAYAR (Jika user mengetik /buktibayar)
+    # --------------------------------------------------------------------------
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('buktibayar', buktibayar_start)],
+        states={
+            WAIT_BUKTI: [
+                MessageHandler(filters.PHOTO, buktibayar_process),
+                MessageHandler(filters.Document.ALL, buktibayar_process)
+            ]
+        },
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+    ))
+
+    # D. FITUR ADMIN LAINNYA
+    # --------------------------------------------------------------------------
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('lapor', lapor_delete_start)], 
         states={
@@ -3852,14 +3814,34 @@ if __name__ == '__main__':
     ))
 
     app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(admin_action_start, pattern='^adm_(ban|unban|del)_')], 
+        states={ADMIN_ACT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_action_complete)]}, 
+        fallbacks=[CommandHandler('cancel', cancel)]
+    ))
+    
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(reject_start, pattern='^reju_')], 
+        states={REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, reject_complete)]}, 
+        fallbacks=[CommandHandler('cancel', cancel)]
+    ))
+    
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(val_reject_start, pattern='^v_rej_')], 
+        states={VAL_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, val_reject_complete)]}, 
+        fallbacks=[CommandHandler('cancel', cancel)]
+    ))
+    
+    app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('admin', contact_admin), MessageHandler(filters.Regex('^📞 BANTUAN TEKNIS$'), contact_admin)], 
         states={SUPPORT_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, support_send)]}, 
         fallbacks=[CommandHandler('cancel', cancel)]
-    )) 
-    
+    ))
+
     # ==========================================================================
-    # 7. GENERAL COMMAND HANDLERS
+    # 3. COMMANDS STANDAR (ONE-SHOT)
     # ==========================================================================
+    app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
+    app.add_handler(MessageHandler(filters.Regex(r'^/cek_\d+$'), cek_user_pending))
     app.add_handler(CommandHandler('panduan', panduan))
     app.add_handler(CommandHandler('adminhelp', admin_help)) 
     app.add_handler(CommandHandler('setinfo', set_info)) 
@@ -3867,10 +3849,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('cekkuota', cek_kuota))
     app.add_handler(CommandHandler('infobayar', info_bayar))
-    
-    # [PENTING] Command fallback jika user ketik manual (walau sudah dihandle di atas)
-    app.add_handler(CommandHandler('buktibayar', panduan_buktibayar)) 
-    
+    app.add_handler(CommandHandler('buktibayar', panduan_buktibayar)) # Fallback command
     app.add_handler(CommandHandler('topup', admin_topup))
     app.add_handler(CommandHandler('stats', get_stats))
     app.add_handler(CommandHandler('leasing', get_leasing_list)) 
@@ -3885,13 +3864,29 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('setgroup', set_leasing_group)) 
     app.add_handler(CommandHandler('setagency', set_agency_group))
     app.add_handler(CommandHandler('addagency', add_agency)) 
+
+    # ==========================================================================
+    # 4. HANDLER UMUM / CATCH-ALL (HARUS DITARUH PALING BAWAH!)
+    # ==========================================================================
     
-    # ==========================================================================
-    # 8. CALLBACK & SEARCH HANDLER (Lowest Priority)
-    # ==========================================================================
+    # A. Menangkap Foto Langsung (Auto Topup)
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo_topup))
+
+    # B. Menangkap File Dokumen (Upload Data Excel / Topup File)
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Document.ALL, upload_start)],
+        states={
+            U_LEASING_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_user)],
+            U_LEASING_ADMIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_admin)],
+            U_CONFIRM_UPLOAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_confirm_admin)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+    ))
+    
+    # C. Callback & Text Chat (Terakhir)
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
     print("⏰ Jadwal Cleanup Otomatis: AKTIF (Jam 03:00 WIB)")
-    print("🚀 ONEASPAL BOT v6.49 (READY TO SERVE) RUNNING...")
+    print("🚀 ONEASPAL BOT v6.60 (READY TO SERVE) RUNNING...")
     app.run_polling()
