@@ -2630,17 +2630,50 @@ async def register_kota(update, context):
     await update.message.reply_text(txt, parse_mode='Markdown')
     return R_AGENCY
 
-async def register_agency(update, context):
+async def register_agency(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "❌ BATAL": return await cancel(update, context)
     
     raw_text = update.message.text.strip()
     role = context.user_data.get('reg_role', 'matel')
     
-    # 1. DEFAULT: Ambil mentah-mentah apa yang diketik user (Uppercase)
-    final_agency_name = raw_text.upper()
+    final_agency_name = raw_text # Default
     
-    # 2. KHUSUS PIC LEASING: Gunakan standarisasi baku (BCA, FIF, dll)
-    if role == 'pic':
+    if role == 'matel':
+        # Cari tebakan terbaik dari database
+        suggested = find_best_match_agency(raw_text)
+        
+        # --- LOGIKA REM 80% (THE GATEKEEPER) ---
+        if suggested:
+            # Bersihkan dari kata PT/CV untuk menghitung murni hurufnya
+            clean_input = raw_text.upper().replace("PT.", "").replace("PT ", "").replace("CV.", "").replace("CV ", "").strip()
+            clean_suggested = suggested.upper().replace("PT.", "").replace("PT ", "").replace("CV.", "").replace("CV ", "").strip()
+            
+            # Hitung persentase kemiripan (0.0 sampai 1.0)
+            similarity = difflib.SequenceMatcher(None, clean_input, clean_suggested).ratio()
+            
+            # JIKA KEMIRIPAN DI BAWAH 80%, TOLAK TEBAKANNYA! (Anggap PT Baru)
+            if similarity < 0.8:
+                suggested = None 
+        # ---------------------------------------
+
+        if suggested:
+            final_agency_name = suggested
+            if raw_text.upper() != final_agency_name:
+                await update.message.reply_text(
+                    f"🤖 **AUTO-CORRECT:**\n"
+                    f"Input: _{raw_text}_\n"
+                    f"Terdeteksi sebagai: **{final_agency_name}**\n"
+                    f"✅ Data dikoreksi otomatis agar persetujuan masuk ke Korlap.",
+                    parse_mode='Markdown'
+                )
+            else:
+                await update.message.reply_text(f"✅ Agency Terkonfirmasi: **{final_agency_name}**", parse_mode='Markdown')
+        else:
+            final_agency_name = raw_text.upper()
+            await update.message.reply_text(f"⚠️ **AGENCY BARU:** {final_agency_name}\nBelum terdaftar. Data akan diverifikasi Admin Pusat.", parse_mode='Markdown')
+
+    else:
+        # Jika PIC Leasing, pakai kamus standar
         final_agency_name = standardize_leasing_name(raw_text)
 
     # Simpan ke memori
@@ -2659,9 +2692,7 @@ async def register_agency(update, context):
         return R_BRANCH 
         
     else:
-        # JIKA MATEL: Langsung ke Konfirmasi Akhir
         context.user_data['r_branch_code'] = context.user_data.get('r_kota')
-        
         d = context.user_data
         summary = (
             f"📝 **KONFIRMASI PENDAFTARAN**\n"
