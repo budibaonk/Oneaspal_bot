@@ -2643,12 +2643,23 @@ async def register_agency(update, context):
     # ==========================================================================
     
     if role == 'matel':
-        # [KASUS 1: MATEL] -> Gunakan SMART TYPO DETECTION (Cari Nama PT Korlap)
-        # Tujuannya: Agar Matel terhubung ke Korlap yang benar meski typo
-        
         # Panggil Helper yang sudah kita buat tadi
         suggested = find_best_match_agency(raw_text)
         
+        # --- [FIX] PASANG REM VALIDASI KEMIRIPAN (THRESHOLD 80%) ---
+        if suggested:
+            # Bersihkan dari kata PT/CV untuk menghitung murni kemiripan nama
+            clean_input = raw_text.upper().replace("PT.", "").replace("PT ", "").replace("CV.", "").replace("CV ", "").strip()
+            clean_suggested = suggested.upper().replace("PT.", "").replace("PT ", "").replace("CV.", "").replace("CV ", "").strip()
+            
+            # Hitung persentase kemiripan (0.0 sampai 1.0)
+            similarity = difflib.SequenceMatcher(None, clean_input, clean_suggested).ratio()
+            
+            # Jika tingkat kemiripan di bawah 80% (0.8), tolak prediksi!
+            if similarity < 0.8:
+                suggested = None # Reset, paksa anggap sebagai PT BARU
+        # -------------------------------------------------------------
+
         if suggested:
             final_agency_name = suggested
             # Beri Feedback Auto-Correct jika input beda dengan hasil
@@ -2663,13 +2674,12 @@ async def register_agency(update, context):
             else:
                 await update.message.reply_text(f"✅ Agency Terkonfirmasi: **{final_agency_name}**", parse_mode='Markdown')
         else:
-            # Jika tidak ketemu di DB Korlap, pakai input asli user (Uppercase)
+            # Jika tidak ketemu di DB Korlap (atau ditolak karena mirip di bawah 80%)
             final_agency_name = raw_text.upper()
             await update.message.reply_text(f"⚠️ **AGENCY BARU:** {final_agency_name}\nBelum terdaftar di database Korlap. Data akan diverifikasi Admin Pusat.", parse_mode='Markdown')
 
     else:
-        # [KASUS 2: PIC LEASING] -> Gunakan KAMUS CERDAS (Fitur Lama Anda)
-        # Tujuannya: Standarisasi nama leasing (ex: "bca" -> "BCA FINANCE")
+        # [KASUS 2: PIC LEASING] -> Gunakan KAMUS CERDAS
         final_agency_name = standardize_leasing_name(raw_text)
 
     # ==========================================================================
@@ -2677,9 +2687,8 @@ async def register_agency(update, context):
     # Simpan Nama Hasil Deteksi ke Memori
     context.user_data['r_agency'] = final_agency_name
     
-    # --- LOGIKA LANJUTAN (SAMA PERSIS DENGAN KODE LAMA) ---
+    # --- LOGIKA LANJUTAN ---
     if role == 'pic':
-        # JIKA PIC: Sekarang waktunya tanya CABANG (sebagai pengganti Kota)
         msg = (
             f"✅ Leasing Terdeteksi: <b>{final_agency_name}</b>\n\n"
             f"5️⃣ <b>INPUT KODE CABANG (BRANCH)</b>\n"
@@ -2688,14 +2697,11 @@ async def register_agency(update, context):
             f"🔹 <b>PIC NASIONAL:</b> Ketik kode <b>HO</b> (Akses Seluruh Indonesia)."
         )
         await update.message.reply_text(msg, parse_mode='HTML')
-        return R_BRANCH # <--- Lanjut ke input Branch
+        return R_BRANCH 
         
     else:
-        # JIKA MATEL: Sudah isi Kota sebelumnya, jadi anggap Kota = Branch. SELESAI.
-        # Kita set 'wilayah_korlap' (Branch Logic) sama dengan 'r_kota' mereka
         context.user_data['r_branch_code'] = context.user_data.get('r_kota')
         
-        # Tampilkan Konfirmasi
         d = context.user_data
         summary = (
             f"📝 **KONFIRMASI PENDAFTARAN**\n"
