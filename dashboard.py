@@ -1,9 +1,14 @@
 ################################################################################
 #                                                                              #
-#                      PROJECT: ONEASPAL COMMAND CENTER                        #
-#                      VERSION: 10.7 (ADD SELECT ALL FEATURE)                  #
-#                      ROLE:    ADMIN DASHBOARD CORE                           #
-#                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
+#  PROJECT: ONEASPAL COMMAND CENTER                                            #
+#  VERSION: 10.8                                                               #
+#  ROLE   : ADMIN DASHBOARD CORE                                               #
+#  AUTHOR : CTO (GEMINI) & CEO (BAONK)                                         #
+#                                                                              #
+#  UPDATE LOG v10.8:                                                           #
+#  1. Integrated Daily Log System for Admin uploads.                           #
+#  2. Added 'data_month' auto-stamping (MMYY) for consistency.                 #
+#  3. Optimized session state to prevent duplicate logging on refresh.         #
 #                                                                              #
 ################################################################################
 
@@ -22,6 +27,8 @@ import requests
 from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 from dotenv import load_dotenv
+# 👇 [BARU] TAMBAHKAN INI
+from utils_log import catat_log_kendaraan
 
 # DEFINISI ZONA WAKTU
 TZ_JAKARTA = pytz.timezone('Asia/Jakarta')
@@ -433,31 +440,41 @@ with tab3:
                 st.session_state['upload_stage']='idle'; st.rerun()
         with c2:
             if st.button("🚀 EKSEKUSI UPDATE", key="btn_update"):
+                # 1. PERSIAPAN DATA
                 if l_in: df['finance'] = standardize_leasing_name(l_in)
+                
+                # Bersihkan Nopol
                 df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
                 df['nopol'] = df['nopol'].replace({'': np.nan, 'NAN': np.nan, 'NONE': np.nan})
                 df = df.dropna(subset=['nopol'])
                 df = df.drop_duplicates(subset=['nopol'])
                 
+                # Tambah Kode Bulan (MMYY)
                 now = datetime.now(TZ_JAKARTA)
-                df['data_month'] = now.strftime('%m%y') 
+                code_version = now.strftime('%m%y') 
+                df['data_month'] = code_version
 
+                # Pastikan Kolom Lengkap
                 required_cols = ['type','finance','tahun','warna','noka','nosin','ovd','branch','data_month']
                 for c in required_cols:
                     if c not in df.columns: df[c] = None 
                     else: df[c] = df[c].replace({np.nan: None, "": None})
                 
+                # Konversi ke Records
                 recs = df[['nopol'] + required_cols].to_dict('records')
-                BATCH_SIZE = 200 
-                
-                s, f = 0, 0
                 total_recs = len(recs)
+                
+                # 2. PROSES UPLOAD (BATCHING)
+                BATCH_SIZE = 200 
+                s, f = 0, 0
                 pb = st.progress(0, f"Memproses {total_recs} data (Mode Aman: Batch {BATCH_SIZE})...")
                 last_error = ""
                 
                 for i in range(0, total_recs, BATCH_SIZE):
                     batch = recs[i:i+BATCH_SIZE]
                     success_batch = False
+                    
+                    # Retry Logic (5x)
                     for attempt in range(5):
                         try: 
                             supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
@@ -470,20 +487,47 @@ with tab3:
                             if attempt == 4: 
                                 f += len(batch)
                                 last_error = str(e)
+                    
+                    # Update Progress Bar
                     pb.progress(min((i+BATCH_SIZE)/total_recs, 1.0))
                 
-                st.session_state['upload_result'] = {'suc': s, 'fail': f, 'err': last_error}
+                # 3. SIMPAN HASIL KE SESSION
+                st.session_state['upload_result'] = {'suc': s, 'fail': f, 'err': last_error, 'leasing': l_in}
                 st.session_state['upload_stage'] = 'complete'
                 st.rerun()
 
-    elif st.session_state['upload_stage'] == 'complete':
-        r = st.session_state['upload_result']
-        if r['fail'] == 0: st.success(f"✅ SUKSES TOTAL! {r['suc']} Data Berhasil Diupdate.")
+    elif st.session_state.get('upload_stage') == 'complete':
+        r = st.session_state.get('upload_result', {})
+        suc = r.get('suc', 0)
+        fail = r.get('fail', 0)
+        
+        if fail == 0: 
+            st.success(f"✅ SUKSES TOTAL! {suc} Data Berhasil Diupdate.")
+            
+            # --- [BARU] INTEGRASI LOG HARIAN ---
+            # Hanya mencatat jika belum dicatat (mencegah duplikat saat refresh)
+            if 'log_recorded' not in st.session_state:
+                try:
+                    leasing_log = standardize_leasing_name(r.get('leasing')) if r.get('leasing') else "MIXED/AUTO"
+                    catat_log_kendaraan(
+                        sumber="DASHBOARD_ADMIN",
+                        leasing=leasing_log,
+                        jumlah=suc
+                    )
+                    st.session_state['log_recorded'] = True
+                    st.caption("📝 Aktivitas telah dicatat di Log Harian.")
+                except Exception as log_e:
+                    print(f"Log Error: {log_e}")
+            # -----------------------------------
+            
         else:
-            st.warning(f"⚠️ SELESAI DENGAN CATATAN\n✅ Sukses: {r['suc']}\n❌ Gagal: {r['fail']}")
-            if r['err']: st.error(f"🔍 Info Error: {r['err']}")
+            st.warning(f"⚠️ SELESAI DENGAN CATATAN\n✅ Sukses: {suc}\n❌ Gagal: {fail}")
+            if r.get('err'): st.error(f"🔍 Info Error: {r['err']}")
+        
         if st.button("⬅️ UPLOAD LAGI", key="btn_back"): 
-            st.session_state['upload_stage']='idle'; st.rerun()
+            st.session_state['upload_stage']='idle'
+            if 'log_recorded' in st.session_state: del st.session_state['log_recorded']
+            st.rerun()
 
 # --- TAB 4: HAPUS MASSAL ---
 with tab4:

@@ -1,9 +1,14 @@
 ################################################################################
 #                                                                              #
-#                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 6.31 (DIRECT UPLOAD - NO ADMIN APPROVAL)       #
-#                      ROLE:    MAIN APPLICATION CORE                          #
-#                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
+#  PROJECT: ONEASPAL BOT (ASSET RECOVERY)                                      #
+#  VERSION: 6.70                                                               #
+#  ROLE   : MAIN APPLICATION CORE                                              #
+#  AUTHOR : CTO (GEMINI) & CEO (BAONK)                                         #
+#                                                                              #
+#  UPDATE LOG v6.70:                                                           #
+#  1. Integrated with 'utils_log' for automatic daily activity recording.      #
+#  2. Added 'catat_log_kendaraan' in background upload execution.              #
+#  3. Fixed batch processing for better database stability.                    #
 #                                                                              #
 ################################################################################
 
@@ -49,6 +54,7 @@ from telegram.ext import (
 )
 
 from supabase import create_client, Client
+from utils_log import catat_log_kendaraan
 
 # [FIX] Import ClientOptions untuk menangani Timeout
 try:
@@ -2173,7 +2179,7 @@ async def set_agency_group(update, context):
         await update.message.reply_text(f"❌ Gagal set grup: {e}")
 
 # ==============================================================================
-# BAGIAN 10:[UPDATE v2.1] UPLOAD ENGINE: BACKGROUND TASK (ANTI-TIMEOUT)
+# BAGIAN 10:[UPDATE v2.2] UPLOAD ENGINE: BACKGROUND TASK (AUTO LOG INTEGRATED)
 # ==============================================================================
 
 # [GLOBAL] Set Task agar tidak di-kill
@@ -2181,10 +2187,11 @@ BACKGROUND_TASKS = set()
 
 async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
     """
-    Versi UPDATE v2.1: 
+    Versi UPDATE v2.2 (Integrated): 
     - Batch Size 200 (Aman untuk Supabase)
     - Retry Logic 5x (Tahan banting koneksi)
     - Auto Month Code (0226)
+    - [NEW] Auto Log ke Tabel Riwayat Harian
     """
     print(f"🚀 [BG] START Task User {user_id}")
     
@@ -2329,6 +2336,19 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
         )
         await send_update(final_rpt)
         print(f"🏁 [BG] Done. Suc: {suc}")
+
+        # --- [INTEGRASI LOG HARIAN] ---
+        # Bagian ini yang kita tambahkan agar tercatat di Laporan Pagi
+        if suc > 0 and mode == 'UPSERT':
+            try:
+                catat_log_kendaraan(
+                    sumber="BOT_TELEGRAM", 
+                    leasing=leasing_info, 
+                    jumlah=suc
+                )
+            except Exception as log_err:
+                print(f"⚠️ Gagal Catat Log Harian: {log_err}")
+        # ------------------------------
 
     except Exception as e:
         logger.error(f"Upload Fatal: {e}")
