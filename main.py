@@ -1855,9 +1855,8 @@ async def info_bayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption_msg = (
         "💰 **PAKET LANGGANAN (UNLIMITED CEK)**\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        "1️⃣ **5 HARI** = Rp 25.000\n"
-        "2️⃣ **10 HARI** = Rp 50.000\n"
-        "3️⃣ **20 HARI** = Rp 75.000\n"
+        "1️⃣ **10 HARI** = Rp 50.000\n"
+        "2️⃣ **20 HARI** = Rp 75.000\n"
         "🔥 **30 HARI** = Rp 100.000 (BEST DEAL!)\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
         "💳 **METODE BAYAR: QRIS (B-ONE ENTERPRISE)**\n"
@@ -1865,7 +1864,7 @@ async def info_bayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📝 **SUDAH TRANSFER?**\n"
         "Silakan upload bukti transfer Anda dengan mengetik perintah:\n"
         "👉 /buktibayar\n"
-        "👉 /buktibayar"
+        "⚠️ *Pastikan nominal sesuai dengan paket yang dipilih.*"
     )
 
     try:
