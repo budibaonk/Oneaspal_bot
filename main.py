@@ -157,15 +157,15 @@ print("="*50 + "\n")
 # ##############################################################################
 
 COLUMN_ALIASES = {
-    'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'nomorplat', 'nomorkendaraan', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'no. polisi'],
-    'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'assetdescription', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'merkname', 'brand', 'product', 'tipekendaraan', 'tipeunit', 'typekendaraan', 'typeunit'],
-    'tahun': ['tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture', 'assetyear', 'manufacturingyear'],
-    'warna': ['warna', 'color', 'colour', 'cat', 'kelir', 'assetcolour'],
-    'noka': ['noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 'rangka', 'chassisno', 'vinno', 'serial_number', 'bodyno', 'frameno', 'no rangka', 'no. rangka'],
-    'nosin': ['nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'engineno', 'noengine', 'engine_number', 'machineno', 'mesinno', 'no mesin', 'no. mesin'],
-    'finance': ['finance', 'leasing', 'lising', 'multifinance', 'cabang', 'partner', 'mitra', 'principal', 'company', 'client'],
-    'ovd': ['ovd', 'overdue', 'dpd', 'keterlambatan', 'odh', 'hari', 'telat', 'aging', 'od', 'bucket', 'daysoverdue', 'osp'],
-    'branch': ['branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 'wilayah', 'region', 'areaname', 'branchname', 'resort']
+    'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'plate_number', 'platenumber', 'plate_no'],
+    'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'brand', 'tipeunit', 'unit_type', 'nama_unit'],
+    'tahun': ['tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture'],
+    'warna': ['warna', 'color', 'colour', 'cat'],
+    'noka': ['noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 'rangka', 'no rangka', 'chassis_number'],
+    'nosin': ['nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'no mesin', 'engine_number'],
+    'finance': ['finance', 'leasing', 'lising', 'multifinance', 'mitra', 'principal', 'client'],
+    'ovd': ['ovd', 'overdue', 'dpd', 'keterlambatan', 'odh', 'hari', 'telat', 'aging', 'days_overdue', 'lates', 'over_due', 'od'],
+    'branch': ['branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 'wilayah']
 }
 
 VALID_DB_COLUMNS = ['nopol', 'type', 'finance', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'branch']
@@ -535,16 +535,30 @@ def fix_header_position(df):
     return df
 
 def smart_rename_columns(df):
-    new = {}; found = []
-    df.columns = [str(c).strip().replace('\ufeff', '') for c in df.columns]
+    new_cols = {}
+    found_std = set()
+    
+    # 1. Bersihkan nama kolom dari spasi, tanda kutip, dan karakter aneh
+    df.columns = [str(c).strip().replace('"', '').replace("'", "").lower() for c in df.columns]
+    
     for col in df.columns:
-        clean = normalize_text(col); renamed = False
-        for std, aliases in COLUMN_ALIASES.items():
-            if clean == std or clean in aliases:
-                new[col] = std; found.append(std); renamed = True; break
-        if not renamed: new[col] = col
-    df.rename(columns=new, inplace=True)
-    return df, found
+        renamed = False
+        # Hilangkan karakter non-alfanumerik untuk pencocokan alias
+        clean_col = re.sub(r'[^a-z0-9]', '', col)
+        
+        for std_name, aliases in COLUMN_ALIASES.items():
+            # Jika kolom ini adalah standar atau ada di daftar alias, dan belum ditemukan sebelumnya
+            if (clean_col == std_name or clean_col in aliases) and std_name not in found_std:
+                new_cols[col] = std_name
+                found_std.add(std_name)
+                renamed = True
+                break
+        
+        if not renamed:
+            new_cols[col] = col
+            
+    df.rename(columns=new_cols, inplace=True)
+    return df, list(found_std)
 
 def read_file_robust(content, fname):
     """
