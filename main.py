@@ -1864,7 +1864,7 @@ async def info_bayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📝 **SUDAH TRANSFER?**\n"
         "Silakan upload bukti transfer Anda dengan mengetik perintah:\n"
         "👉 /buktibayar\n"
-        "⚠️ *Pastikan nominal sesuai dengan paket yang dipilih.*"
+        "⚠️ *Pastikan nominal sesuai dengan paket yang dipilih dan bukti bayar sesuai nominal transfer.*"
     )
 
     try:
