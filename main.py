@@ -214,6 +214,38 @@ def get_user(user_id):
         return response.data[0] if response.data else None
     except: return None
 
+def catat_audit(user_id, action, details="-"):
+    """
+    Fungsi Audit Trail B-One Enterprise.
+    Menarik data identitas legal (Email & No HP) dari tabel users 
+    dan mencatatnya ke audit_logs sesuai kepatuhan UU PDP.
+    """
+    try:
+        # 1. Ambil data profil terbaru dari fungsi di atas
+        u = get_user(user_id)
+        if not u:
+            return
+
+        # 2. Pemetaan kolom sesuai struktur tabel users & audit_logs yang diselaraskan
+        payload = {
+            "user_id": user_id,
+            "nama_lengkap": u.get('nama_lengkap', 'Unknown'),
+            "no_hp": u.get('no_hp', '-'),
+            "email": u.get('email', '-'),
+            "role": u.get('role', 'matel'),
+            "agency_leasing": u.get('agency', '-'), # Kolom agency berisi nama Leasing/PT
+            "wilayah": u.get('wilayah_korlap', '-'), # Wilayah otoritas
+            "action": action,
+            "details": details,
+            "bot_version": "6.70"
+        }
+
+        # 3. Eksekusi simpan ke tabel audit_logs
+        supabase.table('audit_logs').insert(payload).execute()
+        
+    except Exception as e:
+        logger.error(f"❌ Error pada sistem audit: {e}")
+
 # --- FUNGSI HELPER BARU (PASTIKAN ADA DI ATAS) ---
 def get_korlaps_by_agency(agency_name):
     """Mencari list ID Korlap berdasarkan nama Agency (Case Insensitive)"""
@@ -1617,6 +1649,14 @@ async def download_finding_report(update, context):
             await sts.edit_text(f"⚠️ <b>DATA KOSONG.</b>")
             return
             
+        # --- CATAT AUDIT (UU PDP COMPLIANCE) ---
+        # Kita hapus len(all_logs) agar tidak memicu error variable undefined
+        catat_audit(
+            user_id=user_id, 
+            action="DOWNLOAD_FINDING_REPORT", 
+            details=f"Pimpinan mengunduh laporan temuan bulanan ({leasing_filter})."
+        )
+
         timestamp = datetime.now().strftime('%Y%m%d_%H%M')
         fname = f"REPORT_{leasing_filter}_{timestamp}.xlsx"
         caption = (
@@ -1703,6 +1743,13 @@ async def download_korlap_report(update: Update, context: ContextTypes.DEFAULT_T
         if not excel_file:
             await sts.edit_text("⚠️ <b>DATA KOSONG</b>\nTim Anda belum mendapatkan unit bulan ini.")
             return
+
+        # --- CATAT AUDIT (UU PDP COMPLIANCE) ---
+        catat_audit(
+            user_id=user_id, 
+            action="DOWNLOAD_KORLAP_REPORT", 
+            details=f"Korlap mengunduh rekap kinerja tim agency: {u.get('agency')}."
+        )
 
         fname = f"LAPORAN_TIM_{my_agency.replace(' ','_')}_{datetime.now().strftime('%b%Y')}.xlsx"
         await context.bot.send_document(
