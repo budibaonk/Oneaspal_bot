@@ -492,9 +492,19 @@ with tab3:
                     pb.progress(min((i+BATCH_SIZE)/total_recs, 1.0))
                 
                 # 3. SIMPAN HASIL KE SESSION
-                st.session_state['upload_result'] = {'suc': s, 'fail': f, 'err': last_error, 'leasing': l_in}
+                # REVISI: Ambil nama dari kolom finance jika input manual kosong
+                log_name = l_in
+                if not log_name and 'finance' in df.columns:
+                    # Ambil baris pertama dari kolom finance sebagai identitas log
+                    if not df['finance'].empty:
+                        log_name = str(df['finance'].iloc[0])
+                    else:
+                        log_name = "MIXED/AUTO"
+                
+                st.session_state['upload_result'] = {'suc': s, 'fail': f, 'err': last_error, 'leasing': log_name}
                 st.session_state['upload_stage'] = 'complete'
                 st.rerun()
+                
 
     elif st.session_state.get('upload_stage') == 'complete':
         r = st.session_state.get('upload_result', {})
