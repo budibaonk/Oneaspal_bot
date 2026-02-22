@@ -18,20 +18,22 @@ BATCH_SIZE = 20
 SLEEP_TIME = 2.0     
 
 def get_recap_data():
-    """Mengambil Data Log KEMARIN"""
+    """Mengambil Data Log Terbaru (Bukan cuma kemarin)"""
     if not URL or not KEY: return None, None, 0
     supabase = create_client(URL, KEY)
     
-    # Ambil tanggal kemarin
-    yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+    # Ambil tanggal hari ini untuk display laporan
+    today_str = datetime.now().strftime('%Y-%m-%d')
     
     try:
+        # KUNCI: Kita ambil data yang 'updated_at' nya dalam 24 jam terakhir
+        # Ini akan menangkap data baru DAN data lama yang di-update stamp-nya
         res = supabase.table('riwayat_upload_kendaraan')\
-            .select('leasing, jumlah')\
-            .eq('tanggal', yesterday)\
+            .select('leasing, jumlah, updated_at')\
+            .gte('updated_at', (datetime.now() - timedelta(days=1)).isoformat())\
             .execute()
         
-        if not res.data: return None, yesterday, 0
+        if not res.data: return None, today_str, 0
         
         rekap = {}
         total_all = 0
@@ -40,10 +42,10 @@ def get_recap_data():
             rekap[l] = rekap.get(l, 0) + j
             total_all += j
             
-        return rekap, yesterday, total_all
+        return rekap, today_str, total_all
     except Exception as e:
-        print(f"Error Database: {e}")
-        return None, yesterday, 0
+        print(f"❌ Error DB: {e}")
+        return None, today_str, 0
 
 def get_all_users():
     """Ambil ID User dari tabel users (kolom telegram_id atau user_id)"""
