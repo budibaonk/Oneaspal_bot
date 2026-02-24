@@ -205,6 +205,7 @@ async def post_init(application: Application):
         ("register", "📝 Daftar Mitra"),
         ("admin", "📩 Hubungi Admin"),
         ("panduan", "📖 Buku Panduan"),
+        ("bagikan", "🚀 Bagikan Bot"), # <--- Tambahkan Baris Ini
     ])
     print("✅ [INIT] Command List Updated!")
 
@@ -1241,8 +1242,7 @@ async def cek_user_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(kb), 
         parse_mode='HTML', 
         link_preview_options=LinkPreviewOptions(is_disabled=True)
-    )
-    
+    )    
 
 # ##############################################################################
 # BAGIAN 9: USER FEATURES & NOTIFIKASI (UPDATE: SHARE WA & COPY BUTTON)
@@ -2105,7 +2105,6 @@ def get_action_buttons(matel_user, unit_data):
         ]
     ])
 
-# --- FUNGSI FORMAT PESAN NOTIFIKASI (PUSAT) ---
 # --- FUNGSI FORMAT PESAN NOTIFIKASI (PUSAT) ---
 def create_notification_text(matel_user, unit_data, header_title):
     # 1. LOGIKA VERSI DATA (SMART FALLBACK)
@@ -3159,6 +3158,37 @@ async def panduan(update, context):
     
     await update.message.reply_text(msg, parse_mode='HTML')
 
+async def bagikan_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 1. Kalimat promosi sesuai keinginan Bapak
+    promo_text = (
+        "Ijin info rekan-rekan, untuk cek data kendaraan dan update leasing terbaru "
+        "sekarang lebih mudah pakai One Aspal Bot. Data update tiap hari, akurat, "
+        "hemat kouta dan sangat membantu di lapangan. Yuk cek di sini: https://t.me/Oneaspal_bot"
+    )
+    
+    # 2. Membuat Link Share WhatsApp (Agar otomatis terisi teksnya)
+    wa_url = f"https://api.whatsapp.com/send?text={urllib.parse.quote(promo_text)}"
+    
+    # 3. Pesan instruksi di dalam bot
+    msg = (
+        "🚀 **BAGIKAN ONE ASPAL BOT**\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "Bantu rekan tim Anda bekerja lebih mudah dengan membagikan bot ini.\n\n"
+        "Silakan pilih metode berbagi:"
+    )
+    
+    # 4. Tombol aksi (Inline)
+    kb = [
+        [InlineKeyboardButton("📲 Kirim ke WhatsApp", url=wa_url)],
+        [InlineKeyboardButton("📋 Salin Pesan Promosi", callback_data="copy_promo")]
+    ]
+    
+    await update.message.reply_text(
+        msg, 
+        parse_mode='Markdown', 
+        reply_markup=InlineKeyboardMarkup(kb)
+    )
+
 async def handle_message(update, context):
     text = update.message.text
     if text == "🔄 SINKRONISASI DATA": return await upload_start(update, context)
@@ -3804,6 +3834,22 @@ async def callback_handler(update, context):
         # Download Laporan Tim (Korlap) --> INI YANG BARU
         await download_korlap_report(update, context)
 
+    # 11.Tambahkan logika ini di dalam fungsi callback_handler
+    elif data == "copy_promo":
+        promo_msg = (
+            "Ijin info rekan-rekan, untuk cek data kendaraan dan update leasing terbaru "
+            "sekarang lebih mudah pakai One Aspal Bot. Data update tiap hari, akurat, "
+            "hemat kouta dan sangat membantu di lapangan. Yuk cek di sini: https://t.me/Oneaspal_bot"
+        )
+        
+        # Kirim pesan dengan format <code> agar sekali sentuh langsung tersalin
+        await query.message.reply_text(
+            f"<code>{promo_msg}</code>", 
+            parse_mode='HTML'
+        )
+        
+        # Memberikan notifikasi kecil di atas layar Telegram
+        await query.answer("✅ Pesan siap disalin!")
 
 if __name__ == '__main__':
     print("🚀 ONEASPAL BOT v6.60 (FINAL FIX) STARTING...")
@@ -3919,6 +3965,7 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
     app.add_handler(MessageHandler(filters.Regex(r'^/cek_\d+$'), cek_user_pending))
     app.add_handler(CommandHandler('panduan', panduan))
+    app.add_handler(CommandHandler('bagikan', bagikan_bot))
     app.add_handler(CommandHandler('adminhelp', admin_help)) 
     app.add_handler(CommandHandler('setinfo', set_info)) 
     app.add_handler(CommandHandler('delinfo', del_info)) 
