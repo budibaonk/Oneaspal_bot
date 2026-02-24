@@ -2873,20 +2873,19 @@ async def register_confirm(update, context):
     role_db = d.get('reg_role', 'matel')
     
     # ==========================================================================
-    # ⚙️ FIX LOGIC: MASA AKTIF & KUOTA (PIC vs MATEL)
+    # ⚙️ FIX LOGIC: MASA AKTIF & KUOTA (PIC vs MATEL) - UPDATED v6.70
     # ==========================================================================
     now = datetime.now(TZ_JAKARTA)
     
     if role_db == 'pic':
-        # PIC LEASING: VIP (10 Tahun / 3650 Hari)
-        expiry_dt = now + timedelta(days=3650)
-        quota_init = 100000 # Kuota Jumbo
+        # PIC LEASING: Aktif sampai akhir tahun 2030
+        expiry_dt = datetime(2030, 12, 31, 23, 59, 59, tzinfo=TZ_JAKARTA)
+        quota_init = 999999 # Kuota Jumbo
     else:
-        # MATEL: TRIAL (3 Hari)
+        # MATEL / USER BIASA: Trial 3 Hari
         expiry_dt = now + timedelta(days=3)
         quota_init = 1000   # Kuota Standar Trial
 
-    # Convert ke String ISO agar Database Supabase mau menerimanya
     expiry_str = expiry_dt.isoformat()
     # ==========================================================================
     
