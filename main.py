@@ -32,6 +32,22 @@ from dotenv import load_dotenv
 from collections import Counter
 from datetime import datetime, timedelta, timezone, time as dt_time
 
+from flask import Flask, render_template
+import threading
+
+# Inisialisasi Flask untuk Landing Page
+app_web = Flask(__name__, template_folder='.')
+
+@app_web.route('/')
+def home():
+    # Ini akan memanggil file index.html yang Bapak buat tadi
+    return render_template('index.html')
+
+def run_flask():
+    # Railway menggunakan environment variable PORT, default 8080
+    port = int(os.environ.get("PORT", 8080))
+    app_web.run(host='0.0.0.0', port=port)
+
 from telegram import (
     Update, 
     InlineKeyboardButton, 
@@ -3852,6 +3868,14 @@ async def callback_handler(update, context):
         await query.answer("✅ Pesan siap disalin!")
 
 if __name__ == '__main__':
+    # 1. Jalankan Landing Page di Background
+    threading.Thread(target=run_flask, daemon=True).start()
+    print("🌐 [WEB] Landing Page B-One Enterprise Running...")
+
+    # 2. Jalankan Bot Telegram (Kode Bapak yang sudah ada)
+    import asyncio
+    from telegram.ext import ApplicationBuilder
+    
     print("🚀 ONEASPAL BOT v6.60 (FINAL FIX) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
