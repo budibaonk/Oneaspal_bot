@@ -32,21 +32,79 @@ from dotenv import load_dotenv
 from collections import Counter
 from datetime import datetime, timedelta, timezone, time as dt_time
 
-from flask import Flask, render_template
+from flask import Flask, render_template, request, redirect
 import threading
+import asyncio
 
-# Inisialisasi Flask untuk Landing Page
+# 1. Inisialisasi Flask untuk Landing Page
 app_web = Flask(__name__, template_folder='.')
 
 @app_web.route('/')
 def home():
-    # Ini akan memanggil file index.html yang Bapak buat tadi
+    # Menampilkan Landing Page B-One Asset Management
     return render_template('index.html')
+
+@app_web.route('/send-inquiry', methods=['POST'])
+def send_inquiry():
+    name = request.form.get('name')
+    company = request.form.get('company')
+    phone = request.form.get('phone')
+    email = request.form.get('email')
+    message = request.form.get('message')
+
+    # Logika membersihkan nomor telepon untuk link WhatsApp
+    clean_phone = ''.join(filter(str.isdigit, phone))
+    if clean_phone.startswith('0'):
+        clean_phone = '62' + clean_phone[1:]
+    
+    # Pastikan bagian wa_link dan text_notif tertutup dengan benar
+    wa_link = f"https://wa.me/{clean_phone}"
+
+    text_notif = (
+        "🚀 <b>NEW ENTERPRISE INQUIRY</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>PIC:</b> {name}\n"
+        f"🏢 <b>Company:</b> {company}\n"
+        f"📞 <b>Phone:</b> <a href='{wa_link}'>{phone} (Klik Chat WA)</a>\n"
+        f"📧 <b>Email:</b> {email}\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"💬 <b>Message:</b>\n<i>{message}</i>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "📢 <i>Action: Klik nomor di atas untuk lobi langsung.</i>"
+    )
+
+    try:
+        from telegram import Bot
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        temp_bot = Bot(token=TOKEN)
+        loop.run_until_complete(temp_bot.send_message(
+            chat_id=ADMIN_ID, 
+            text=text_notif, 
+            parse_mode='HTML',
+            disable_web_page_preview=True # <--- Ini untuk menghilangkan logo WA yang mengganggu tadi
+        ))
+        loop.close()
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+    # Response setelah submit (Halaman sukses sederhana)
+    return """
+    <body style="background:#0a0e14; color:white; font-family:sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; text-align:center; padding:20px;">
+        <div>
+            <div style="font-size:50px; color:#00ffcc; margin-bottom:20px;">✔</div>
+            <h1 style="color:#00ffcc; margin-bottom:10px;">Inquiry Sent Successfully!</h1>
+            <p style="color:#a0aec0; margin-bottom:30px;">Thank you for reaching out. Our team will contact you shortly.</p>
+            <a href="/" style="background:#0088ff; color:white; padding:12px 25px; border-radius:50px; text-decoration:none; font-weight:bold;">Back to Homepage</a>
+        </div>
+    </body>
+    """
 
 def run_flask():
     # Railway menggunakan environment variable PORT, default 8080
     port = int(os.environ.get("PORT", 8080))
-    app_web.run(host='0.0.0.0', port=port)
+    # Matikan reloader agar tidak bentrok dengan thread Bot Telegram
+    app_web.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 from telegram import (
     Update, 
@@ -3875,7 +3933,7 @@ if __name__ == '__main__':
     # 2. Jalankan Bot Telegram (Kode Bapak yang sudah ada)
     import asyncio
     from telegram.ext import ApplicationBuilder
-    
+
     print("🚀 ONEASPAL BOT v6.60 (FINAL FIX) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     

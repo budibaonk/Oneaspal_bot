@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>B-One Enterprise | Solutions for Asset Recovery</title>
+    <title>B-One Enterprise | Private Cloud Asset Management Solutions</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         :root {
@@ -12,102 +12,142 @@
             --bg: #0a0e14;
             --card: #161c24;
             --text: #ffffff;
+            --text-muted: #a0aec0;
             --danger: #ff4d4d;
+            --success: #00e676;
+            --font-main: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
         }
+
         body {
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            font-family: var(--font-main);
             background-color: var(--bg);
             color: var(--text);
             margin: 0;
             line-height: 1.6;
             scroll-behavior: smooth;
         }
+
         .container { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
-        
-        /* Navigation Branding */
-        nav { padding: 20px 0; border-bottom: 1px solid #1e293b; }
+
+        /* Navigation */
+        nav {
+            padding: 20px 0;
+            background-color: rgba(10, 14, 20, 0.95);
+            border-bottom: 1px solid #1e293b;
+            position: fixed;
+            top: 0; width: 100%; z-index: 1000;
+            backdrop-filter: blur(10px);
+        }
         .nav-content { display: flex; justify-content: space-between; align-items: center; }
+        
+        .company-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+        }
+        .logo-icon {
+            font-size: 2rem;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            -webkit-background-clip: text; /* Ini yang sudah ada */
+            background-clip: text;         /* TAMBAHKAN BARIS INI */
+            -webkit-text-fill-color: transparent;
+        }
+        .logo-text {
+            font-size: 1.6rem;
+            font-weight: 800;
+            letter-spacing: -1px;
+            color: var(--text);
+        }
+        .logo-text span { color: var(--primary); }
 
         /* Hero Section */
         header {
-            padding: 100px 0 80px;
+            padding: 180px 0 100px;
             text-align: center;
-            background: radial-gradient(circle at top, #112240 0%, var(--bg) 70%);
+            background: radial-gradient(circle at 50% 10%, #112240 0%, var(--bg) 70%);
         }
-        .logo { font-size: 2.2rem; font-weight: 800; letter-spacing: -1px; margin-bottom: 5px; }
-        .logo span { color: var(--primary); }
-        .company-badge { 
-            display: inline-block; 
-            padding: 5px 15px; 
-            background: rgba(0, 255, 204, 0.1); 
-            color: var(--primary); 
-            border-radius: 5px; 
-            font-size: 0.8rem; 
-            font-weight: bold; 
+        .provider-badge {
+            display: inline-block;
+            padding: 6px 18px;
+            background: rgba(0, 255, 204, 0.08);
+            color: var(--primary);
+            border-radius: 50px;
+            font-size: 0.8rem;
+            font-weight: 700;
             letter-spacing: 2px;
             margin-bottom: 25px;
+            border: 1px solid rgba(0, 255, 204, 0.3);
         }
-        h1 { font-size: 3.5rem; margin-bottom: 20px; line-height: 1.1; font-weight: 800; }
-        .tagline { font-size: 1.25rem; color: #a0aec0; max-width: 800px; margin: 0 auto 40px; }
+        h1 { font-size: 3.8rem; margin: 0 0 25px; line-height: 1.1; font-weight: 800; letter-spacing: -2px; }
+        .hero-tagline { font-size: 1.3rem; color: var(--text-muted); max-width: 850px; margin: 0 auto 50px; }
         
         .btn-group { display: flex; gap: 15px; justify-content: center; flex-wrap: wrap; }
         .btn {
             display: inline-flex;
             align-items: center;
-            padding: 15px 30px;
+            padding: 16px 35px;
             border-radius: 50px;
             text-decoration: none;
-            font-weight: bold;
+            font-weight: 700;
+            font-size: 1rem;
             transition: 0.3s;
+            gap: 10px;
+            border: none;
+            cursor: pointer;
         }
-        .btn-primary { background: var(--secondary); color: white; box-shadow: 0 10px 20px rgba(0, 136, 255, 0.3); }
-        .btn-primary:hover { transform: translateY(-3px); box-shadow: 0 15px 30px rgba(0, 136, 255, 0.5); }
-        .btn-outline { border: 2px solid #2d3748; color: white; }
+        .btn-primary { 
+            background: linear-gradient(135deg, var(--secondary) 0%, #0056b3 100%); 
+            color: white; 
+            box-shadow: 0 10px 25px rgba(0, 136, 255, 0.25); 
+        }
+        .btn-primary:hover { transform: translateY(-3px); box-shadow: 0 15px 35px rgba(0, 136, 255, 0.45); }
+        .btn-outline { border: 2px solid #2d3748; color: var(--text); background: transparent; }
         .btn-outline:hover { background: #2d3748; }
 
-        /* Ecosystem Section */
-        .ecosystem { padding: 100px 0; background: #0f172a; }
-        .section-title { text-align: center; margin-bottom: 60px; }
-        .section-title h2 { font-size: 2.5rem; margin-bottom: 10px; }
-        .section-title p { color: var(--primary); font-weight: bold; text-transform: uppercase; }
-
-        .eco-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; }
-        .eco-card { 
-            background: var(--card); 
-            padding: 40px 30px; 
-            border-radius: 20px; 
-            border: 1px solid #2d3748; 
-            transition: 0.3s;
+        /* Pillars Section */
+        .features { padding: 100px 0; background-color: #0f172a; }
+        .feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; }
+        .feat-item {
+            background: var(--card);
+            padding: 40px 30px;
+            border-radius: 20px;
+            border: 1px solid #1e293b;
             text-align: center;
+            transition: 0.3s;
         }
-        .eco-card:hover { border-color: var(--primary); transform: translateY(-10px); }
-        .eco-card i { font-size: 3rem; color: var(--primary); margin-bottom: 25px; }
-        .eco-card h3 { font-size: 1.5rem; margin-bottom: 15px; }
-        .eco-card p { color: #a0aec0; font-size: 0.95rem; }
+        .feat-item:hover { border-color: var(--primary); transform: translateY(-10px); }
+        .feat-item i { font-size: 2.5rem; margin-bottom: 20px; }
+        .pillar-type { font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); letter-spacing: 2px; font-weight: bold; display: block; margin-bottom: 15px; }
+        .feat-item h3 { margin-bottom: 15px; font-size: 1.4rem; }
 
-        /* Compliance Section */
-        .compliance { padding: 100px 0; }
-        .comp-box { 
-            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); 
-            padding: 60px; 
-            border-radius: 30px; 
-            display: flex; 
-            align-items: center; 
-            gap: 50px;
-            border: 1px solid #2d3748;
+        /* Comparison Section */
+        .comparison { padding: 100px 0; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 50px; }
+        .card { background: var(--card); padding: 40px; border-radius: 24px; border: 1px solid #1e293b; }
+        .card.danger { border-top: 5px solid var(--danger); }
+        .card.success { border-top: 5px solid var(--primary); }
+        .card h3 { font-size: 1.6rem; margin-bottom: 25px; display: flex; align-items: center; gap: 15px; }
+        
+        ul.list { list-style: none; padding: 0; }
+        ul.list li { margin-bottom: 15px; display: flex; align-items: center; gap: 15px; color: var(--text-muted); }
+
+        /* Inquiry Form Section */
+        #inquiry { padding: 100px 0; background: #0f172a; border-top: 1px solid #1e293b; }
+        .form-container { max-width: 600px; margin: 0 auto; background: var(--card); padding: 40px; border-radius: 24px; border: 1px solid #2d3748; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; font-size: 0.85rem; color: var(--primary); font-weight: bold; }
+        .form-group input, .form-group textarea {
+            width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #2d3748; 
+            background: #0a0e14; color: white; outline: none; box-sizing: border-box;
         }
-        .comp-text { flex: 1; }
-        .comp-text h2 { font-size: 2rem; margin-bottom: 20px; color: var(--danger); }
-        .comp-badge { background: var(--danger); color: white; padding: 5px 12px; border-radius: 4px; font-weight: bold; margin-bottom: 15px; display: inline-block; }
+        .form-group input:focus, .form-group textarea:focus { border-color: var(--secondary); }
 
-        /* Footer */
-        footer { padding: 60px 0; text-align: center; border-top: 1px solid #2d3748; color: #718096; }
-        .footer-logo { font-weight: bold; color: white; margin-bottom: 20px; display: block; }
+        footer { padding: 60px 0; text-align: center; border-top: 1px solid #1e293b; color: var(--text-muted); }
 
         @media (max-width: 768px) {
             h1 { font-size: 2.5rem; }
-            .eco-grid { grid-template-columns: 1fr; }
-            .comp-box { flex-direction: column; text-align: center; padding: 40px 20px; }
+            .grid, .feat-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -115,70 +155,127 @@
 
 <nav>
     <div class="container nav-content">
-        <div class="logo">B-ONE <span>ENTERPRISE</span></div>
-        <div class="contact-info"><small><i class="fas fa-shield-alt"></i> PDP Compliant</small></div>
+        <a href="#" class="company-logo">
+            <i class="fas fa-building logo-icon"></i>
+            <div class="logo-text">B-ONE <span>ENTERPRISE</span></div>
+        </a>
     </div>
 </nav>
 
 <header>
     <div class="container">
-        <span class="company-badge">B-ONE ENTERPRISE SOLUTIONS</span>
+        <span class="provider-badge">OFFICIAL SAAS PROVIDER</span>
         <h1>B-One Asset Management</h1>
-        <p class="tagline">Infrastruktur <strong>Private Cloud System</strong> pertama untuk Manajemen Aset Recovery. Modernisasi arsip digital Anda dengan keamanan enkripsi mutlak dan kepatuhan hukum UU PDP.</p>
+        <p class="hero-tagline">
+            Next-generation <strong>Private Cloud System</strong> for 
+            Enterprise Asset Management. Fully compliant with 
+            <strong>UU PDP No. 27/2022</strong> and <strong>OJK Regulations</strong>.
+        </p>
         <div class="btn-group">
-            <a href="https://t.me/Oneaspal_bot" class="btn btn-primary"><i class="fab fa-telegram-plane" style="margin-right: 10px;"></i> Akses One Aspal Bot</a>
-            <a href="https://wa.me/6281218318324" class="btn btn-outline">Hubungi Spesialis</a>
+            <a href="https://t.me/Oneaspal_bot" class="btn btn-primary">
+                <i class="fab fa-telegram-plane"></i> Launch One Aspal Bot
+            </a>
+            <a href="#inquiry" class="btn btn-outline">
+                <i class="fas fa-envelope"></i> Inquiry Enterprise Access
+            </a>
         </div>
     </div>
 </header>
 
-<section class="ecosystem">
+<section class="features">
     <div class="container">
-        <div class="section-title">
-            <p>Integrated Ecosystem</p>
-            <h2>Struktur Layanan Kami</h2>
-        </div>
-        <div class="eco-grid">
-            <div class="eco-card">
-                <i class="fas fa-building"></i>
+        <div class="feat-grid">
+            <div class="feat-item">
+                <i class="fas fa-briefcase" style="color: var(--secondary);"></i>
+                <span class="pillar-type">Company</span>
                 <h3>B-One Enterprise</h3>
-                <p>Induk korporasi penyedia teknologi infrastruktur manajemen data recovery dan konsultasi mitigasi risiko hukum.</p>
+                <p>Leading provider of digital infrastructure and SaaS solutions for financial asset recovery.</p>
             </div>
-            <div class="eco-card">
-                <i class="fas fa-server"></i>
+            <div class="feat-item">
+                <i class="fas fa-vault" style="color: var(--primary);"></i>
+                <span class="pillar-type">Product</span>
                 <h3>B-One Asset Management</h3>
-                <p>Produk utama berupa Private Cloud System untuk pengelolaan database NPL secara terenkripsi bagi Divisi Finance & Leasing.</p>
+                <p>Secure Private Cloud Vault designed to isolate and protect NPL databases for Multifinance.</p>
             </div>
-            <div class="eco-card">
-                <i class="fas fa-mobile-alt"></i>
+            <div class="feat-item">
+                <i class="fas fa-robot" style="color: var(--success);"></i>
+                <span class="pillar-type">Tool</span>
                 <h3>One Aspal Bot</h3>
-                <p>Operational Tool berbasis Telegram sebagai jendela akses cepat lapangan dengan sistem <em>Blind Check System</em>.</p>
+                <p>The operational front-end tool for field agents using our proprietary Blind Check System.</p>
             </div>
         </div>
     </div>
 </section>
 
-<section class="compliance">
+<section class="comparison">
     <div class="container">
-        <div class="comp-box">
-            <div class="comp-text">
-                <span class="comp-badge">WARNING: UU PDP No. 27/2022</span>
-                <h2>Hentikan Sebar Data via Grup Terbuka</h2>
-                <p>Metode konvensional menyebar file Excel/PDF nasabah melalui grup WhatsApp berisiko <strong>Pidana 4 Tahun Penjara</strong> dan <strong>Denda Rp 4 Miliar</strong>.</p>
-                <p>B-One Asset Management hadir memberikan supervisi operasional melalui <em>Private Cloud Vault</em> yang aman dan legal.</p>
+        <h2 style="text-align: center; font-size: 2.5rem; margin-bottom: 50px;">Secure vs. Risky Practices</h2>
+        <div class="grid">
+            <div class="card danger">
+                <h3><i class="fas fa-triangle-exclamation"></i> Legacy (Risk)</h3>
+                <ul class="list">
+                    <li><i class="fas fa-xmark"></i> Unprotected data sharing via WA Groups</li>
+                    <li><i class="fas fa-xmark"></i> Direct exposure of sensitive PII data</li>
+                    <li><i class="fas fa-xmark"></i> Non-compliant with UU PDP Article 65</li>
+                    <li><i class="fas fa-xmark"></i> High risk of massive legal lawsuits</li>
+                </ul>
             </div>
-            <div class="comp-icons" style="font-size: 5rem; color: #2d3748;">
-                <i class="fas fa-gavel"></i>
+            <div class="card success">
+                <h3><i class="fas fa-shield-check"></i> B-One (Secure)</h3>
+                <ul class="list">
+                    <li><i class="fas fa-check"></i> Zero-Knowledge Blind Check System</li>
+                    <li><i class="fas fa-check"></i> Centralized Private Cloud isolation</li>
+                    <li><i class="fas fa-check"></i> Real-time activity monitoring (/rekap)</li>
+                    <li><i class="fas fa-check"></i> Full Regulatory & Compliance Audit Trail</li>
+                </ul>
             </div>
+        </div>
+    </div>
+</section>
+
+<section id="inquiry">
+    <div class="container">
+        <div style="text-align: center; margin-bottom: 40px;">
+            <h2>Enterprise Inquiry</h2>
+            <p style="color: var(--text-muted);">Interested in a professional demo? Drop your details below.</p>
+        </div>
+        <div class="form-container">
+            <form action="/send-inquiry" method="POST">
+                <div class="form-group">
+                    <label>Full Name / PIC</label>
+                    <input type="text" name="name" placeholder="Enter your name" required>
+                </div>
+                <div class="form-group">
+                    <label>Company Name</label>
+                    <input type="text" name="company" placeholder="e.g. Multifinance / Leasing" required>
+                </div>
+                <div class="form-group">
+                    <label>WhatsApp / Phone Number</label>
+                    <input type="tel" name="phone" placeholder="e.g. 08123456789" required>
+                </div>
+                <div class="form-group">
+                    <label>Business Email</label>
+                    <input type="email" name="email" placeholder="email@company.com" required>
+                </div>
+                <div class="form-group">
+                    <label>Inquiry Details</label>
+                    <textarea name="message" rows="4" placeholder="How can we help your institution?" required></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">
+                    Submit Official Inquiry
+                </button>
+            </form>
         </div>
     </div>
 </section>
 
 <footer>
     <div class="container">
-        <span class="footer-logo">B-ONE ENTERPRISE</span>
-        <p>&copy; 2026 B-One Enterprise. All Rights Reserved.</p>
-        <p><small>Your Trusted Partner in Secure Management Asset Recovery.</small></p>
+        <div class="company-logo" style="justify-content: center; margin-bottom: 20px;">
+            <i class="fas fa-building logo-icon" style="font-size: 1.5rem;"></i>
+            <div class="logo-text" style="font-size: 1.2rem;">B-ONE <span>ENTERPRISE</span></div>
+        </div>
+        <p>&copy; 2026 B-One Enterprise. Your Trusted Partner in Asset Recovery.</p>
     </div>
 </footer>
 
