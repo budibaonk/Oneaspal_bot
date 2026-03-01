@@ -2953,11 +2953,11 @@ async def register_confirm(update, context):
     if role_db == 'pic':
         # PIC LEASING: Aktif sampai akhir tahun 2030
         expiry_dt = datetime(2030, 12, 31, 23, 59, 59, tzinfo=TZ_JAKARTA)
-        quota_init = 999999 # Kuota Jumbo
+        quota_init = 999999 
     else:
-        # MATEL / USER BIASA: Trial 3 Hari
+        # MATEL: Trial 3 Hari
         expiry_dt = now + timedelta(days=3)
-        quota_init = 1000   # Kuota Standar Trial
+        quota_init = 1000   
 
     expiry_str = expiry_dt.isoformat()
     # ==========================================================================
@@ -3701,64 +3701,75 @@ async def callback_handler(update, context):
     # 6. APPROVE REGISTER (appu_)
     elif data.startswith("appu_"): 
         target_uid = int(data.split("_")[1])
+        target_user = get_user(target_uid) # Ambil data pendaftaran dulu
         
-        # [LOGIKA TRIAL 3 HARI]
+        if not target_user:
+            await query.answer("❌ Data user tidak ditemukan.")
+            return
+
         now = datetime.now(TZ_JAKARTA)
-        trial_end = now + timedelta(days=3)
+        role_db = target_user.get('role', 'matel')
+
+        # TENTUKAN EXPIRED BERDASARKAN ROLE
+        if role_db == 'pic':
+            final_expiry = datetime(2030, 12, 31, 23, 59, 59, tzinfo=TZ_JAKARTA)
+            success_msg = f"🚀 <b>PIC {target_uid} DIAKTIFKAN</b>\n━━━━━━━━━━━━━━━\n✅ Akses Enterprise s/d 2030"
+        else:
+            final_expiry = now + timedelta(days=3)
+            exp_display = final_expiry.strftime('%d %b %Y')
+            success_msg = f"✅ <b>User {target_uid} DIAKTIFKAN</b>\n━━━━━━━━━━━━━━━\n🎁 Trial: 3 Hari (s/d {exp_display})"
         
-        # Update Database
+        # 1. Update Database
         supabase.table('users').update({
             'status': 'active',
-            'expiry_date': trial_end.isoformat()
+            'expiry_date': final_expiry.isoformat()
         }).eq('user_id', target_uid).execute()
         
-        # Feedback ke Admin
-        exp_display = trial_end.strftime('%d %b %Y')
+        # 2. Feedback ke Admin (Satu kali saja agar tidak error)
         try:
-            await query.edit_message_caption(f"✅ User {target_uid} DIAKTIFKAN.\n🎁 Trial: 3 Hari (s/d {exp_display})")
+            await query.edit_message_caption(success_msg, parse_mode='HTML')
         except:
-            await query.edit_message_text(f"✅ User {target_uid} DIAKTIFKAN.\n🎁 Trial: 3 Hari (s/d {exp_display})")
+            await query.edit_message_text(success_msg, parse_mode='HTML')
         
-        # Ambil data user untuk notifikasi
-        target_user = get_user(target_uid)
+        # 3. Kirim notifikasi ke User
+        exp_display = final_expiry.strftime('%d %b %Y')
         
-        if target_user and target_user.get('role') == 'pic':
-            # PESAN UNTUK PIC (Tetap)
-            nama_pic = clean_text(target_user.get('nama_lengkap', 'Partner'))
+        if role_db == 'pic':
+            # PESAN UNTUK PIC (Enterprise Welcome)
+            nama_pic = target_user.get('nama_lengkap', 'Partner')
             msg_pic = (
-                f"Selamat Pagi, Pak {nama_pic}.\n\n"
+                f"Selamat Pagi, Pak <b>{nama_pic}</b>.\n\n"
                 f"Izin memperkenalkan fitur <b>Private Enterprise</b> di OneAspal Bot.\n"
                 f"Kami menyediakan <b>Private Cloud</b> agar Bapak bisa menyimpan data kendaraan dengan aman menggunakan <b>Blind Check System</b>.\n\n"
                 f"🔐 <b>Keamanan Data:</b>\n"
-                f"Di sistem ini, Bapak <b>TIDAK</b> dikategorikan menyebarkan data kepada orang lain (Aman secara SOP). Bapak hanya mengarsipkan data digital untuk menunjang <b>Performance Pekerjaan</b> Bapak sendiri.\n\n"
-                f"Data Bapak <b>TIDAK BISA</b> dilihat atau didownload user lain. Sistem hanya akan memberi notifikasi kepada Bapak jika unit tersebut ditemukan di lapangan.\n\n"
-                f"Silakan dicoba fitur <b>Upload Data</b>-nya, Pak (Menu Sinkronisasi).\n\n"
-                f"<i>Jika ada pertanyaan, silakan balas pesan ini melalui tombol <b>📞 BANTUAN TEKNIS</b> di menu utama.</i>"
+                f"Sesuai standar POJK & UU PDP, Bapak <b>TIDAK</b> dikategorikan menyebarkan data pribadi. Bapak hanya mengarsipkan data digital untuk menunjang performa kerja internal.\n\n"
+                f"Data Bapak <b>TERISOLASI</b> (Tidak bisa dilihat user lain). Sistem hanya memberi notifikasi jika unit ditemukan di lapangan.\n\n"
+                f"Silakan dicoba fitur <b>Upload Data</b> di menu Sinkronisasi, Pak.\n\n"
+                f"<i>Jika ada pertanyaan, silakan hubungi Bantuan Teknis.</i>"
             )
             try: await context.bot.send_message(target_uid, msg_pic, parse_mode='HTML')
             except: pass
 
         else:
-            # PESAN UNTUK MATEL (Trial 3 Hari + Ikon Petir ⚡)
+            # PESAN UNTUK MATEL (Trial 3 Hari - Full HTML)
             nama_user = target_user.get('nama_lengkap', 'Mitra')
             msg_mitra = (
-                f"🦅 **SELAMAT BERGABUNG DI ONE ASPAL BOT** 🦅\n"
-                f"Halo, {nama_user}! Akun Anda telah **DISETUJUI** ✅.\n\n"
-                f"🎁 **BONUS PENDAFTARAN:**\n"
+                f"🦅 <b>SELAMAT BERGABUNG DI ONE ASPAL BOT</b> 🦅\n\n"
+                f"Halo, <b>{nama_user}</b>! Akun Anda telah <b>DISETUJUI</b> ✅.\n\n"
+                f"🎁 <b>BONUS PENDAFTARAN:</b>\n"
                 f"Anda mendapatkan akses <b>TRIAL GRATIS 3 HARI</b>.\n"
                 f"📅 <b>Aktif s/d:</b> {exp_display}\n\n"
-                f"Fitur kami dirancang **Super Cepat** ⚡ dan **Hemat Kuota** 📉 "
-                f"untuk menunjang kinerja Anda di lapangan.\n\n"
-                f"🔎 **CARA PENCARIAN:**\n"
+                f"Fitur kami dirancang <b>Super Cepat</b> ⚡ dan <b>Hemat Kuota</b> 📉 untuk menunjang kinerja Anda di lapangan.\n\n"
+                f"🔎 <b>CARA PENCARIAN:</b>\n"
                 f"Cukup ketik NOPOL, NOKA, atau NOSIN langsung di sini.\n"
-                f"Contoh: `B1234ABC` (Tanpa spasi lebih baik)\n\n"
-                f"💡 **MENU UTAMA:**\n"
+                f"Contoh: <code>B1234ABC</code>\n\n"
+                f"💡 <b>MENU UTAMA:</b>\n"
                 f"/cekkuota - Cek masa aktif\n"
                 f"/infobayar - Perpanjang Langganan\n"
                 f"/admin - Bantuan Teknis\n\n"
                 f"Selamat bekerja! Salam Satu Aspal. 🏴‍☠️"
             )
-            try: await context.bot.send_message(target_uid, msg_mitra, parse_mode='Markdown')
+            try: await context.bot.send_message(target_uid, msg_mitra, parse_mode='HTML')
             except: pass
             
     # 7. REJECT REGISTER (reju_)
