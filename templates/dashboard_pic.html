@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard PIC | B-One Enterprise</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #00ffcc;
+            --secondary: #0088ff;
+            --bg: #0a1219;
+            --card: #1c252e;
+            --text: #ffffff;
+            --text-muted: #94a3b8;
+            --border: rgba(255, 255, 255, 0.05);
+            --danger: #ff4444;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            display: flex;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Sidebar */
+        .sidebar { width: 260px; background: #111827; border-right: 1px solid var(--border); padding: 30px 20px; display: flex; flex-direction: column; position: fixed; height: 100vh; z-index: 100; }
+        .logo { font-size: 1.5rem; font-weight: bold; margin-bottom: 40px; color: var(--primary); display: flex; align-items: center; gap: 12px; letter-spacing: 1px; }
+        .nav-item { padding: 12px 15px; border-radius: 8px; color: var(--text-muted); text-decoration: none; margin-bottom: 5px; transition: 0.3s; display: flex; align-items: center; gap: 12px; cursor: pointer; font-size: 0.95rem; }
+        .nav-item:hover, .nav-item.active { background: rgba(0, 255, 204, 0.1); color: var(--primary); }
+        
+        /* Main Content */
+        .main-content { flex: 1; padding: 40px; margin-left: 300px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
+        
+        /* Stats & Cards */
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 25px; margin-bottom: 40px; }
+        .stat-card { background: var(--card); padding: 25px; border-radius: 16px; border: 1px solid var(--border); position: relative; overflow: hidden; transition: 0.3s; }
+        .stat-card:hover { border-color: var(--primary); transform: translateY(-5px); }
+        .stat-card i { font-size: 2rem; color: var(--secondary); margin-bottom: 15px; opacity: 0.8; }
+        .stat-card h3 { margin: 0; font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+        .stat-card p { margin: 10px 0 0; font-size: 1.8rem; font-weight: bold; }
+        
+        /* Action Box & Tables */
+        .action-box { background: linear-gradient(145deg, #1c252e, #111827); padding: 60px 40px; border-radius: 20px; border: 2px dashed var(--border); text-align: center; transition: 0.3s; cursor: pointer; }
+        .action-box:hover { border-color: var(--primary); background: rgba(0, 255, 204, 0.02); }
+        .preview-container { background: var(--card); border: 1px solid var(--primary); border-radius: 16px; padding: 25px; margin-top: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th { background: rgba(255,255,255,0.05); padding: 12px; text-align: left; font-size: 0.8rem; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+        td { padding: 12px; font-size: 0.85rem; border-bottom: 1px solid var(--border); }
+        
+        /* Buttons */
+        .btn-primary { background: var(--primary); color: #000; border: none; padding: 12px 25px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 8px; }
+        .btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0, 255, 204, 0.3); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-nav { background: var(--card); border: 1px solid var(--border); color: white; padding: 8px 15px; border-radius: 8px; cursor: pointer; transition: 0.3s; }
+        .btn-nav:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+        .btn-nav:disabled { opacity: 0.3; cursor: not-allowed; }
+        .btn-outline { background: transparent; border: 1px solid var(--secondary); color: var(--secondary); padding: 8px 15px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: bold; transition: 0.3s; }
+        .btn-outline:hover { background: rgba(0, 136, 255, 0.1); color: #fff; border-color: #fff; }
+
+        .hidden { display: none !important; }
+        .badge-ovd { color: var(--danger); font-weight: bold; }
+        .footer { margin-top: 50px; font-size: 0.8rem; color: var(--text-muted); text-align: center; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="logo"><i class="fas fa-shield-halved"></i><span>B-ONE <small>PIC</small></span></div>
+        <a onclick="showSection('overview')" class="nav-item active" id="nav-overview"><i class="fas fa-chart-line"></i> Overview</a>
+        <a onclick="showSection('assets')" class="nav-item" id="nav-assets"><i class="fas fa-car"></i> Asset Data</a>
+        <a onclick="showSection('sync')" class="nav-item" id="nav-sync"><i class="fas fa-sync"></i> Synchronization</a>
+        <a onclick="showSection('audit')" class="nav-item" id="nav-audit"><i class="fas fa-history"></i> Audit Logs</a>
+        <div style="margin-top: auto;"><a href="/" class="nav-item"><i class="fas fa-sign-out-alt"></i> Exit Session</a></div>
+    </div>
+
+    <div class="main-content">
+        <div class="header">
+            <div>
+                <h1 style="margin: 0; font-size: 1.8rem;">Command Center</h1>
+                <p style="color: var(--text-muted); margin-top: 5px;">PIC Access: <b>{{ user.get('nama_lengkap', 'User') }}</b> | <span style="color: var(--primary); font-weight: bold; background: rgba(0,255,204,0.1); padding: 4px 10px; border-radius: 4px;">{{ user.get('agency', 'Agency') }}</span></p>
+            </div>
+            <div style="background: var(--card); padding: 10px 20px; border-radius: 50px; border: 1px solid var(--border);">
+                <i class="fas fa-server" style="color: var(--primary); margin-right: 8px;"></i><span id="live-clock">--:--:--</span>
+            </div>
+        </div>
+
+        <div id="section-overview">
+            <div class="stats-grid">
+                <div class="stat-card" onclick="showSection('assets')" style="cursor: pointer;">
+                    <i class="fas fa-database"></i><h3>Total Assets Monitored</h3><p>{{ "{:,}".format(total_aset) if total_aset else '0' }}</p>
+                </div>
+                <div class="stat-card">
+                    <i class="fas fa-check-double" style="color: var(--primary);"></i><h3>Verification Status</h3><p>ACTIVE</p>
+                </div>
+                <div class="stat-card" onclick="showSection('sync')" style="cursor: pointer;">
+                    <i class="fas fa-file-invoice"></i><h3>Last Upload</h3><p style="font-size: 0.9rem; color: var(--secondary); margin-top: 18px;">Recently Updated</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="section-assets" class="hidden">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
+                <h2 style="margin: 0;">Asset Inventory</h2>
+                <div style="position: relative;">
+                    <i class="fas fa-search" style="position: absolute; left: 15px; top: 13px; color: var(--text-muted);"></i>
+                    <input type="text" id="search-nopol" placeholder="Cari Nopol..." style="background: var(--card); border: 1px solid var(--border); color: white; padding: 10px 15px 10px 40px; border-radius: 8px; width: 300px;">
+                </div>
+            </div>
+            
+            <div style="background: var(--card); border-radius: 16px; border: 1px solid var(--border); overflow: hidden;">
+                <table id="main-asset-table">
+                    <thead style="background: rgba(255,255,255,0.02);">
+                        <tr>
+                            <th>NOPOL</th><th>TYPE</th><th>THN</th><th>WARNA</th><th>NOKA / NOSIN</th><th>FINANCE</th><th>BRANCH</th><th>OVD</th><th style="text-align: center;">ACTION</th>
+                        </tr>
+                    </thead>
+                    <tbody id="asset-table-body"></tbody>
+                </table>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
+                <div id="pagination-info" style="color: var(--text-muted); font-size: 0.85rem;">Menampilkan data...</div>
+                <div style="display: flex; gap: 10px;">
+                    <button id="prev-page" class="btn-nav" disabled><i class="fas fa-chevron-left"></i> Prev</button>
+                    <button id="next-page" class="btn-nav" disabled>Next <i class="fas fa-chevron-right"></i></button>
+                </div>
+            </div>
+        </div>
+
+        <div id="section-sync" class="hidden">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0;">Data Synchronization</h2>
+                <button onclick="downloadTemplate()" class="btn-outline">
+                    <i class="fas fa-file-csv"></i> Unduh Template CSV
+                </button>
+            </div>
+            
+            <div class="action-box" id="drop-zone">
+                <div id="upload-prompt">
+                    <i class="fas fa-cloud-upload-alt" style="font-size: 4rem; color: var(--primary); margin-bottom: 20px;"></i>
+                    <h2 style="margin: 0;">Step 1: Pilih File Excel / CSV</h2>
+                    <p style="color: var(--text-muted); margin-top: 10px;">Tarik file ke sini atau <b>klik untuk memilih file</b>.</p>
+                </div>
+                <input type="file" id="file-input" accept=".csv, .xlsx, .xls" class="hidden">
+                <div id="loading-analysis" class="hidden">
+                    <i class="fas fa-circle-notch fa-spin" style="font-size: 3rem; color: var(--primary);"></i>
+                    <p style="margin-top: 20px; font-weight: bold;">MEMBUAT PREVIEW DATA...</p>
+                </div>
+            </div>
+
+            <div id="preview-area" class="preview-container hidden">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h3 style="margin: 0; color: var(--primary);"><i class="fas fa-search"></i> Step 2: Preview 5 Baris Pertama</h3>
+                    <span id="row-count-badge" style="background: var(--secondary); padding: 5px 15px; border-radius: 50px; font-size: 0.8rem; font-weight: bold;"></span>
+                </div>
+                <p style="font-size: 0.9rem; color: var(--text-muted);">Cek apakah kolom sudah sejajar sebelum mengeksekusi ke Database Server.</p>
+                
+                <div style="overflow-x: auto; background: var(--bg); border-radius: 8px; border: 1px solid var(--border);">
+                    <table style="margin-top: 0;">
+                        <thead id="preview-thead"></thead>
+                        <tbody id="preview-tbody"></tbody>
+                    </table>
+                </div>
+
+                <div style="margin-top: 30px; display: flex; gap: 15px;">
+                    <button onclick="commitFinalUpload(event)" class="btn-primary" style="flex: 1; justify-content: center; height: 50px; font-size: 1.1rem;">
+                        <i class="fas fa-check-double"></i> KONFIRMASI & UPDATE DATABASE
+                    </button>
+                    <button onclick="location.reload()" style="background: transparent; color: var(--text-muted); border: 1px solid var(--border); padding: 0 20px; border-radius: 8px; cursor: pointer;">
+                        Batal
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="section-audit" class="hidden">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0;">Security Audit Trail</h2>
+                <button onclick="loadAuditLogs()" style="background: transparent; border: 1px solid var(--primary); color: var(--primary); padding: 5px 15px; border-radius: 6px; cursor: pointer;">
+                    <i class="fas fa-sync"></i> Refresh
+                </button>
+            </div>
+            <div style="background: var(--card); border-radius: 16px; border: 1px solid var(--border); overflow: hidden;">
+                <div id="audit-list"></div>
+            </div>
+        </div>
+
+        <div class="footer"><p>&copy; 2026 B-One Enterprise | Bank-Grade Security | POJK & UU PDP Compliant</p></div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const uid = urlParams.get('uid');
+        let currentPage = 1;
+        let currentUploadFile = null; 
+
+        setInterval(() => { document.getElementById('live-clock').innerText = new Date().toLocaleTimeString('id-ID', {hour12: false}); }, 1000);
+
+        function showSection(section) {
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            ['overview', 'assets', 'sync', 'audit'].forEach(s => document.getElementById('section-' + s).classList.add('hidden'));
+            document.getElementById('nav-' + section).classList.add('active');
+            document.getElementById('section-' + section).classList.remove('hidden');
+            if(section === 'assets') { currentPage = 1; loadAssetData(); }
+            if(section === 'audit') loadAuditLogs();
+        }
+
+        // --- FITUR DOWNLOAD TEMPLATE (INSTANT GENERATE) ---
+        function downloadTemplate() {
+            // Header menggunakan delimiter titik koma (;) sesuai dengan template asli
+            const csvContent = "nopol;type;tahun;warna;noka;nosin;ovd;finance;branch\n;;;;;;;;\n;;;;;;;;\n;;;;;;;;\n;;;;;;;;\n;;;;;;;;";
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", "TEMPLATE_UPLOAD_PIC.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // --- ASSET DATA ---
+        function loadAssetData(search = '') {
+            const tbody = document.getElementById('asset-table-body');
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:40px; color:var(--text-muted);"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>';
+            fetch(`/get-assets?uid=${uid}&page=${currentPage}&search=${search}`).then(res => res.json()).then(res => {
+                if(res.status === 'success') {
+                    if(res.data.length === 0){ tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:40px; color:var(--text-muted);">Tidak ada data</td></tr>'; return; }
+                    tbody.innerHTML = res.data.map(item => `
+                        <tr>
+                            <td style="color: var(--primary); font-weight: bold;">${item.nopol}</td>
+                            <td>${item.type || '-'}</td><td>${item.tahun || '-'}</td><td>${item.warna || '-'}</td>
+                            <td style="font-size: 0.75rem; font-family: monospace;">NKA: ${item.noka || '-'}<br>NSN: ${item.nosin || '-'}</td>
+                            <td style="font-weight: bold; color: var(--secondary);">${item.finance || '-'}</td>
+                            <td>${item.branch || '-'}</td><td class="badge-ovd">${item.ovd || '0'}</td>
+                            <td style="text-align: center;"><button onclick="confirmDelete('${item.nopol}')" style="background: rgba(255,68,68,0.1); border: 1px solid rgba(255,68,68,0.3); color: var(--danger); padding: 6px 12px; border-radius: 6px; cursor: pointer;"><i class="fas fa-trash-alt"></i></button></td>
+                        </tr>
+                    `).join('');
+                    const startData = (res.page - 1) * res.per_page + 1;
+                    const endData = Math.min(res.page * res.per_page, res.total_count);
+                    document.getElementById('pagination-info').innerText = `Menampilkan ${startData}-${endData} dari ${res.total_count.toLocaleString()} aset aktif`;
+                    document.getElementById('prev-page').disabled = (res.page === 1);
+                    document.getElementById('next-page').disabled = (endData >= res.total_count);
+                }
+            });
+        }
+
+        // --- UPLOAD ENGINE (TAHAP 1: PREVIEW) ---
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        dropZone.onclick = () => fileInput.click();
+        dropZone.ondragover = (e) => { e.preventDefault(); dropZone.style.borderColor = "var(--primary)"; };
+        dropZone.ondragleave = () => { dropZone.style.borderColor = "var(--border)"; };
+        dropZone.ondrop = (e) => { e.preventDefault(); dropZone.style.borderColor = "var(--border)"; processPreviewUpload(e.dataTransfer.files[0]); };
+        fileInput.onchange = (e) => processPreviewUpload(e.target.files[0]);
+
+        function processPreviewUpload(file) {
+            if(!file) return;
+            currentUploadFile = file; 
+            document.getElementById('upload-prompt').classList.add('hidden');
+            document.getElementById('loading-analysis').classList.remove('hidden');
+
+            const formData = new FormData(); formData.append('file', file);
+            fetch('/analyze-upload', { method: 'POST', body: formData }).then(r => r.json()).then(data => {
+                document.getElementById('loading-analysis').classList.add('hidden');
+                if(data.status === 'success') {
+                    document.getElementById('drop-zone').classList.add('hidden');
+                    document.getElementById('preview-area').classList.remove('hidden');
+                    document.getElementById('row-count-badge').innerText = `${data.total_rows.toLocaleString()} Baris Terdeteksi`;
+                    if(data.preview.length > 0) {
+                        const headers = Object.keys(data.preview[0]);
+                        document.getElementById('preview-thead').innerHTML = `<tr>${headers.map(h => `<th style="border-right:1px solid var(--border);">${h.toUpperCase()}</th>`).join('')}</tr>`;
+                        document.getElementById('preview-tbody').innerHTML = data.preview.map(row => `<tr>${headers.map(h => `<td style="border-right:1px solid var(--border);">${row[h] !== null ? row[h] : '-'}</td>`).join('')}</tr>`).join('');
+                    }
+                } else { alert("❌ GAGAL PREVIEW: " + data.message); location.reload(); }
+            });
+        }
+
+        // --- UPLOAD ENGINE (TAHAP 2: EKSEKUSI) ---
+        function commitFinalUpload(event) {
+            if(!currentUploadFile) return;
+            const btn = event.target; btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> MEMPROSES KE SERVER (Mode Aman)...';
+
+            const formData = new FormData(); 
+            formData.append('file', currentUploadFile); 
+            formData.append('uid', uid);
+
+            fetch('/upload-dashboard', { method: 'POST', body: formData }).then(r => r.json()).then(data => {
+                if(data.status === 'success') { alert(data.message); location.reload(); } 
+                else { alert("❌ Gagal: " + data.message); btn.disabled = false; btn.innerHTML = '<i class="fas fa-check-double"></i> COBA LAGI'; }
+            }).catch(err => { alert("Server Sibuk/Timeout. Cek Data Asset Anda, mungkin sebagian sudah masuk."); location.reload(); });
+        }
+
+        // --- DELETE & AUDIT LOGS ---
+        function confirmDelete(nopol) {
+            const reason = prompt(`Konfirmasi Akhir: Hapus ${nopol}?\nAlasan (Lunas / Tarik):`);
+            if (!reason) return;
+            fetch('/delete-asset', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ uid: uid, nopol: nopol, reason: reason }) })
+            .then(r => r.json()).then(data => { if(data.status === 'success') loadAssetData(document.getElementById('search-nopol').value); else alert("Gagal: " + data.message); });
+        }
+
+        function loadAuditLogs() {
+            const list = document.getElementById('audit-list'); list.innerHTML = '<div style="padding:40px; text-align:center;">Memuat Log...</div>';
+            fetch(`/get-audit-logs?uid=${uid}`).then(res => res.json()).then(res => {
+                if(res.status === 'success') {
+                    if(res.data.length === 0){ list.innerHTML = '<div style="padding:40px; text-align:center;">Belum ada aktivitas.</div>'; return; }
+                    list.innerHTML = res.data.map(log => {
+                        let badgeColor = '#94a3b8'; let act = log.action.toUpperCase();
+                        if (act.includes('UPLOAD') || act.includes('SYNC')) badgeColor = '#00ffcc'; else if (act.includes('DELETE')) badgeColor = '#ff4444'; else if (act.includes('VIEW')) badgeColor = '#0088ff';
+                        return `<div style="padding: 15px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                                    <div style="display: flex; gap: 15px;"><div style="width: 10px; height: 10px; border-radius: 50%; background: ${badgeColor};"></div><div><div style="font-weight: 500;">${log.details || log.action}</div><div style="font-size: 0.75rem; color: var(--text-muted);">User: ${log.user_id}</div></div></div>
+                                    <div style="text-align: right;"><span style="font-size: 0.7rem; color: ${badgeColor}; border: 1px solid ${badgeColor}44; padding: 3px 8px; border-radius: 4px;">${act}</span><div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 6px;">${new Date(log.created_at).toLocaleString('id-ID')}</div></div>
+                                </div>`;
+                    }).join('');
+                }
+            });
+        }
+
+        document.getElementById('prev-page').onclick = () => { if(currentPage > 1) { currentPage--; loadAssetData(document.getElementById('search-nopol').value); } };
+        document.getElementById('next-page').onclick = () => { currentPage++; loadAssetData(document.getElementById('search-nopol').value); };
+        let searchTimeout; document.getElementById('search-nopol').addEventListener('input', (e) => { clearTimeout(searchTimeout); searchTimeout = setTimeout(() => { currentPage = 1; loadAssetData(e.target.value); }, 500); });
+        window.onload = () => showSection('overview');
+    </script>
+</body>
+</html>

@@ -28,16 +28,21 @@ import difflib
 import pytz
 import urllib.parse
 import shutil
+import secrets # Pastikan import ini ada di bagian paling atas file
 from dotenv import load_dotenv
 from collections import Counter
 from datetime import datetime, timedelta, timezone, time as dt_time
-
+from flask import make_response, redirect
 from flask import Flask, render_template, request, redirect
 import threading
 import asyncio
 
-# 1. Inisialisasi Flask untuk Landing Page
-app_web = Flask(__name__, template_folder='.')
+# ==========================================================================
+# 1. Inisialisasi Flask untuk Landing Page & PIC Dashboard
+# ==========================================================================
+app_web = Flask(__name__, 
+            template_folder='templates', # Nama foldernya harus templates
+            static_folder='static')      # Nanti untuk CSS/Gambar
 
 @app_web.route('/')
 def home():
@@ -57,7 +62,6 @@ def send_inquiry():
     if clean_phone.startswith('0'):
         clean_phone = '62' + clean_phone[1:]
     
-    # Pastikan bagian wa_link dan text_notif tertutup dengan benar
     wa_link = f"https://wa.me/{clean_phone}"
 
     text_notif = (
@@ -82,13 +86,13 @@ def send_inquiry():
             chat_id=ADMIN_ID, 
             text=text_notif, 
             parse_mode='HTML',
-            disable_web_page_preview=True # <--- Ini untuk menghilangkan logo WA yang mengganggu tadi
+            disable_web_page_preview=True 
         ))
         loop.close()
     except Exception as e:
         print(f"❌ Error: {e}")
 
-    # Response setelah submit (Halaman sukses sederhana)
+    # Response setelah submit
     return """
     <body style="background:#0a0e14; color:white; font-family:sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; text-align:center; padding:20px;">
         <div>
@@ -100,12 +104,142 @@ def send_inquiry():
     </body>
     """
 
+# ==============================================================================
+# JALUR MAGIC LINK & VALIDASI (GEMBOK BAJA B-ONE ENTERPRISE)
+# ==============================================================================
+@app_web.route('/login-sso')
+def login_sso():
+    uid = request.args.get('uid')
+    token = request.args.get('token')
+
+    if not uid or not token:
+        return "⛔ Akses Ditolak: Link tidak valid atau rusak.", 400
+
+    try:
+        # 1. Cek Token ke Supabase (FIX: pakai 'user_id' bukan 'id')
+        res = supabase.table('users').select('session_token, session_expiry, role').eq('user_id', uid).execute()
+        if not res.data:
+            return "⛔ Akses Ditolak: User tidak ditemukan.", 403
+
+        user_data = res.data[0]
+        
+        # 2. Cocokkan Token Rahasia
+        if user_data.get('session_token') != token:
+            return "⛔ Akses Ditolak: Token tidak valid, atau sesi sudah di-reset dari Telegram.", 403
+
+        # 3. Cek Batas Waktu Kadaluarsa (15 Menit)
+        expiry_str = user_data.get('session_expiry')
+        if not expiry_str:
+            return "⛔ Akses Ditolak: Sesi tidak valid.", 403
+        
+        # Parse waktu dari database dan bandingkan dengan waktu sekarang
+        expiry_time = datetime.fromisoformat(expiry_str)
+        if datetime.now(timezone.utc) > expiry_time:
+            return "⛔ Akses Ditolak: Magic Link sudah KADALUARSA! Silakan ketik /dashboard lagi di Telegram.", 403
+
+        # --- JIKA SEMUA VALID (LOLOS SENSOR) ---
+        
+        # 4. HANCURKAN TOKEN (One-Time Use) (FIX: pakai 'user_id' bukan 'id')
+        supabase.table('users').update({
+            'session_token': None,
+            'session_expiry': None
+        }).eq('user_id', uid).execute()
+
+        # 5. BERIKAN KARTU AKSES (Device Binding via Cookies)
+        response = make_response(redirect('/dashboard'))
+        
+        # Tanamkan Cookies selama 8 Jam kerja
+        response.set_cookie(
+            'bone_session', 
+            value=uid, 
+            max_age=8 * 3600, # 8 Jam
+            httponly=True, 
+            secure=True,     # <--- MENGUNCI COOKIES HANYA UNTUK HTTPS (GO-LIVE)
+            samesite='Lax'
+        )
+        return response
+
+    except Exception as e:
+        logger.error(f"SSO Error: {e}")
+        return f"⚠️ Terjadi kesalahan sistem: {str(e)}", 500
+
+
+# --- [UPDATE FINAL] ROUTE DASHBOARD PIC LEASING DENGAN COOKIE VALIDATION ---
+@app_web.route('/dashboard')
+def dashboard_pic_gate():
+    # 1. BACA KARTU AKSES (Cookies)
+    user_id = request.cookies.get('bone_session')
+    
+    # 2. JIKA TIDAK ADA KARTU, TENDANG KELUAR!
+    if not user_id:
+        return """
+        <body style="background:#0a1219; color:white; font-family:sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh;">
+            <div style="text-align:center; border: 1px solid #ff4d4d; padding: 40px; border-radius: 20px; background: rgba(255, 77, 77, 0.05);">
+                <h2 style="color:#ff4d4d;">⛔ Akses Ditolak (403)</h2>
+                <p>Anda tidak memiliki izin untuk membuka halaman ini.</p>
+                <p>Silakan masuk melalui <b>Magic Link</b> dari Bot Telegram Resmi B-One Enterprise.</p>
+            </div>
+        </body>
+        """, 403
+
+    # 3. Cek Identitas ke Database Supabase
+    user_db = get_user(user_id)
+    
+    if not user_db:
+        return """
+        <body style="background:#0a1219; color:white; font-family:sans-serif; display:flex; align-items:center; justify-content:center; height:100vh;">
+            <div style="text-align:center; border: 1px solid #ff4d4d; padding: 40px; border-radius: 20px;">
+                <h2 style="color:#ff4d4d;">❌ User Tidak Ditemukan</h2>
+                <p>Sesi valid, tetapi ID Anda tidak ditemukan dalam sistem B-One Enterprise.</p>
+            </div>
+        </body>
+        """, 403
+
+    # 4. Logika Bypass untuk CEO (Super Admin)
+    is_ceo = (str(user_id) == str(ADMIN_ID) or user_db.get('role') == 'superadmin')
+
+    if is_ceo:
+        if not user_db.get('agency'):
+            user_db['agency'] = 'B-ONE ENTERPRISE'
+    else:
+        # Validasi Ketat untuk User Biasa
+        if user_db.get('role') != 'pic' or user_db.get('status') != 'active':
+            return f"""
+            <body style="background:#0a1219; color:white; font-family:sans-serif; display:flex; align-items:center; justify-content:center; height:100vh;">
+                <div style="text-align:center; border: 1px solid #ff4d4d; padding: 40px; border-radius: 20px;">
+                    <h2 style="color:#ff4d4d;">⛔ Akses Terbatas</h2>
+                    <p>Maaf, akun ID {user_id} tidak memiliki izin akses Enterprise.</p>
+                    <p style="color: #64748b; font-size: 0.9rem;">Hanya akun level PIC yang diizinkan masuk.</p>
+                </div>
+            </body>
+            """, 403
+
+    # 5. HITUNG STATISTIK RIIL DARI SUPABASE
+    total_aset = 0
+    try:
+        res_total = supabase.table('kendaraan') \
+            .select('nopol', count='exact') \
+            .eq('finance', user_db.get('agency')) \
+            .execute()
+        
+        total_aset = res_total.count if res_total.count else 0
+    except Exception as e:
+        print(f"❌ Error Fetching Stats: {e}")
+        total_aset = 0
+
+    # Kirim variabel ke template HTML
+    return render_template('dashboard_pic.html', 
+                           user=user_db, 
+                           is_admin=is_ceo, 
+                           total_aset=total_aset)
+
 def run_flask():
-    # Railway menggunakan environment variable PORT, default 8080
     port = int(os.environ.get("PORT", 8080))
-    # Matikan reloader agar tidak bentrok dengan thread Bot Telegram
     app_web.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
+# ==========================================================================
+# 2. Inisialisasi Telegram & Supabase
+# ==========================================================================
 from telegram import (
     Update, 
     InlineKeyboardButton, 
@@ -135,6 +269,255 @@ try:
     from supabase.lib.client_options import ClientOptions
 except ImportError:
     from supabase import ClientOptions
+
+from flask import jsonify
+
+# --- HELPER: INTEGRASI KEKUATAN BOT & STREAMLIT ---
+def fix_header_position(df):
+    target = COLUMN_ALIASES['nopol']
+    # 1. Cek apakah header sudah benar di kolom saat ini
+    col_vals = [normalize_text(str(x)) for x in df.columns]
+    if any(alias in col_vals for alias in target):
+        return df
+    # 2. Jika tidak, cari di 30 baris pertama
+    for i in range(min(30, len(df))): 
+        vals = [normalize_text(str(x)) for x in df.iloc[i].values]
+        if any(alias in vals for alias in target):
+            df.columns = df.iloc[i] 
+            df = df.iloc[i+1:].reset_index(drop=True) 
+            return df
+    return df
+# ==============================================================================
+# [NEW] PIC DASHBOARD: TAHAP 1 (HANYA PREVIEW, TIDAK MENYIMPAN)
+# ==============================================================================
+@app_web.route('/analyze-upload', methods=['POST'])
+def analyze_upload():
+    file = request.files.get('file')
+    if not file: return jsonify({"status": "error", "message": "File tidak terdeteksi."}), 400
+    
+    try:
+        content = file.read()
+        df = read_file_robust(content, file.filename)
+        
+        # Cari Header Cerdas
+        target_aliases = COLUMN_ALIASES['nopol']
+        if not any(normalize_text(str(c)) in target_aliases for c in df.columns):
+            for i in range(min(30, len(df))):
+                row_values = [normalize_text(str(x)) for x in df.iloc[i].values]
+                if any(alias in row_values for alias in target_aliases):
+                    df.columns = df.iloc[i]
+                    df = df.iloc[i+1:].reset_index(drop=True)
+                    break
+                    
+        df, _ = smart_rename_columns(df)
+        
+        if 'nopol' not in df.columns:
+            return jsonify({"status": "error", "message": f"Gagal: Kolom NOPOL tidak ditemukan."}), 400
+            
+        # Ambil 5 baris pertama untuk ditampilkan
+        preview_data = df.head(5).replace({np.nan: "-"}).to_dict('records')
+        return jsonify({"status": "success", "preview": preview_data, "total_rows": len(df)})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# ==============================================================================
+# [NEW] PIC DASHBOARD UPLOAD ENGINE (MENGADOPSI KEKUATAN STREAMLIT)
+# ==============================================================================
+@app_web.route('/upload-dashboard', methods=['POST'])
+def upload_dashboard():
+    file = request.files.get('file')
+    uid = request.form.get('uid')
+    
+    if not file: return jsonify({"status": "error", "message": "File tidak terdeteksi."}), 400
+    
+    user_db = get_user(uid)
+    if not user_db: return jsonify({"status": "error", "message": "Akses Ditolak"}), 403
+    
+    # Agency default dari DB jika di file tidak ada kolom finance
+    agency_db = user_db.get('agency', 'UNKNOWN')
+
+    try:
+        content = file.read()
+        
+        # 1. KEKUATAN STREAMLIT: Read File Robust
+        df = read_file_robust(content, file.filename)
+        
+        # 2. KEKUATAN STREAMLIT: Cari Header di baris manapun
+        target_aliases = COLUMN_ALIASES['nopol']
+        if not any(normalize_text(str(c)) in target_aliases for c in df.columns):
+            for i in range(min(30, len(df))):
+                row_values = [normalize_text(str(x)) for x in df.iloc[i].values]
+                if any(alias in row_values for alias in target_aliases):
+                    df.columns = df.iloc[i]
+                    df = df.iloc[i+1:].reset_index(drop=True)
+                    break
+                    
+        # 3. KEKUATAN STREAMLIT: Smart Rename
+        df, _ = smart_rename_columns(df)
+        
+        if 'nopol' not in df.columns:
+            return jsonify({"status": "error", "message": f"Gagal: Kolom NOPOL tidak ditemukan."}), 400
+
+        # ---> PERBAIKAN: MENGAMBIL NAMA LEASING DARI KOLOM FINANCE DI FILE <---
+        if 'finance' in df.columns and not df['finance'].dropna().empty:
+            # Ambil baris pertama dari kolom finance yang tidak kosong
+            nama_leasing_aktual = str(df['finance'].dropna().iloc[0]).strip().upper()
+        else:
+            # Jika file tidak punya kolom finance, pakai data dari profil user
+            nama_leasing_aktual = agency_db
+
+        # 4. DATA CLEANING & AUTO-STAMPING
+        df['nopol'] = df['nopol'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
+        df['nopol'] = df['nopol'].replace({'': np.nan, 'NAN': np.nan, 'NONE': np.nan})
+        df = df.dropna(subset=['nopol']) 
+        df = df.drop_duplicates(subset=['nopol']) 
+        
+        # Terapkan nama leasing aktual ke seluruh baris data
+        df['finance'] = nama_leasing_aktual
+        
+        # Stamping Label Bulan Tahun (Contoh: '0326')
+        label_bulan = datetime.now().strftime('%m%y')
+        df['data_month'] = label_bulan
+        
+        valid_cols = ['nopol', 'type', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'branch', 'finance', 'data_month']
+        for c in valid_cols:
+            if c not in df.columns: df[c] = None 
+            
+        final_df = df[valid_cols].replace({np.nan: None})
+        recs = final_df.to_dict('records')
+        total_recs = len(recs)
+
+        if total_recs == 0:
+            return jsonify({"status": "error", "message": "Data kosong setelah dibersihkan."}), 400
+
+        # 5. KEKUATAN STREAMLIT: Batch Upsert (200 data) dengan 5x Auto-Retry
+        BATCH_SIZE = 200
+        sukses = 0
+        gagal = 0
+        
+        for i in range(0, total_recs, BATCH_SIZE):
+            batch = recs[i:i+BATCH_SIZE]
+            
+            for attempt in range(5):
+                try: 
+                    supabase.table('kendaraan').upsert(batch, on_conflict='nopol').execute()
+                    sukses += len(batch)
+                    break 
+                except Exception as e: 
+                    time.sleep((attempt + 1) * 2)
+                    if attempt == 4: 
+                        gagal += len(batch)
+
+        # 6. MENGGUNAKAN UTILS_LOG DENGAN NAMA LEASING DARI FILE
+        try:
+            catat_log_kendaraan(sumber="DASHBOARD_PIC", leasing=nama_leasing_aktual, jumlah=sukses)
+        except Exception as log_e:
+            print(f"Peringatan Log: {log_e}")
+
+        if gagal == 0:
+            return jsonify({"status": "success", "message": f"✅ SUKSES TOTAL! {sukses} Data Berhasil Diupdate (Label: {label_bulan})."})
+        else:
+            return jsonify({"status": "success", "message": f"⚠️ SELESAI. Sukses: {sukses} | Gagal: {gagal} (Cek koneksi server)."})
+            
+    except Exception as e:
+        print(f"❌ Error Upload: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+    
+# ==============================================================================
+# [NEW] PIC DASHBOARD ASSET INVENTORY (FAST LOAD & SAFE PAGINATION)
+# ==============================================================================
+@app_web.route('/get-assets')
+def get_assets():
+    user_id = request.args.get('uid')
+    search_query = request.args.get('search', '')
+    
+    try:
+        page = int(request.args.get('page', 1))
+    except (ValueError, TypeError):
+        page = 1
+        
+    per_page = 100 
+    
+    user_db = get_user(user_id)
+    if not user_db: return jsonify({"status": "error", "message": "Akses Ditolak"}), 403
+        
+    agency_name = user_db.get('agency', 'UNKNOWN')
+
+    try:
+        query = supabase.table('kendaraan').select('*', count='estimated').eq('finance', agency_name)
+        
+        if search_query:
+            query = query.ilike('nopol', f'%{search_query}%')
+            
+        start = (page - 1) * per_page
+        end = start + per_page - 1
+        
+        # PERBAIKAN: Ganti ascending=True menjadi desc=False (Sesuai versi Supabase terbaru)
+        res = query.order('nopol', desc=False).range(start, end).execute()
+        
+        total = res.count if res.count is not None else len(res.data)
+        
+        return jsonify({
+            "status": "success", 
+            "data": res.data,
+            "total_count": total,
+            "page": page,
+            "per_page": per_page
+        })
+    except Exception as e:
+        print(f"❌ Error Get Assets: {e}") 
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# --- [POINT 6] FITUR AUDIT LOG ---    
+@app_web.route('/get-audit-logs')
+def get_audit_logs():
+    user_id = request.args.get('uid')
+    u = get_user(user_id)
+    if not u: return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
+    try:
+        # Menampilkan riwayat aktivitas yang berkaitan dengan agency PIC tersebut
+        # Kita filter berdasarkan agency agar mereka hanya melihat log milik tim mereka
+        res = supabase.table('audit_logs') \
+            .select('*') \
+            .eq('agency_leasing', u.get('agency')) \
+            .order('created_at', desc=True) \
+            .limit(20) \
+            .execute()
+        return jsonify({"status": "success", "data": res.data})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app_web.route('/delete-asset', methods=['POST'])
+def delete_asset():
+    data = request.json
+    uid = data.get('uid')
+    nopol = data.get('nopol')
+    reason = data.get('reason')
+
+    user_db = get_user(uid)
+    if not user_db: return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
+    try:
+        # 1. Eksekusi Hapus di Supabase
+        # Filter berdasarkan nopol DAN agency (supaya PIC tidak bisa hapus nopol leasing lain)
+        res = supabase.table('kendaraan') \
+            .delete() \
+            .eq('nopol', nopol) \
+            .eq('finance', user_db.get('agency')) \
+            .execute()
+
+        # 2. Catat ke Audit Log (Penting untuk UU PDP)
+        supabase.table('audit_logs').insert({
+            "user_id": uid,
+            "agency_leasing": user_db.get('agency'),
+            "action": "DELETE",
+            "details": f"Menghapus Nopol {nopol} (Alasan: {reason})"
+        }).execute()
+
+        return jsonify({"status": "success", "message": "Data terhapus"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 # --- KONFIGURASI ADMIN ---
 # Masukkan ID Telegram Anda di sini agar fitur /rekap dan Notifikasi jalan
@@ -280,6 +663,8 @@ async def post_init(application: Application):
         ("admin", "📩 Hubungi Admin"),
         ("panduan", "📖 Buku Panduan"),
         ("bagikan", "🚀 Bagikan Bot"), # <--- Tambahkan Baris Ini
+        ("dashboard", "🏢 Buka Command Center"), # <--- TAMBAHAN BARU
+        ("reset_dashboard", "🔒 Reset Sesi Dashboard") # <--- TAMBAHAN BARU
     ])
     print("✅ [INIT] Command List Updated!")
 
@@ -1253,6 +1638,75 @@ async def add_agency(update, context):
         supabase.table('agencies').insert({"name": name}).execute()
         await update.message.reply_text(f"✅ Agency '{name}' ditambahkan.")
     except: await update.message.reply_text("❌ Error.")
+
+import secrets # Pastikan import ini ada di bagian paling atas file main.py
+
+# ==============================================================================
+# FUNGSI MAGIC LINK DASHBOARD (B-ONE ENTERPRISE)
+# ==============================================================================
+async def request_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Men-generate Magic Link eksklusif untuk PIC Leasing yang terdaftar."""
+    user_id = str(update.effective_user.id)
+    user_data = get_user(user_id)
+    
+    # 1. Validasi: Apakah User Terdaftar?
+    if not user_data:
+        return await update.message.reply_text("⛔ Anda belum terdaftar di sistem B-One Enterprise.")
+    
+    # 2. Validasi Eksklusif: HANYA UNTUK PIC LEASING, ADMIN, & SUPERADMIN!
+    role = user_data.get('role', '').lower()
+    is_ceo = (str(user_id) == str(ADMIN_ID)) # Jalur VIP Superadmin
+    
+    if role not in ['pic', 'admin', 'superadmin'] and not is_ceo:
+        return await update.message.reply_text(
+            "⛔ AKSES DITOLAK!\n"
+            "Dashboard ini dikhususkan untuk PIC Perusahaan Pembiayaan (Leasing).\n"
+            "Mitra Lapangan silakan gunakan menu pencarian langsung di bot ini."
+        )
+    
+    # 3. Generate Token Unik (Kunci Baja) & Batas Waktu 15 Menit
+    token = secrets.token_urlsafe(32)
+    expiry_time = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
+    
+    # 4. Simpan ke Supabase (Gembok dipasang)
+    try:
+        # FIX: Menggunakan kolom 'user_id' sesuai database Bapak
+        supabase.table('users').update({
+            'session_token': token,
+            'session_expiry': expiry_time
+        }).eq('user_id', user_id).execute()
+    except Exception as e:
+        logger.error(f"Gagal update token: {e}")
+        return await update.message.reply_text("⚠️ Sistem sibuk. Gagal membuat token akses.")
+    
+    # 5. Kirim Magic Link ke Telegram PIC
+    domain = "https://b-one.pro" # <--- KEMBALI KE DOMAIN RESMI GO-LIVE
+    magic_link = f"{domain}/login-sso?uid={user_id}&token={token}"
+    
+    # FIX: Gunakan tanda kutip ganda (") untuk href agar Telegram membacanya sebagai Link
+    pesan = (
+        "🔐 <b>AKSES DASHBOARD B-ONE ENTERPRISE</b>\n\n"
+        "Klik tautan di bawah ini untuk masuk ke Ruang Kendali Anda.\n"
+        "⚠️ <i>Tautan ini HANYA VALID SELAMA 15 MENIT dan hanya bisa digunakan di SATU perangkat.</i>\n\n"
+        f'👉 <a href="{magic_link}">MASUK KE DASHBOARD</a>\n\n'
+        "Jika Anda berganti perangkat, ketik /reset_dashboard terlebih dahulu."
+    )
+    
+    await update.message.reply_text(pesan, parse_mode="HTML", disable_web_page_preview=True)
+
+async def reset_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Menghapus sesi/token agar PIC bisa login dari perangkat baru."""
+    user_id = str(update.effective_user.id)
+    try:
+        # FIX: Menggunakan kolom 'user_id'
+        supabase.table('users').update({
+            'session_token': None,
+            'session_expiry': None
+        }).eq('user_id', user_id).execute()
+        await update.message.reply_text("✅ Sesi Dashboard berhasil di-reset. Anda sekarang bisa membuka Dashboard di perangkat/browser baru dengan mengetik /dashboard.")
+    except Exception as e:
+        logger.error(f"Gagal reset sesi: {e}")
+        await update.message.reply_text("⚠️ Gagal mereset sesi. Coba lagi.")
 
 async def admin_reply(update, context):
     if update.effective_user.id != ADMIN_ID: return
@@ -2700,8 +3154,25 @@ async def upload_leasing_user(update, context):
     return ConversationHandler.END
 
 async def stop_upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # 1. Hentikan sinyal upload jika sedang berjalan
     context.user_data['stop_signal'] = True
-    await update.message.reply_text("⚠️ **Menghentikan proses...**")
+    
+    # 2. Hapus file sampah jika ada proses upload yang batal
+    path = context.user_data.get('upload_path')
+    if path and os.path.exists(path): 
+        try: os.remove(path)
+        except: pass
+
+    # 3. BERSIHKAN SEMUA MEMORI (Agar registrasi tidak nyangkut)
+    context.user_data.clear()
+    
+    await update.message.reply_text(
+        "🛑 <b>PROSES DIHENTIKAN</b>\n"
+        "Seluruh sesi dan memori sementara telah dibersihkan.\n"
+        "Silakan mulai kembali dengan /start atau /register.",
+        parse_mode='HTML',
+        reply_markup=ReplyKeyboardRemove()
+    )
     return ConversationHandler.END
 
 async def cancel(update, context): 
@@ -4080,6 +4551,8 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('setgroup', set_leasing_group)) 
     app.add_handler(CommandHandler('setagency', set_agency_group))
     app.add_handler(CommandHandler('addagency', add_agency)) 
+    app.add_handler(CommandHandler('dashboard', request_dashboard))
+    app.add_handler(CommandHandler('reset_dashboard', reset_dashboard))
 
     # ==========================================================================
     # 4. HANDLER UMUM / CATCH-ALL (HARUS DITARUH PALING BAWAH!)

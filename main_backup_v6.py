@@ -1,9 +1,14 @@
 ################################################################################
 #                                                                              #
-#                      PROJECT: ONEASPAL BOT (ASSET RECOVERY)                  #
-#                      VERSION: 6.31 (DIRECT UPLOAD - NO ADMIN APPROVAL)       #
-#                      ROLE:    MAIN APPLICATION CORE                          #
-#                      AUTHOR:  CTO (GEMINI) & CEO (BAONK)                     #
+#  PROJECT: ONEASPAL BOT (ASSET RECOVERY)                                      #
+#  VERSION: 6.70                                                               #
+#  ROLE   : MAIN APPLICATION CORE                                              #
+#  AUTHOR : CTO (GEMINI) & CEO (BAONK)                                         #
+#                                                                              #
+#  UPDATE LOG v6.70:                                                           #
+#  1. Integrated with 'utils_log' for automatic daily activity recording.      #
+#  2. Added 'catat_log_kendaraan' in background upload execution.              #
+#  3. Fixed batch processing for better database stability.                    #
 #                                                                              #
 ################################################################################
 
@@ -27,6 +32,80 @@ from dotenv import load_dotenv
 from collections import Counter
 from datetime import datetime, timedelta, timezone, time as dt_time
 
+from flask import Flask, render_template, request, redirect
+import threading
+import asyncio
+
+# 1. Inisialisasi Flask untuk Landing Page
+app_web = Flask(__name__, template_folder='.')
+
+@app_web.route('/')
+def home():
+    # Menampilkan Landing Page B-One Asset Management
+    return render_template('index.html')
+
+@app_web.route('/send-inquiry', methods=['POST'])
+def send_inquiry():
+    name = request.form.get('name')
+    company = request.form.get('company')
+    phone = request.form.get('phone')
+    email = request.form.get('email')
+    message = request.form.get('message')
+
+    # Logika membersihkan nomor telepon untuk link WhatsApp
+    clean_phone = ''.join(filter(str.isdigit, phone))
+    if clean_phone.startswith('0'):
+        clean_phone = '62' + clean_phone[1:]
+    
+    # Pastikan bagian wa_link dan text_notif tertutup dengan benar
+    wa_link = f"https://wa.me/{clean_phone}"
+
+    text_notif = (
+        "🚀 <b>NEW ENTERPRISE INQUIRY</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>PIC:</b> {name}\n"
+        f"🏢 <b>Company:</b> {company}\n"
+        f"📞 <b>Phone:</b> <a href='{wa_link}'>{phone} (Klik Chat WA)</a>\n"
+        f"📧 <b>Email:</b> {email}\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"💬 <b>Message:</b>\n<i>{message}</i>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "📢 <i>Action: Klik nomor di atas untuk lobi langsung.</i>"
+    )
+
+    try:
+        from telegram import Bot
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        temp_bot = Bot(token=TOKEN)
+        loop.run_until_complete(temp_bot.send_message(
+            chat_id=ADMIN_ID, 
+            text=text_notif, 
+            parse_mode='HTML',
+            disable_web_page_preview=True # <--- Ini untuk menghilangkan logo WA yang mengganggu tadi
+        ))
+        loop.close()
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+    # Response setelah submit (Halaman sukses sederhana)
+    return """
+    <body style="background:#0a0e14; color:white; font-family:sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; text-align:center; padding:20px;">
+        <div>
+            <div style="font-size:50px; color:#00ffcc; margin-bottom:20px;">✔</div>
+            <h1 style="color:#00ffcc; margin-bottom:10px;">Inquiry Sent Successfully!</h1>
+            <p style="color:#a0aec0; margin-bottom:30px;">Thank you for reaching out. Our team will contact you shortly.</p>
+            <a href="/" style="background:#0088ff; color:white; padding:12px 25px; border-radius:50px; text-decoration:none; font-weight:bold;">Back to Homepage</a>
+        </div>
+    </body>
+    """
+
+def run_flask():
+    # Railway menggunakan environment variable PORT, default 8080
+    port = int(os.environ.get("PORT", 8080))
+    # Matikan reloader agar tidak bentrok dengan thread Bot Telegram
+    app_web.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+
 from telegram import (
     Update, 
     InlineKeyboardButton, 
@@ -49,6 +128,7 @@ from telegram.ext import (
 )
 
 from supabase import create_client, Client
+from utils_log import catat_log_kendaraan
 
 # [FIX] Import ClientOptions untuk menangani Timeout
 try:
@@ -151,15 +231,15 @@ print("="*50 + "\n")
 # ##############################################################################
 
 COLUMN_ALIASES = {
-    'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'nomorplat', 'nomorkendaraan', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'no. polisi'],
-    'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'assetdescription', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'merkname', 'brand', 'product', 'tipekendaraan', 'tipeunit', 'typekendaraan', 'typeunit'],
-    'tahun': ['tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture', 'assetyear', 'manufacturingyear'],
-    'warna': ['warna', 'color', 'colour', 'cat', 'kelir', 'assetcolour'],
-    'noka': ['noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 'rangka', 'chassisno', 'vinno', 'serial_number', 'bodyno', 'frameno', 'no rangka', 'no. rangka'],
-    'nosin': ['nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'engineno', 'noengine', 'engine_number', 'machineno', 'mesinno', 'no mesin', 'no. mesin'],
-    'finance': ['finance', 'leasing', 'lising', 'multifinance', 'cabang', 'partner', 'mitra', 'principal', 'company', 'client'],
-    'ovd': ['ovd', 'overdue', 'dpd', 'keterlambatan', 'odh', 'hari', 'telat', 'aging', 'od', 'bucket', 'daysoverdue', 'osp'],
-    'branch': ['branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 'wilayah', 'region', 'areaname', 'branchname', 'resort']
+    'nopol': ['nopolisi', 'nomorpolisi', 'nopol', 'noplat', 'tnkb', 'licenseplate', 'plat', 'police_no', 'no polisi', 'plate_number', 'platenumber', 'plate_no'],
+    'type': ['type', 'tipe', 'unit', 'model', 'vehicle', 'jenis', 'deskripsiunit', 'merk', 'object', 'kendaraan', 'item', 'brand', 'tipeunit', 'unit_type', 'nama_unit'],
+    'tahun': ['tahun', 'year', 'thn', 'rakitan', 'th', 'yearofmanufacture'],
+    'warna': ['warna', 'color', 'colour', 'cat'],
+    'noka': ['noka', 'norangka', 'nomorrangka', 'chassis', 'chasis', 'vin', 'rangka', 'no rangka', 'chassis_number'],
+    'nosin': ['nosin', 'nomesin', 'nomormesin', 'engine', 'mesin', 'no mesin', 'engine_number'],
+    'finance': ['finance', 'leasing', 'lising', 'multifinance', 'mitra', 'principal', 'client'],
+    'ovd': ['ovd', 'overdue', 'dpd', 'keterlambatan', 'odh', 'hari', 'telat', 'aging', 'days_overdue', 'lates', 'over_due', 'od'],
+    'branch': ['branch', 'area', 'kota', 'pos', 'cabang', 'lokasi', 'wilayah']
 }
 
 VALID_DB_COLUMNS = ['nopol', 'type', 'finance', 'tahun', 'warna', 'noka', 'nosin', 'ovd', 'branch']
@@ -199,6 +279,7 @@ async def post_init(application: Application):
         ("register", "📝 Daftar Mitra"),
         ("admin", "📩 Hubungi Admin"),
         ("panduan", "📖 Buku Panduan"),
+        ("bagikan", "🚀 Bagikan Bot"), # <--- Tambahkan Baris Ini
     ])
     print("✅ [INIT] Command List Updated!")
 
@@ -207,6 +288,38 @@ def get_user(user_id):
         response = supabase.table('users').select("*").eq('user_id', user_id).execute()
         return response.data[0] if response.data else None
     except: return None
+
+def catat_audit(user_id, action, details="-"):
+    """
+    Fungsi Audit Trail B-One Enterprise.
+    Menarik data identitas legal (Email & No HP) dari tabel users 
+    dan mencatatnya ke audit_logs sesuai kepatuhan UU PDP.
+    """
+    try:
+        # 1. Ambil data profil terbaru dari fungsi di atas
+        u = get_user(user_id)
+        if not u:
+            return
+
+        # 2. Pemetaan kolom sesuai struktur tabel users & audit_logs yang diselaraskan
+        payload = {
+            "user_id": user_id,
+            "nama_lengkap": u.get('nama_lengkap', 'Unknown'),
+            "no_hp": u.get('no_hp', '-'),
+            "email": u.get('email', '-'),
+            "role": u.get('role', 'matel'),
+            "agency_leasing": u.get('agency', '-'), # Kolom agency berisi nama Leasing/PT
+            "wilayah": u.get('wilayah_korlap', '-'), # Wilayah otoritas
+            "action": action,
+            "details": details,
+            "bot_version": "6.70"
+        }
+
+        # 3. Eksekusi simpan ke tabel audit_logs
+        supabase.table('audit_logs').insert(payload).execute()
+        
+    except Exception as e:
+        logger.error(f"❌ Error pada sistem audit: {e}")
 
 # --- FUNGSI HELPER BARU (PASTIKAN ADA DI ATAS) ---
 def get_korlaps_by_agency(agency_name):
@@ -529,16 +642,30 @@ def fix_header_position(df):
     return df
 
 def smart_rename_columns(df):
-    new = {}; found = []
-    df.columns = [str(c).strip().replace('\ufeff', '') for c in df.columns]
+    new_cols = {}
+    found_std = set()
+    
+    # 1. Bersihkan nama kolom dari spasi, tanda kutip, dan karakter aneh
+    df.columns = [str(c).strip().replace('"', '').replace("'", "").lower() for c in df.columns]
+    
     for col in df.columns:
-        clean = normalize_text(col); renamed = False
-        for std, aliases in COLUMN_ALIASES.items():
-            if clean == std or clean in aliases:
-                new[col] = std; found.append(std); renamed = True; break
-        if not renamed: new[col] = col
-    df.rename(columns=new, inplace=True)
-    return df, found
+        renamed = False
+        # Hilangkan karakter non-alfanumerik untuk pencocokan alias
+        clean_col = re.sub(r'[^a-z0-9]', '', col)
+        
+        for std_name, aliases in COLUMN_ALIASES.items():
+            # Jika kolom ini adalah standar atau ada di daftar alias, dan belum ditemukan sebelumnya
+            if (clean_col == std_name or clean_col in aliases) and std_name not in found_std:
+                new_cols[col] = std_name
+                found_std.add(std_name)
+                renamed = True
+                break
+        
+        if not renamed:
+            new_cols[col] = col
+            
+    df.rename(columns=new_cols, inplace=True)
+    return df, list(found_std)
 
 def read_file_robust(content, fname):
     """
@@ -1189,8 +1316,7 @@ async def cek_user_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(kb), 
         parse_mode='HTML', 
         link_preview_options=LinkPreviewOptions(is_disabled=True)
-    )
-    
+    )    
 
 # ##############################################################################
 # BAGIAN 9: USER FEATURES & NOTIFIKASI (UPDATE: SHARE WA & COPY BUTTON)
@@ -1597,6 +1723,14 @@ async def download_finding_report(update, context):
             await sts.edit_text(f"⚠️ <b>DATA KOSONG.</b>")
             return
             
+        # --- CATAT AUDIT (UU PDP COMPLIANCE) ---
+        # Kita hapus len(all_logs) agar tidak memicu error variable undefined
+        catat_audit(
+            user_id=user_id, 
+            action="DOWNLOAD_FINDING_REPORT", 
+            details=f"Pimpinan mengunduh laporan temuan bulanan ({leasing_filter})."
+        )
+
         timestamp = datetime.now().strftime('%Y%m%d_%H%M')
         fname = f"REPORT_{leasing_filter}_{timestamp}.xlsx"
         caption = (
@@ -1684,6 +1818,13 @@ async def download_korlap_report(update: Update, context: ContextTypes.DEFAULT_T
             await sts.edit_text("⚠️ <b>DATA KOSONG</b>\nTim Anda belum mendapatkan unit bulan ini.")
             return
 
+        # --- CATAT AUDIT (UU PDP COMPLIANCE) ---
+        catat_audit(
+            user_id=user_id, 
+            action="DOWNLOAD_KORLAP_REPORT", 
+            details=f"Korlap mengunduh rekap kinerja tim agency: {u.get('agency')}."
+        )
+
         fname = f"LAPORAN_TIM_{my_agency.replace(' ','_')}_{datetime.now().strftime('%b%Y')}.xlsx"
         await context.bot.send_document(
             chat_id=query.message.chat_id,
@@ -1698,6 +1839,148 @@ async def download_korlap_report(update: Update, context: ContextTypes.DEFAULT_T
         await sts.edit_text(f"❌ Error: {e}")
 
 # ==============================================================================
+# [UPDATED V2] FITUR REKAP ANGGOTA (FUZZY LOGIC - ANTI TYPO)
+# ==============================================================================
+async def rekap_anggota_korlap(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    u = get_user(user_id)
+
+    # 1. Validasi Keamanan (Hanya Korlap)
+    if not u or u.get('role') != 'korlap':
+        return await update.message.reply_text("⛔ **AKSES DITOLAK**\nFitur ini khusus untuk akun KORLAP.", parse_mode='Markdown')
+
+    my_agency_raw = u.get('agency', '')
+    if not my_agency_raw:
+        return await update.message.reply_text("⚠️ Data Agency Anda tidak valid. Hubungi Admin.")
+
+    # Feedback Loading
+    sts = await update.message.reply_text("⏳ **Sedang mengaudit pasukan (Deep Scan)...**", parse_mode='Markdown')
+
+    try:
+        # 2. Query Database (AMBIL SEMUA MATEL DULU)
+        # Kita tarik semua user non-PIC agar bisa kita filter sendiri pakai Python (Fuzzy Logic)
+        res = supabase.table('users').select('*')\
+            .neq('role', 'pic')\
+            .neq('role', 'admin')\
+            .execute()
+
+        all_matels = res.data
+        if not all_matels:
+            return await sts.edit_text("📂 Database User Kosong.", parse_mode='Markdown')
+
+        # 3. LOGIKA PENCOCOKAN CERDAS (FUZZY MATCHING)
+        target_agency_clean = clean_pt_name(my_agency_raw) # Bersihkan nama PT Korlap
+        members = []
+
+        for m in all_matels:
+            user_agency_raw = m.get('agency', '')
+            user_agency_clean = clean_pt_name(user_agency_raw)
+            
+            is_match = False
+            
+            # A. Cek Substring (Pasti Benar) -> Contoh: "ELANG" ada di "PT ELANG PERKASA"
+            if target_agency_clean in user_agency_clean or user_agency_clean in target_agency_clean:
+                is_match = True
+            
+            # B. Cek Typo (Fuzzy Logic) -> Contoh: "LUKRETIA" vs "LUCRETIA"
+            if not is_match:
+                # Hitung rasio kemiripan (0.0 - 1.0)
+                similarity = difflib.SequenceMatcher(None, target_agency_clean, user_agency_clean).ratio()
+                if similarity > 0.80: # Jika 80% mirip, anggap SAMA!
+                    is_match = True
+            
+            if is_match:
+                members.append(m)
+
+        if not members:
+            return await sts.edit_text(f"📂 **DATA KOSONG**\nTidak ditemukan anggota yang cocok dengan: **{my_agency_raw}**", parse_mode='Markdown')
+
+        # 4. Proses Data ke Excel
+        data_export = []
+        active_count = 0
+        expired_count = 0
+        now = datetime.now(TZ_JAKARTA)
+
+        for m in members:
+            # Format Tanggal Expired
+            raw_exp = m.get('expiry_date')
+            exp_fmt = "-"
+            status_calc = "NON-AKTIF"
+
+            if raw_exp:
+                try:
+                    dt = datetime.fromisoformat(str(raw_exp).replace('Z', '+00:00')).astimezone(TZ_JAKARTA)
+                    exp_fmt = dt.strftime('%d-%m-%Y')
+                    
+                    if dt > now:
+                        status_calc = "AKTIF"
+                        active_count += 1
+                    else:
+                        status_calc = "EXPIRED"
+                        expired_count += 1
+                except: pass
+            else:
+                expired_count += 1
+
+            # Masukkan ke list export
+            data_export.append({
+                "NAMA LENGKAP": str(m.get('nama_lengkap', '-')).upper(),
+                "NO HP (WA)": m.get('no_hp', '-'),
+                "AGENCY (INPUT USER)": m.get('agency', '-').upper(), # Biar ketahuan kalau ada yg typo
+                "DOMISILI": m.get('alamat', '-'),
+                "EMAIL": m.get('email', '-'),
+                "TGL EXPIRED": exp_fmt,
+                "STATUS": status_calc
+            })
+
+        # Buat DataFrame Pandas
+        df = pd.DataFrame(data_export)
+
+        # 5. Tulis ke Excel
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='DATA ANGGOTA')
+            ws = writer.sheets['DATA ANGGOTA']
+            
+            # Styling
+            fmt_header = writer.book.add_format({'bold': True, 'bg_color': '#4F81BD', 'font_color': 'white', 'border': 1})
+            for col_num, value in enumerate(df.columns.values):
+                ws.write(0, col_num, value, fmt_header)
+                ws.set_column(col_num, col_num, 22)
+
+        output.seek(0)
+
+        # 6. Kirim Laporan
+        caption_msg = (
+            f"👥 **AUDIT ANGGOTA (SMART SCAN)**\n"
+            f"🏢 Agency: {my_agency_raw}\n"
+            f"📅 Tanggal: {now.strftime('%d %B %Y')}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"✅ **Aktif:** {active_count}\n"
+            f"💀 **Expired:** {expired_count}\n"
+            f"∑ **Total Terdeteksi:** {len(members)}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"💡 _Sistem menggunakan 'Fuzzy Logic' untuk mendeteksi anggota yang salah ketik nama Agency._"
+        )
+
+        clean_filename = target_agency_clean.replace(" ", "_")[:20]
+        fname = f"SQUAD_{clean_filename}_{now.strftime('%d%m%y')}.xlsx"
+
+        await context.bot.send_document(
+            chat_id=update.effective_chat.id,
+            document=output,
+            filename=fname,
+            caption=caption_msg,
+            parse_mode='Markdown'
+        )
+        await sts.delete()
+
+    except Exception as e:
+        logger.error(f"Rekap Anggota Error: {e}")
+        try: await sts.edit_text(f"❌ Error: {e}")
+        except: pass
+
+# ==============================================================================
 # BAGIAN 5: HANDLER TOPUP & BUKTI BAYAR (CLEAN & FIXED)
 # ==============================================================================
 
@@ -1707,9 +1990,8 @@ async def info_bayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption_msg = (
         "💰 **PAKET LANGGANAN (UNLIMITED CEK)**\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        "1️⃣ **5 HARI** = Rp 25.000\n"
-        "2️⃣ **10 HARI** = Rp 50.000\n"
-        "3️⃣ **20 HARI** = Rp 75.000\n"
+        "1️⃣ **10 HARI** = Rp 50.000\n"
+        "2️⃣ **20 HARI** = Rp 75.000\n"
         "🔥 **30 HARI** = Rp 100.000 (BEST DEAL!)\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
         "💳 **METODE BAYAR: QRIS (B-ONE ENTERPRISE)**\n"
@@ -1717,7 +1999,7 @@ async def info_bayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📝 **SUDAH TRANSFER?**\n"
         "Silakan upload bukti transfer Anda dengan mengetik perintah:\n"
         "👉 /buktibayar\n"
-        "👉 /buktibayar"
+        "⚠️ *Pastikan nominal sesuai dengan paket yang dipilih dan bukti bayar sesuai nominal transfer.*"
     )
 
     try:
@@ -1898,7 +2180,6 @@ def get_action_buttons(matel_user, unit_data):
     ])
 
 # --- FUNGSI FORMAT PESAN NOTIFIKASI (PUSAT) ---
-# --- FUNGSI FORMAT PESAN NOTIFIKASI (PUSAT) ---
 def create_notification_text(matel_user, unit_data, header_title):
     # 1. LOGIKA VERSI DATA (SMART FALLBACK)
     version_code = unit_data.get('data_month')
@@ -2031,7 +2312,7 @@ async def set_agency_group(update, context):
         await update.message.reply_text(f"❌ Gagal set grup: {e}")
 
 # ==============================================================================
-# BAGIAN 10:[UPDATE v2.1] UPLOAD ENGINE: BACKGROUND TASK (ANTI-TIMEOUT)
+# BAGIAN 10:[UPDATE v2.2] UPLOAD ENGINE: BACKGROUND TASK (AUTO LOG INTEGRATED)
 # ==============================================================================
 
 # [GLOBAL] Set Task agar tidak di-kill
@@ -2039,10 +2320,11 @@ BACKGROUND_TASKS = set()
 
 async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
     """
-    Versi UPDATE v2.1: 
+    Versi UPDATE v2.2 (Integrated): 
     - Batch Size 200 (Aman untuk Supabase)
     - Retry Logic 5x (Tahan banting koneksi)
     - Auto Month Code (0226)
+    - [NEW] Auto Log ke Tabel Riwayat Harian
     """
     print(f"🚀 [BG] START Task User {user_id}")
     
@@ -2187,6 +2469,19 @@ async def run_background_upload(app, chat_id, user_id, message_id, data_ctx):
         )
         await send_update(final_rpt)
         print(f"🏁 [BG] Done. Suc: {suc}")
+
+        # --- [INTEGRASI LOG HARIAN] ---
+        # Bagian ini yang kita tambahkan agar tercatat di Laporan Pagi
+        if suc > 0 and mode == 'UPSERT':
+            try:
+                catat_log_kendaraan(
+                    sumber="BOT_TELEGRAM", 
+                    leasing=leasing_info, 
+                    jumlah=suc
+                )
+            except Exception as log_err:
+                print(f"⚠️ Gagal Catat Log Harian: {log_err}")
+        # ------------------------------
 
     except Exception as e:
         logger.error(f"Upload Fatal: {e}")
@@ -2488,56 +2783,57 @@ async def register_kota(update, context):
     await update.message.reply_text(txt, parse_mode='Markdown')
     return R_AGENCY
 
-async def register_agency(update, context):
+async def register_agency(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "❌ BATAL": return await cancel(update, context)
     
     raw_text = update.message.text.strip()
     role = context.user_data.get('reg_role', 'matel')
     
-    final_agency_name = raw_text # Default value
-    
-    # ==========================================================================
-    # 🧠 INTELLIGENT NAME DETECTION (PERCABANGAN LOGIKA)
-    # ==========================================================================
+    final_agency_name = raw_text # Default
     
     if role == 'matel':
-        # [KASUS 1: MATEL] -> Gunakan SMART TYPO DETECTION (Cari Nama PT Korlap)
-        # Tujuannya: Agar Matel terhubung ke Korlap yang benar meski typo
-        
-        # Panggil Helper yang sudah kita buat tadi
+        # Cari tebakan terbaik dari database
         suggested = find_best_match_agency(raw_text)
         
+        # --- LOGIKA REM 80% (THE GATEKEEPER) ---
+        if suggested:
+            # Bersihkan dari kata PT/CV untuk menghitung murni hurufnya
+            clean_input = raw_text.upper().replace("PT.", "").replace("PT ", "").replace("CV.", "").replace("CV ", "").strip()
+            clean_suggested = suggested.upper().replace("PT.", "").replace("PT ", "").replace("CV.", "").replace("CV ", "").strip()
+            
+            # Hitung persentase kemiripan (0.0 sampai 1.0)
+            similarity = difflib.SequenceMatcher(None, clean_input, clean_suggested).ratio()
+            
+            # JIKA KEMIRIPAN DI BAWAH 80%, TOLAK TEBAKANNYA! (Anggap PT Baru)
+            if similarity < 0.8:
+                suggested = None 
+        # ---------------------------------------
+
         if suggested:
             final_agency_name = suggested
-            # Beri Feedback Auto-Correct jika input beda dengan hasil
             if raw_text.upper() != final_agency_name:
                 await update.message.reply_text(
                     f"🤖 **AUTO-CORRECT:**\n"
                     f"Input: _{raw_text}_\n"
                     f"Terdeteksi sebagai: **{final_agency_name}**\n"
-                    f"✅ Data dikoreksi otomatis agar terhubung ke Korlap.",
+                    f"✅ Data dikoreksi otomatis agar persetujuan masuk ke Korlap.",
                     parse_mode='Markdown'
                 )
             else:
                 await update.message.reply_text(f"✅ Agency Terkonfirmasi: **{final_agency_name}**", parse_mode='Markdown')
         else:
-            # Jika tidak ketemu di DB Korlap, pakai input asli user (Uppercase)
             final_agency_name = raw_text.upper()
-            await update.message.reply_text(f"⚠️ **AGENCY BARU:** {final_agency_name}\nBelum terdaftar di database Korlap. Data akan diverifikasi Admin Pusat.", parse_mode='Markdown')
+            await update.message.reply_text(f"⚠️ **AGENCY BARU:** {final_agency_name}\nBelum terdaftar. Data akan diverifikasi Admin Pusat.", parse_mode='Markdown')
 
     else:
-        # [KASUS 2: PIC LEASING] -> Gunakan KAMUS CERDAS (Fitur Lama Anda)
-        # Tujuannya: Standarisasi nama leasing (ex: "bca" -> "BCA FINANCE")
+        # Jika PIC Leasing, pakai kamus standar
         final_agency_name = standardize_leasing_name(raw_text)
 
-    # ==========================================================================
-    
-    # Simpan Nama Hasil Deteksi ke Memori
+    # Simpan ke memori
     context.user_data['r_agency'] = final_agency_name
     
-    # --- LOGIKA LANJUTAN (SAMA PERSIS DENGAN KODE LAMA) ---
+    # --- LOGIKA LANJUTAN ---
     if role == 'pic':
-        # JIKA PIC: Sekarang waktunya tanya CABANG (sebagai pengganti Kota)
         msg = (
             f"✅ Leasing Terdeteksi: <b>{final_agency_name}</b>\n\n"
             f"5️⃣ <b>INPUT KODE CABANG (BRANCH)</b>\n"
@@ -2546,14 +2842,10 @@ async def register_agency(update, context):
             f"🔹 <b>PIC NASIONAL:</b> Ketik kode <b>HO</b> (Akses Seluruh Indonesia)."
         )
         await update.message.reply_text(msg, parse_mode='HTML')
-        return R_BRANCH # <--- Lanjut ke input Branch
+        return R_BRANCH 
         
     else:
-        # JIKA MATEL: Sudah isi Kota sebelumnya, jadi anggap Kota = Branch. SELESAI.
-        # Kita set 'wilayah_korlap' (Branch Logic) sama dengan 'r_kota' mereka
         context.user_data['r_branch_code'] = context.user_data.get('r_kota')
-        
-        # Tampilkan Konfirmasi
         d = context.user_data
         summary = (
             f"📝 **KONFIRMASI PENDAFTARAN**\n"
@@ -2603,31 +2895,46 @@ async def register_branch(update, context):
     )
     return R_PHOTO_ID
     
-async def register_photo_id(update, context):
-    # Cek apakah user mengirim foto
-    if not update.message.photo:
-        await update.message.reply_text("⚠️ Mohon kirimkan **FOTO** ID Card, bukan dokumen/teks.", reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True))
+async def register_photo_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message
+    photo_file = None
+
+    # [FIX] LOGIKA PENANGKAPAN CERDAS
+    # 1. Cek apakah dikirim sebagai Foto Biasa (Compressed)
+    if message.photo:
+        photo_file = message.photo[-1]
+        
+    # 2. Cek apakah dikirim sebagai File Dokumen (Uncompressed)
+    elif message.document:
+        # Pastikan ini file gambar (image/jpeg, image/png, dll)
+        if 'image' in str(message.document.mime_type).lower():
+            photo_file = message.document
+
+    # Jika BUKAN foto dan BUKAN dokumen gambar -> Tolak
+    if not photo_file:
+        await message.reply_text(
+            "⚠️ **FORMAT DITOLAK**\nMohon kirimkan FOTO ID Card (Boleh dari Galeri atau File Gambar).", 
+            reply_markup=ReplyKeyboardMarkup([["❌ BATAL"]], resize_keyboard=True)
+        )
         return R_PHOTO_ID
 
-    # Ambil ID file foto resolusi terbesar
-    photo_file_id = update.message.photo[-1].file_id
-    context.user_data['r_photo_proof'] = photo_file_id
+    # Ambil File ID dari sumber manapun
+    context.user_data['r_photo_proof'] = photo_file.file_id
     
     d = context.user_data
-    # Tampilkan Konfirmasi Akhir untuk PIC
     summary = (
         f"📝 **KONFIRMASI REGISTRASI (PIC)**\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"👤 **Nama:** {d['r_nama']}\n"
-        f"📱 **HP:** {d['r_hp']}\n"
-        f"📧 **Email:** {d['r_email']}\n"
-        f"🏢 **Cabang:** {d['r_kota']}\n"
-        f"🏦 **Finance:** {d['r_agency']}\n"
+        f"👤 **Nama:** {d.get('r_nama')}\n"
+        f"📱 **HP:** {d.get('r_hp')}\n"
+        f"📧 **Email:** {d.get('r_email')}\n"
+        f"🏢 **Cabang:** {d.get('r_kota')}\n"
+        f"🏦 **Finance:** {d.get('r_agency')}\n"
         f"📸 **ID Card:** [Terlampir]\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"Kirim data ke Admin untuk verifikasi?"
     )
-    await update.message.reply_text(summary, reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True), parse_mode='Markdown')
+    await message.reply_text(summary, reply_markup=ReplyKeyboardMarkup([["✅ KIRIM", "❌ BATAL"]], resize_keyboard=True, one_time_keyboard=True), parse_mode='Markdown')
     return R_CONFIRM
 
 # --- UPDATE FUNGSI REGISTER CONFIRM ---
@@ -2639,20 +2946,19 @@ async def register_confirm(update, context):
     role_db = d.get('reg_role', 'matel')
     
     # ==========================================================================
-    # ⚙️ FIX LOGIC: MASA AKTIF & KUOTA (PIC vs MATEL)
+    # ⚙️ FIX LOGIC: MASA AKTIF & KUOTA (PIC vs MATEL) - UPDATED v6.70
     # ==========================================================================
     now = datetime.now(TZ_JAKARTA)
     
     if role_db == 'pic':
-        # PIC LEASING: VIP (10 Tahun / 3650 Hari)
-        expiry_dt = now + timedelta(days=3650)
-        quota_init = 100000 # Kuota Jumbo
+        # PIC LEASING: Aktif sampai akhir tahun 2030
+        expiry_dt = datetime(2030, 12, 31, 23, 59, 59, tzinfo=TZ_JAKARTA)
+        quota_init = 999999 
     else:
-        # MATEL: TRIAL (3 Hari)
+        # MATEL: Trial 3 Hari
         expiry_dt = now + timedelta(days=3)
-        quota_init = 1000   # Kuota Standar Trial
+        quota_init = 1000   
 
-    # Convert ke String ISO agar Database Supabase mau menerimanya
     expiry_str = expiry_dt.isoformat()
     # ==========================================================================
     
@@ -2925,6 +3231,37 @@ async def panduan(update, context):
         )
     
     await update.message.reply_text(msg, parse_mode='HTML')
+
+async def bagikan_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 1. Kalimat promosi sesuai keinginan Bapak
+    promo_text = (
+        "Ijin info rekan-rekan, untuk cek data kendaraan dan update leasing terbaru "
+        "sekarang lebih mudah pakai One Aspal Bot. Data update tiap hari, akurat, "
+        "hemat kouta dan sangat membantu di lapangan. Yuk cek di sini: https://t.me/Oneaspal_bot"
+    )
+    
+    # 2. Membuat Link Share WhatsApp (Agar otomatis terisi teksnya)
+    wa_url = f"https://api.whatsapp.com/send?text={urllib.parse.quote(promo_text)}"
+    
+    # 3. Pesan instruksi di dalam bot
+    msg = (
+        "🚀 **BAGIKAN ONE ASPAL BOT**\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "Bantu rekan tim Anda bekerja lebih mudah dengan membagikan bot ini.\n\n"
+        "Silakan pilih metode berbagi:"
+    )
+    
+    # 4. Tombol aksi (Inline)
+    kb = [
+        [InlineKeyboardButton("📲 Kirim ke WhatsApp", url=wa_url)],
+        [InlineKeyboardButton("📋 Salin Pesan Promosi", callback_data="copy_promo")]
+    ]
+    
+    await update.message.reply_text(
+        msg, 
+        parse_mode='Markdown', 
+        reply_markup=InlineKeyboardMarkup(kb)
+    )
 
 async def handle_message(update, context):
     text = update.message.text
@@ -3364,64 +3701,75 @@ async def callback_handler(update, context):
     # 6. APPROVE REGISTER (appu_)
     elif data.startswith("appu_"): 
         target_uid = int(data.split("_")[1])
+        target_user = get_user(target_uid) # Ambil data pendaftaran dulu
         
-        # [LOGIKA TRIAL 3 HARI]
+        if not target_user:
+            await query.answer("❌ Data user tidak ditemukan.")
+            return
+
         now = datetime.now(TZ_JAKARTA)
-        trial_end = now + timedelta(days=3)
+        role_db = target_user.get('role', 'matel')
+
+        # TENTUKAN EXPIRED BERDASARKAN ROLE
+        if role_db == 'pic':
+            final_expiry = datetime(2030, 12, 31, 23, 59, 59, tzinfo=TZ_JAKARTA)
+            success_msg = f"🚀 <b>PIC {target_uid} DIAKTIFKAN</b>\n━━━━━━━━━━━━━━━\n✅ Akses Enterprise s/d 2030"
+        else:
+            final_expiry = now + timedelta(days=3)
+            exp_display = final_expiry.strftime('%d %b %Y')
+            success_msg = f"✅ <b>User {target_uid} DIAKTIFKAN</b>\n━━━━━━━━━━━━━━━\n🎁 Trial: 3 Hari (s/d {exp_display})"
         
-        # Update Database
+        # 1. Update Database
         supabase.table('users').update({
             'status': 'active',
-            'expiry_date': trial_end.isoformat()
+            'expiry_date': final_expiry.isoformat()
         }).eq('user_id', target_uid).execute()
         
-        # Feedback ke Admin
-        exp_display = trial_end.strftime('%d %b %Y')
+        # 2. Feedback ke Admin (Satu kali saja agar tidak error)
         try:
-            await query.edit_message_caption(f"✅ User {target_uid} DIAKTIFKAN.\n🎁 Trial: 3 Hari (s/d {exp_display})")
+            await query.edit_message_caption(success_msg, parse_mode='HTML')
         except:
-            await query.edit_message_text(f"✅ User {target_uid} DIAKTIFKAN.\n🎁 Trial: 3 Hari (s/d {exp_display})")
+            await query.edit_message_text(success_msg, parse_mode='HTML')
         
-        # Ambil data user untuk notifikasi
-        target_user = get_user(target_uid)
+        # 3. Kirim notifikasi ke User
+        exp_display = final_expiry.strftime('%d %b %Y')
         
-        if target_user and target_user.get('role') == 'pic':
-            # PESAN UNTUK PIC (Tetap)
-            nama_pic = clean_text(target_user.get('nama_lengkap', 'Partner'))
+        if role_db == 'pic':
+            # PESAN UNTUK PIC (Enterprise Welcome)
+            nama_pic = target_user.get('nama_lengkap', 'Partner')
             msg_pic = (
-                f"Selamat Pagi, Pak {nama_pic}.\n\n"
+                f"Selamat Pagi, Pak <b>{nama_pic}</b>.\n\n"
                 f"Izin memperkenalkan fitur <b>Private Enterprise</b> di OneAspal Bot.\n"
                 f"Kami menyediakan <b>Private Cloud</b> agar Bapak bisa menyimpan data kendaraan dengan aman menggunakan <b>Blind Check System</b>.\n\n"
                 f"🔐 <b>Keamanan Data:</b>\n"
-                f"Di sistem ini, Bapak <b>TIDAK</b> dikategorikan menyebarkan data kepada orang lain (Aman secara SOP). Bapak hanya mengarsipkan data digital untuk menunjang <b>Performance Pekerjaan</b> Bapak sendiri.\n\n"
-                f"Data Bapak <b>TIDAK BISA</b> dilihat atau didownload user lain. Sistem hanya akan memberi notifikasi kepada Bapak jika unit tersebut ditemukan di lapangan.\n\n"
-                f"Silakan dicoba fitur <b>Upload Data</b>-nya, Pak (Menu Sinkronisasi).\n\n"
-                f"<i>Jika ada pertanyaan, silakan balas pesan ini melalui tombol <b>📞 BANTUAN TEKNIS</b> di menu utama.</i>"
+                f"Sesuai standar POJK & UU PDP, Bapak <b>TIDAK</b> dikategorikan menyebarkan data pribadi. Bapak hanya mengarsipkan data digital untuk menunjang performa kerja internal.\n\n"
+                f"Data Bapak <b>TERISOLASI</b> (Tidak bisa dilihat user lain). Sistem hanya memberi notifikasi jika unit ditemukan di lapangan.\n\n"
+                f"Silakan dicoba fitur <b>Upload Data</b> di menu Sinkronisasi, Pak.\n\n"
+                f"<i>Jika ada pertanyaan, silakan hubungi Bantuan Teknis.</i>"
             )
             try: await context.bot.send_message(target_uid, msg_pic, parse_mode='HTML')
             except: pass
 
         else:
-            # PESAN UNTUK MATEL (Trial 3 Hari + Ikon Petir ⚡)
+            # PESAN UNTUK MATEL (Trial 3 Hari - Full HTML)
             nama_user = target_user.get('nama_lengkap', 'Mitra')
             msg_mitra = (
-                f"🦅 **SELAMAT BERGABUNG DI ONE ASPAL BOT** 🦅\n"
-                f"Halo, {nama_user}! Akun Anda telah **DISETUJUI** ✅.\n\n"
-                f"🎁 **BONUS PENDAFTARAN:**\n"
+                f"🦅 <b>SELAMAT BERGABUNG DI ONE ASPAL BOT</b> 🦅\n\n"
+                f"Halo, <b>{nama_user}</b>! Akun Anda telah <b>DISETUJUI</b> ✅.\n\n"
+                f"🎁 <b>BONUS PENDAFTARAN:</b>\n"
                 f"Anda mendapatkan akses <b>TRIAL GRATIS 3 HARI</b>.\n"
                 f"📅 <b>Aktif s/d:</b> {exp_display}\n\n"
-                f"Fitur kami dirancang **Super Cepat** ⚡ dan **Hemat Kuota** 📉 "
-                f"untuk menunjang kinerja Anda di lapangan.\n\n"
-                f"🔎 **CARA PENCARIAN:**\n"
+                f"Fitur kami dirancang <b>Super Cepat</b> ⚡ dan <b>Hemat Kuota</b> 📉 untuk menunjang kinerja Anda di lapangan.\n\n"
+                f"🔎 <b>CARA PENCARIAN:</b>\n"
                 f"Cukup ketik NOPOL, NOKA, atau NOSIN langsung di sini.\n"
-                f"Contoh: `B1234ABC` (Tanpa spasi lebih baik)\n\n"
-                f"💡 **MENU UTAMA:**\n"
+                f"Contoh: <code>B1234ABC</code>\n\n"
+                f"💡 <b>MENU UTAMA:</b>\n"
                 f"/cekkuota - Cek masa aktif\n"
                 f"/infobayar - Perpanjang Langganan\n"
                 f"/admin - Bantuan Teknis\n\n"
                 f"Selamat bekerja! Salam Satu Aspal. 🏴‍☠️"
             )
-            try: await context.bot.send_message(target_uid, msg_mitra, parse_mode='Markdown')
+            try: await context.bot.send_message(target_uid, msg_mitra, parse_mode='HTML')
             except: pass
             
     # 7. REJECT REGISTER (reju_)
@@ -3571,79 +3919,46 @@ async def callback_handler(update, context):
         # Download Laporan Tim (Korlap) --> INI YANG BARU
         await download_korlap_report(update, context)
 
+    # 11.Tambahkan logika ini di dalam fungsi callback_handler
+    elif data == "copy_promo":
+        promo_msg = (
+            "Ijin info rekan-rekan, untuk cek data kendaraan dan update leasing terbaru "
+            "sekarang lebih mudah pakai One Aspal Bot. Data update tiap hari, akurat, "
+            "hemat kouta dan sangat membantu di lapangan. Yuk cek di sini: https://t.me/Oneaspal_bot"
+        )
+        
+        # Kirim pesan dengan format <code> agar sekali sentuh langsung tersalin
+        await query.message.reply_text(
+            f"<code>{promo_msg}</code>", 
+            parse_mode='HTML'
+        )
+        
+        # Memberikan notifikasi kecil di atas layar Telegram
+        await query.answer("✅ Pesan siap disalin!")
 
 if __name__ == '__main__':
-    print("🚀 ONEASPAL BOT v6.50 (DEBUG PHOTO MODE) STARTING...")
+    # 1. Jalankan Landing Page di Background
+    threading.Thread(target=run_flask, daemon=True).start()
+    print("🌐 [WEB] Landing Page B-One Enterprise Running...")
+
+    # 2. Jalankan Bot Telegram (Kode Bapak yang sudah ada)
+    import asyncio
+    from telegram.ext import ApplicationBuilder
+
+    print("🚀 ONEASPAL BOT v6.60 (FINAL FIX) STARTING...")
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
-    # 1. Stop Command (Paling Atas)
+    # ==========================================================================
+    # 1. STOP COMMAND (EMERGENCY)
+    # ==========================================================================
     app.add_handler(CommandHandler('stop', stop_upload_command))
     
-    # 2. HANDLER BUKTI BAYAR (PRIORITAS TINGGI)
-    # Masukkan ini SEBELUM handler upload Excel
-    app.add_handler(ConversationHandler(
-        entry_points=[CommandHandler('buktibayar', buktibayar_start)],
-        states={
-            WAIT_BUKTI: [
-                # Menangkap Foto Biasa
-                MessageHandler(filters.PHOTO, buktibayar_process),
-                # Menangkap File Apapun (Nanti difilter di dalam fungsi)
-                MessageHandler(filters.Document.ALL, buktibayar_process)
-            ]
-        },
-        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
-    ))
-
     # ==========================================================================
-    # 3. HANDLER FOTO OTOMATIS (BACKUP)
+    # 2. FITUR KHUSUS / INTERAKTIF (CONVERSATION HANDLERS)
     # ==========================================================================
-    # Jika user lupa ketik /buktibayar dan langsung kirim foto (Gallery),
-    # Handler ini akan menangkapnya.
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo_topup))
-
-    # ==========================================================================
-    # 4. HANDLER UPLOAD DATA (EXCEL/CSV)
-    # ==========================================================================
-    # Handler ini menangkap SEMUA dokumen.
-    # Makanya ditaruh DI BAWAH /buktibayar agar tidak memakan foto bukti bayar.
-    # Di dalamnya sudah ada "Satpam" (upload_start) untuk memfilter gambar.
-    app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Document.ALL, upload_start)],
-        states={
-            U_LEASING_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_user)],
-            U_LEASING_ADMIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_admin)],
-            U_CONFIRM_UPLOAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_confirm_admin)]
-        },
-        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
-    ))
-
-    # ==========================================================================
-    # 5. ADMIN & USER MANAGEMENT HANDLERS
-    # ==========================================================================
-    app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
-    app.add_handler(MessageHandler(filters.Regex(r'^/cek_\d+$'), cek_user_pending))
     
-    app.add_handler(ConversationHandler(
-        entry_points=[CallbackQueryHandler(admin_action_start, pattern='^adm_(ban|unban|del)_')], 
-        states={ADMIN_ACT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_action_complete)]}, 
-        fallbacks=[CommandHandler('cancel', cancel)]
-    ))
-    
-    app.add_handler(ConversationHandler(
-        entry_points=[CallbackQueryHandler(reject_start, pattern='^reju_')], 
-        states={REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, reject_complete)]}, 
-        fallbacks=[CommandHandler('cancel', cancel)]
-    ))
-    
-    app.add_handler(ConversationHandler(
-        entry_points=[CallbackQueryHandler(val_reject_start, pattern='^v_rej_')], 
-        states={VAL_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, val_reject_complete)]}, 
-        fallbacks=[CommandHandler('cancel', cancel)]
-    ))
-    
-    # ==========================================================================
-    # 6. REGISTRATION & MANUAL INPUT HANDLERS
-    # ==========================================================================
+    # A. REGISTRASI (Perbaikan: Menangkap Foto & Dokumen Gambar)
+    # --------------------------------------------------------------------------
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('register', register_start)], 
         states={
@@ -3654,12 +3969,17 @@ if __name__ == '__main__':
             R_KOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_kota)], 
             R_AGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_agency)], 
             R_BRANCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_branch)],
-            R_PHOTO_ID: [MessageHandler(filters.PHOTO, register_photo_id)], 
+            
+            # [FIX] Menerima Foto Biasa (Compressed) ATAU Dokumen Gambar (Uncompressed)
+            R_PHOTO_ID: [MessageHandler(filters.PHOTO | filters.Document.IMAGE, register_photo_id)], 
+            
             R_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_confirm)]
         }, 
         fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
     ))
-    
+
+    # B. TAMBAH DATA MANUAL (DEFINISI DULU BARU DI-ADD)
+    # --------------------------------------------------------------------------
     conv_add_manual = ConversationHandler(
         entry_points=[CommandHandler('tambah', add_manual_start)], 
         states={
@@ -3672,8 +3992,23 @@ if __name__ == '__main__':
         }, 
         fallbacks=[CommandHandler('cancel', cancel)]
     )
-    app.add_handler(conv_add_manual)
+    app.add_handler(conv_add_manual) # <--- SEKARANG AMAN KARENA SUDAH DIDEFINISIKAN DI ATAS
 
+    # C. FORM BUKTI BAYAR (Jika user mengetik /buktibayar)
+    # --------------------------------------------------------------------------
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('buktibayar', buktibayar_start)],
+        states={
+            WAIT_BUKTI: [
+                MessageHandler(filters.PHOTO, buktibayar_process),
+                MessageHandler(filters.Document.ALL, buktibayar_process)
+            ]
+        },
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+    ))
+
+    # D. FITUR ADMIN LAINNYA
+    # --------------------------------------------------------------------------
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('lapor', lapor_delete_start)], 
         states={
@@ -3694,31 +4029,50 @@ if __name__ == '__main__':
     ))
 
     app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(admin_action_start, pattern='^adm_(ban|unban|del)_')], 
+        states={ADMIN_ACT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_action_complete)]}, 
+        fallbacks=[CommandHandler('cancel', cancel)]
+    ))
+    
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(reject_start, pattern='^reju_')], 
+        states={REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, reject_complete)]}, 
+        fallbacks=[CommandHandler('cancel', cancel)]
+    ))
+    
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(val_reject_start, pattern='^v_rej_')], 
+        states={VAL_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, val_reject_complete)]}, 
+        fallbacks=[CommandHandler('cancel', cancel)]
+    ))
+    
+    app.add_handler(ConversationHandler(
         entry_points=[CommandHandler('admin', contact_admin), MessageHandler(filters.Regex('^📞 BANTUAN TEKNIS$'), contact_admin)], 
         states={SUPPORT_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, support_send)]}, 
         fallbacks=[CommandHandler('cancel', cancel)]
-    )) 
-    
+    ))
+
     # ==========================================================================
-    # 7. GENERAL COMMAND HANDLERS
+    # 3. COMMANDS STANDAR (ONE-SHOT)
     # ==========================================================================
+    app.add_handler(MessageHandler(filters.Regex(r'^/m_\d+$'), manage_user_panel))
+    app.add_handler(MessageHandler(filters.Regex(r'^/cek_\d+$'), cek_user_pending))
     app.add_handler(CommandHandler('panduan', panduan))
+    app.add_handler(CommandHandler('bagikan', bagikan_bot))
     app.add_handler(CommandHandler('adminhelp', admin_help)) 
     app.add_handler(CommandHandler('setinfo', set_info)) 
     app.add_handler(CommandHandler('delinfo', del_info)) 
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('cekkuota', cek_kuota))
     app.add_handler(CommandHandler('infobayar', info_bayar))
-    
-    # [PENTING] Command fallback jika user ketik manual (walau sudah dihandle di atas)
-    app.add_handler(CommandHandler('buktibayar', panduan_buktibayar)) 
-    
+    app.add_handler(CommandHandler('buktibayar', panduan_buktibayar)) # Fallback command
     app.add_handler(CommandHandler('topup', admin_topup))
     app.add_handler(CommandHandler('stats', get_stats))
     app.add_handler(CommandHandler('leasing', get_leasing_list)) 
+    app.add_handler(CommandHandler('rekapanggota', rekap_anggota_korlap))
     app.add_handler(CommandHandler("rekap_member", rekap_member))
     app.add_handler(CommandHandler("cekagency", rekap_handler))
-    app.add_handler(MessageHandler(filters.Regex(r'(?i)^/rekap'), rekap_handler))
+    app.add_handler(MessageHandler(filters.Regex(r'(?i)^/rekap'), rekap_handler))    
     app.add_handler(CommandHandler('users', list_users))
     app.add_handler(CommandHandler('angkat_korlap', angkat_korlap)) 
     app.add_handler(CommandHandler('testgroup', test_group))
@@ -3726,13 +4080,29 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('setgroup', set_leasing_group)) 
     app.add_handler(CommandHandler('setagency', set_agency_group))
     app.add_handler(CommandHandler('addagency', add_agency)) 
+
+    # ==========================================================================
+    # 4. HANDLER UMUM / CATCH-ALL (HARUS DITARUH PALING BAWAH!)
+    # ==========================================================================
     
-    # ==========================================================================
-    # 8. CALLBACK & SEARCH HANDLER (Lowest Priority)
-    # ==========================================================================
+    # A. Menangkap Foto Langsung (Auto Topup)
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo_topup))
+
+    # B. Menangkap File Dokumen (Upload Data Excel / Topup File)
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Document.ALL, upload_start)],
+        states={
+            U_LEASING_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_user)],
+            U_LEASING_ADMIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_leasing_admin)],
+            U_CONFIRM_UPLOAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_confirm_admin)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex('^❌ BATAL$'), cancel)]
+    ))
+    
+    # C. Callback & Text Chat (Terakhir)
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
     print("⏰ Jadwal Cleanup Otomatis: AKTIF (Jam 03:00 WIB)")
-    print("🚀 ONEASPAL BOT v6.49 (READY TO SERVE) RUNNING...")
+    print("🚀 ONEASPAL BOT v6.60 (READY TO SERVE) RUNNING...")
     app.run_polling()
