@@ -239,6 +239,13 @@
             document.getElementById('section-' + section).classList.remove('hidden');
             if(section === 'assets') { currentPage = 1; loadAssetData(); }
             if(section === 'audit') loadAuditLogs();
+            
+            // 👇 TAMBAHKAN KODE AUTO-CLOSE DI BAWAH INI 👇
+            const sidebar = document.querySelector('.sidebar');
+            if (sidebar.classList.contains('active')) {
+                toggleSidebar();
+            }
+            // 👆 SAMPAI SINI 👆
         }
 
         // --- FITUR DOWNLOAD TEMPLATE (INSTANT GENERATE) ---
