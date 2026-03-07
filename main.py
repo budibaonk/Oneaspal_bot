@@ -1689,6 +1689,7 @@ async def request_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Klik tautan di bawah ini untuk masuk ke Ruang Kendali Anda.\n"
         "⚠️ <i>Tautan ini HANYA VALID SELAMA 15 MENIT dan hanya bisa digunakan di SATU perangkat.</i>\n\n"
         f'👉 <a href="{magic_link}">MASUK KE DASHBOARD</a>\n\n'
+        "💡 <b>TIPS PRO:</b> Setelah terbuka, klik <b>titik tiga di pojok kanan atas</b> lalu pilih <b>'Buka di Chrome / Browser'</b> agar Anda bisa bolak-balik ke Telegram tanpa menutup Dashboard.\n\n"
         "Jika Anda berganti perangkat, ketik /reset_dashboard terlebih dahulu."
     )
     
