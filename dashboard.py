@@ -1,14 +1,15 @@
 ################################################################################
 #                                                                              #
-#  PROJECT: ONEASPAL COMMAND CENTER                                            #
-#  VERSION: 10.8                                                               #
+#  PROJECT: B-ONE ENTERPRISE COMMAND CENTER                                    #
+#  VERSION: 10.9                                                               #
 #  ROLE   : ADMIN DASHBOARD CORE                                               #
 #  AUTHOR : CTO (GEMINI) & CEO (BAONK)                                         #
 #                                                                              #
-#  UPDATE LOG v10.8:                                                           #
-#  1. Integrated Daily Log System for Admin uploads.                           #
-#  2. Added 'data_month' auto-stamping (MMYY) for consistency.                 #
-#  3. Optimized session state to prevent duplicate logging on refresh.         #
+#  UPDATE LOG v10.9:                                                           #
+#  1. Overhauled Tab 6 into a dual-purpose Broadcast & Retention Center.       #
+#  2. Added split-view data tables for Expired (Billing) and Active (Info).    #
+#  3. Added custom HTML-supported text area for Active User announcements.     #
+#  4. Integrated real-time Supabase metrics for Active vs Expired user counts. #
 #                                                                              #
 ################################################################################
 
@@ -43,7 +44,7 @@ except ImportError:
 # BAGIAN 1: KONFIGURASI HALAMAN
 # ##############################################################################
 st.set_page_config(
-    page_title="One Aspal Command",
+    page_title="B One Command",
     page_icon="🦅",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -321,13 +322,13 @@ if not st.session_state['authenticated']:
 # ##############################################################################
 with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", width=220)
-    st.caption(f"ONE ASPAL SYSTEM\nStatus: {auto_refresh_status}")
+    st.caption(f"B ONE SYSTEM\nStatus: {auto_refresh_status}")
     if not BOT_TOKEN or "MANUAL" in BOT_TOKEN: 
         st.success("✅ TOKEN BOT AKTIF")
     else:
         st.error("⚠️ TOKEN BOT HILANG")
 
-st.markdown("## ONE ASPAL COMMANDO v10.7")
+st.markdown("## B ONE COMMANDO v10.7")
 st.markdown("<span style='color: #00f2ff; font-family: Orbitron; font-size: 0.8rem;'>⚡ LIVE INTELLIGENCE COMMAND CENTER</span>", unsafe_allow_html=True)
 st.markdown("---")
 
@@ -585,10 +586,10 @@ with tab5:
         else: st.warning("⚠️ Database belum mencatat waktu (Kolom last_seen kosong).")
 
 
-# --- TAB 6: DAFTAR USER EXPIRED (AUDIT & RETENSI + PUSH REMINDER) ---
+# --- TAB 6: BROADCAST & RETENSI (EXPIRED & ACTIVE) ---
 with tab6:
-    st.markdown("### 💀 DAFTAR USER HABIS MASA AKTIF")
-    st.info("Halaman ini mengambil data LANGSUNG dari server (Real-time Audit).")
+    st.markdown("### 📢 PUSAT BROADCAST & RETENSI USER")
+    st.info("Halaman ini mengambil data LANGSUNG dari server (Real-time).")
     
     if not BOT_TOKEN:
         st.error("⚠️ TOKEN BOT TIDAK TERDETEKSI. Broadcast tidak akan terkirim.")
@@ -607,121 +608,165 @@ with tab6:
     try:
         now_str = datetime.now(TZ_JAKARTA).strftime('%Y-%m-%d')
         
-        response = supabase.table('users').select('*')\
-            .lt('expiry_date', now_str)\
-            .neq('status', 'banned')\
-            .execute()
+        # 1. AMBIL SEMUA DATA USER (Kecuali Banned)
+        response = supabase.table('users').select('*').neq('status', 'banned').execute()
+        all_data = response.data
         
-        data_expired = response.data
-        
-        if data_expired:
-            df_audit = pd.DataFrame(data_expired)
+        if all_data:
+            df_all = pd.DataFrame(all_data)
+            df_all['tgl_exp_obj'] = pd.to_datetime(df_all['expiry_date'], format='mixed', errors='coerce').dt.date
+            df_all['expiry_date_str'] = pd.to_datetime(df_all['expiry_date'], format='mixed', errors='coerce').dt.strftime('%Y-%m-%d')
+            df_all['STATUS_BROADCAST'] = df_all['user_id'].map(st.session_state.get('broadcast_logs', {})).fillna("⏳ Menunggu")
             
-            # [FIX CRITICAL] Handle format tanggal ISO
-            df_audit['tgl_exp_obj'] = pd.to_datetime(df_audit['expiry_date'], format='mixed', errors='coerce').dt.date
-            df_audit = df_audit.sort_values(by='tgl_exp_obj', ascending=True)
+            # 2. PISAHKAN DATA EXPIRED & ACTIVE
+            now_date = datetime.now(TZ_JAKARTA).date()
+            df_expired = df_all[df_all['tgl_exp_obj'] < now_date].sort_values(by='tgl_exp_obj', ascending=True)
+            df_active = df_all[df_all['tgl_exp_obj'] >= now_date].sort_values(by='tgl_exp_obj', ascending=True)
 
+            # 3. TAMPILAN METRIK ATAS
             c1, c2 = st.columns(2)
-            c1.metric("TOTAL EXPIRED", f"{len(df_audit)} User", "Target Penagihan", delta_color="inverse")
-            c2.metric("TERLAMA SEJAK", f"{df_audit['tgl_exp_obj'].iloc[0]}", "Prioritas")
+            c1.metric("🔴 TOTAL EXPIRED", f"{len(df_expired)} User", "Target Penagihan", delta_color="inverse")
+            c2.metric("🟢 TOTAL ACTIVE", f"{len(df_active)} User", "Pasukan Lapangan", delta_color="normal")
             st.divider()
 
-            # Apply format tampilan
-            df_audit['expiry_date_str'] = pd.to_datetime(df_audit['expiry_date'], format='mixed', errors='coerce').dt.strftime('%Y-%m-%d')
-            
-            # MAPPING STATUS
-            df_audit['STATUS_BROADCAST'] = df_audit['user_id'].map(st.session_state['broadcast_logs']).fillna("⏳ Menunggu")
+            # 4. BUAT SUB-TABS
+            sub_exp, sub_act = st.tabs(["🔴 DATA EXPIRED (Penagihan)", "🟢 DATA ACTIVE (Pengumuman)"])
 
-            # =========================================================
-            # [NEW FEATURE] LOGIC SELECT ALL
-            # =========================================================
-            # 1. Tambahkan kolom default False
-            df_audit.insert(0, "PILIH", False)
-            
-            cols_show = ['PILIH', 'STATUS_BROADCAST', 'nama_lengkap', 'no_hp', 'agency', 'role', 'expiry_date_str', 'status', 'user_id']
-            cols_exist = [c for c in cols_show if c in df_audit.columns]
-            
-            df_show = df_audit[cols_exist].copy()
+            # --------------------------------------------------------------------
+            # SUB-TAB: EXPIRED
+            # --------------------------------------------------------------------
+            with sub_exp:
+                if not df_expired.empty:
+                    df_show_exp = df_expired[['STATUS_BROADCAST', 'nama_lengkap', 'no_hp', 'agency', 'role', 'expiry_date_str', 'status', 'user_id']].copy()
+                    df_show_exp.insert(0, "PILIH", False)
+                    
+                    c_sel, c_space = st.columns([2, 5])
+                    with c_sel:
+                        select_all_exp = st.checkbox("✅ PILIH SEMUA USER EXPIRED", value=False, key="sel_all_exp")
+                    if select_all_exp: df_show_exp['PILIH'] = True
 
-            # 2. Tombol Select All (Di atas tabel)
-            c_sel, c_space = st.columns([2, 5])
-            with c_sel:
-                select_all = st.checkbox("✅ PILIH SEMUA USER", value=False, key="select_all_toggle")
-            
-            # 3. Override nilai jika Select All dicentang
-            if select_all:
-                df_show['PILIH'] = True
+                    edited_exp = st.data_editor(
+                        df_show_exp,
+                        column_config={
+                            "PILIH": st.column_config.CheckboxColumn("TAGIH?", default=False),
+                            "STATUS_BROADCAST": st.column_config.TextColumn("STATUS KIRIM", width="medium"),
+                            "nama_lengkap": "Nama User", "no_hp": "WhatsApp", "agency": "Agency",
+                            "expiry_date_str": "Tgl Expired", "status": "Status DB",
+                            "user_id": st.column_config.TextColumn("User ID", disabled=True)
+                        },
+                        hide_index=True, use_container_width=True, height=350, key="editor_exp"
+                    )
 
-            edited_df = st.data_editor(
-                df_show,
-                column_config={
-                    "PILIH": st.column_config.CheckboxColumn("TAGIH?", default=False),
-                    "STATUS_BROADCAST": st.column_config.TextColumn("STATUS KIRIM", width="medium"),
-                    "nama_lengkap": "Nama User",
-                    "no_hp": "WhatsApp",
-                    "agency": "Agency",
-                    "expiry_date_str": "Tgl Expired",
-                    "status": "Status DB",
-                    "user_id": st.column_config.TextColumn("User ID", disabled=True)
-                },
-                hide_index=True,
-                use_container_width=True,
-                height=400,
-                key="audit_direct_fetch"
-            )
+                    targets_exp = edited_exp[edited_exp['PILIH'] == True]
+                    
+                    col_act1, col_act2 = st.columns([1, 2])
+                    with col_act1:
+                        csv_exp = df_show_exp.drop(columns=['PILIH']).to_csv(index=False).encode('utf-8')
+                        st.download_button("📥 DOWNLOAD CSV EXPIRED", csv_exp, f"EXPIRED_{now_str}.csv", "text/csv")
 
-            targets = edited_df[edited_df['PILIH'] == True]
-            
-            col_act1, col_act2 = st.columns([1, 2])
-            
-            with col_act1:
-                csv = df_show.drop(columns=['PILIH']).to_csv(index=False).encode('utf-8')
-                st.download_button("📥 DOWNLOAD CSV", csv, f"DATA_EXPIRED_REALTIME_{now_str}.csv", "text/csv")
-
-            with col_act2:
-                if not targets.empty:
-                    if st.button(f"📢 KIRIM KE {len(targets)} USER", type="primary", use_container_width=True):
-                        
-                        if not BOT_TOKEN:
-                            st.error("❌ BROADCAST DIBATALKAN: Token Bot Kosong/Tidak Terbaca.")
-                            st.stop()
-                            
-                        succ_count, fail_count = 0, 0
-                        prog_bar = st.progress(0, "Mengirim Notifikasi...")
-                        total_targets = len(targets)
-                        
-                        for i, (idx, row) in enumerate(targets.iterrows(), 1):
-                            msg_reminder = (
-                                f"🔔 <b>PENGINGAT MASA AKTIF</b>\n\n"
-                                f"Halo <b>{row['nama_lengkap']}</b>,\n"
-                                f"Masa aktif akun One Aspal Anda telah berakhir pada tanggal <b>{row['expiry_date_str']}</b>.\n\n"
-                                f"⛔ Akses pencarian data Anda telah dinonaktifkan sementara.\n"
-                                f"Silakan hubungi Admin untuk perpanjangan, atau ketik /infobayar \n\n"
-                                f"<i>Tetap Semangat! 🦅</i>"
-                            )
-                            try:
-                                is_sent = send_telegram_message(row['user_id'], msg_reminder)
-                                if is_sent: 
-                                    succ_count += 1
-                                    st.session_state['broadcast_logs'][row['user_id']] = "✅ TERKIRIM"
-                                else: 
-                                    fail_count += 1
-                                    st.session_state['broadcast_logs'][row['user_id']] = "❌ GAGAL API"
-                            except: 
-                                fail_count += 1
-                                st.session_state['broadcast_logs'][row['user_id']] = "❌ ERROR NET"
-                            
-                            prog_bar.progress(min(i / total_targets, 1.0))
-                            time.sleep(0.1)
-                            
-                        st.toast(f"Selesai! ✅ {succ_count} | ❌ {fail_count}", icon="📨")
-                        time.sleep(1)
-                        st.rerun()
+                    with col_act2:
+                        if not targets_exp.empty:
+                            if st.button(f"📢 KIRIM TAGIHAN KE {len(targets_exp)} USER", type="primary", use_container_width=True):
+                                succ_count, fail_count = 0, 0
+                                prog_bar = st.progress(0, "Mengirim Notifikasi Penagihan...")
+                                total_targets = len(targets_exp)
+                                
+                                for i, (idx, row) in enumerate(targets_exp.iterrows(), 1):
+                                    msg = (
+                                        f"🔔 <b>PENGINGAT MASA AKTIF</b>\n\n"
+                                        f"Halo <b>{row['nama_lengkap']}</b>,\n"
+                                        f"Masa aktif akun One Aspal Anda telah berakhir pada tanggal <b>{row['expiry_date_str']}</b>.\n\n"
+                                        f"⛔ Akses pencarian data dinonaktifkan sementara.\n"
+                                        f"Silakan hubungi Admin atau ketik /infobayar \n\n"
+                                        f"<i>Tetap Semangat! 🦅</i>"
+                                    )
+                                    try:
+                                        if send_telegram_message(row['user_id'], msg): 
+                                            succ_count += 1
+                                            st.session_state['broadcast_logs'][row['user_id']] = "✅ TERKIRIM"
+                                        else: 
+                                            fail_count += 1
+                                            st.session_state['broadcast_logs'][row['user_id']] = "❌ GAGAL API"
+                                    except: 
+                                        fail_count += 1; st.session_state['broadcast_logs'][row['user_id']] = "❌ ERROR"
+                                    prog_bar.progress(min(i / total_targets, 1.0))
+                                st.toast(f"Tagihan Selesai! ✅ {succ_count} | ❌ {fail_count}", icon="📨"); time.sleep(1); st.rerun()
+                        else:
+                            st.button("📢 PILIH USER EXPIRED DULU", disabled=True, use_container_width=True)
                 else:
-                    st.button("📢 PILIH USER DULU", disabled=True, use_container_width=True)
+                    st.success("✅ Tidak ada user expired.")
+
+            # --------------------------------------------------------------------
+            # SUB-TAB: ACTIVE
+            # --------------------------------------------------------------------
+            with sub_act:
+                if not df_active.empty:
+                    df_show_act = df_active[['STATUS_BROADCAST', 'nama_lengkap', 'no_hp', 'agency', 'role', 'expiry_date_str', 'status', 'user_id']].copy()
+                    df_show_act.insert(0, "PILIH", False)
+                    
+                    c_sel2, c_space2 = st.columns([2, 5])
+                    with c_sel2:
+                        select_all_act = st.checkbox("✅ PILIH SEMUA USER AKTIF", value=False, key="sel_all_act")
+                    if select_all_act: df_show_act['PILIH'] = True
+
+                    edited_act = st.data_editor(
+                        df_show_act,
+                        column_config={
+                            "PILIH": st.column_config.CheckboxColumn("INFO?", default=False),
+                            "STATUS_BROADCAST": st.column_config.TextColumn("STATUS KIRIM", width="medium"),
+                            "nama_lengkap": "Nama User", "no_hp": "WhatsApp", "agency": "Agency",
+                            "expiry_date_str": "Tgl Expired", "status": "Status DB",
+                            "user_id": st.column_config.TextColumn("User ID", disabled=True)
+                        },
+                        hide_index=True, use_container_width=True, height=350, key="editor_act"
+                    )
+
+                    targets_act = edited_act[edited_act['PILIH'] == True]
+                    
+                    st.markdown("#### 📝 PESAN BROADCAST KUSTOM")
+                    custom_msg = st.text_area("Ketik pengumuman di sini (Dukung format HTML spt <b>tebal</b> atau <i>miring</i>):", height=100)
+                    
+                    col_act3, col_act4 = st.columns([1, 2])
+                    with col_act3:
+                        csv_act = df_show_act.drop(columns=['PILIH']).to_csv(index=False).encode('utf-8')
+                        st.download_button("📥 DOWNLOAD CSV ACTIVE", csv_act, f"ACTIVE_{now_str}.csv", "text/csv")
+
+                    with col_act4:
+                        if not targets_act.empty:
+                            if st.button(f"📢 KIRIM PENGUMUMAN KE {len(targets_act)} USER", type="primary", use_container_width=True):
+                                if not custom_msg.strip():
+                                    st.error("❌ PESAN KOSONG! Ketik pesan pengumuman terlebih dahulu."); st.stop()
+                                
+                                succ_count, fail_count = 0, 0
+                                prog_bar = st.progress(0, "Mengirim Pengumuman...")
+                                total_targets = len(targets_act)
+                                
+                                for i, (idx, row) in enumerate(targets_act.iterrows(), 1):
+                                    # Menggabungkan sapaan dengan pesan kustom Bapak
+                                    final_msg = (
+                                        f"📢 <b>INFO B ONE ENTERPRISE</b>\n\n"
+                                        f"Halo <b>{row['nama_lengkap']}</b>,\n\n"
+                                        f"{custom_msg}\n\n"
+                                        f"<i>Pesan Otomatis dari Command Center 🦅</i>"
+                                    )
+                                    try:
+                                        if send_telegram_message(row['user_id'], final_msg): 
+                                            succ_count += 1
+                                            st.session_state['broadcast_logs'][row['user_id']] = "✅ TERKIRIM"
+                                        else: 
+                                            fail_count += 1
+                                            st.session_state['broadcast_logs'][row['user_id']] = "❌ GAGAL API"
+                                    except: 
+                                        fail_count += 1; st.session_state['broadcast_logs'][row['user_id']] = "❌ ERROR"
+                                    prog_bar.progress(min(i / total_targets, 1.0))
+                                st.toast(f"Broadcast Selesai! ✅ {succ_count} | ❌ {fail_count}", icon="📨"); time.sleep(1); st.rerun()
+                        else:
+                            st.button("📢 PILIH USER AKTIF DULU", disabled=True, use_container_width=True)
+                else:
+                    st.warning("⚠️ Tidak ada user aktif.")
 
         else:
-            st.success("✅ REAL-TIME CHECK: Tidak ada user expired di Database Server.", icon="🌟")
+            st.warning("Data user kosong atau tidak dapat diakses.")
             
     except Exception as e:
         st.error(f"❌ Gagal mengambil data server: {e}")
