@@ -3757,9 +3757,14 @@ async def handle_message(update, context):
         for item in data_found:
             clean_db_nopol = re.sub(r'[^a-zA-Z0-9]', '', item['nopol']).upper()
             if clean_db_nopol == kw: final_result = item; exact_match = True; break
-        if exact_match: await show_unit_detail_original(update, context, final_result, u)
-        elif len(data_found) == 1: await show_unit_detail_original(update, context, data_found[0], u)
-        else: await show_multi_choice(update, context, data_found, kw)
+        # [UPDATE v10.9: LOGIKA WAJIB KONFIRMASI (ANTI FALSE-POSITIVE)]
+        if exact_match:
+            # Jika 100% sama persis (B2345ABC = B2345ABC), langsung keluar datanya
+            await show_unit_detail_original(update, context, final_result, u)
+        else:
+            # Jika tidak sama persis (Meskipun HANYA ADA 1 DATA KEMIRIPAN), 
+            # TETAP paksa keluar Tombol Konfirmasi agar Matel verifikasi visual.
+            await show_multi_choice(update, context, data_found, kw)
     except Exception as e: logger.error(f"Search error: {e}"); await update.message.reply_text("❌ Error DB.")
 
 async def show_unit_detail_original(update, context, d, u):
