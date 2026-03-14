@@ -3427,9 +3427,9 @@ async def register_confirm(update, context):
         expiry_dt = datetime(2030, 12, 31, 23, 59, 59, tzinfo=TZ_JAKARTA)
         quota_init = 999999 
     else:
-        # MATEL: Trial 3 Hari
-        expiry_dt = now + timedelta(days=3)
-        quota_init = 1000   
+        # MATEL: Trial 1 Hari (24 Jam)
+        expiry_dt = now + timedelta(days=1)
+        quota_init = 1000   # Kuota trial tetap 1000 pencarian, tapi waktunya dipepet   
 
     expiry_str = expiry_dt.isoformat()
     # ==========================================================================
@@ -3495,7 +3495,7 @@ async def register_confirm(update, context):
             f"📍 <b>Area:</b> {clean_text(d['r_kota'])}\n"
             f"📱 <b>HP/WA:</b> {wa_link}\n"
             f"📧 <b>Email:</b> {clean_text(d['r_email'])}\n"
-            f"⏳ <b>Masa Aktif:</b> {'UNLIMITED (PIC)' if role_db=='pic' else '3 HARI (TRIAL)'}\n"
+            f"⏳ <b>Masa Aktif:</b> {'UNLIMITED (PIC)' if role_db=='pic' else '1 HARI (TRIAL)'}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"{sub_info}\n"
         )
@@ -4112,7 +4112,16 @@ async def callback_handler(update, context):
                 
                 # 1. FEEDBACK KE USER (Notifikasi)
                 try:
-                    await context.bot.send_message(uid, f"✅ **TOPUP BERHASIL!**\n\nPaket: +{days} Hari\nAktif s/d: {exp_str}\n\nTerima kasih! 🦅")
+                    msg_topup_user = (
+                        f"🎉 <b>TOPUP BERHASIL DISETUJUI!</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━\n"
+                        f"➕ <b>Tambahan:</b> {days} Hari\n"
+                        f"📅 <b>Aktif s/d:</b> {exp_str}\n"
+                        f"━━━━━━━━━━━━━━━━━━\n"
+                        f"Terima kasih telah mempercayakan pencarian Anda pada <b>One Aspal Bot</b>.\n"
+                        f"<i>Selamat bertugas, semoga hari ini panen unit! Salam Satu Aspal! 🦅</i>"
+                    )
+                    await context.bot.send_message(uid, msg_topup_user, parse_mode='HTML')
                 except: pass
 
                 # 2. FEEDBACK KE ADMIN (Visual Alert & Laporan)
@@ -4125,13 +4134,25 @@ async def callback_handler(update, context):
                 except Exception:
                     pass # Abaikan jika pesan tidak berubah
                 
-                # Laporan Chat ke Admin (Sesuai Request)
+                # Laporan Chat ke Admin (Sesuai Request + Agency)
                 try:
                     user_info = get_user(uid)
                     nama_user = user_info.get('nama_lengkap', 'Unknown')
+                    nama_agency = user_info.get('agency', 'Tidak Ada/Mandiri')
+                    
                     await context.bot.send_message(
                         chat_id=query.message.chat_id,
-                        text=f"👮‍♂️ **LAPORAN TOPUP MANUAL**\n━━━━━━━━━━━━━━━━━━\n👤 <b>User:</b> {nama_user}\n🆔 <b>ID:</b> <code>{uid}</code>\n➕ <b>Tambah:</b> {days} Hari\n📅 <b>Expired Baru:</b> {exp_str}\n━━━━━━━━━━━━━━━━━━\n✅ <i>Transaksi Berhasil Dicatat.</i>",
+                        text=(
+                            f"👮‍♂️ <b>LAPORAN TOPUP MANUAL</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━\n"
+                            f"👤 <b>User:</b> {nama_user}\n"
+                            f"🏢 <b>Agency:</b> {nama_agency}\n"
+                            f"🆔 <b>ID:</b> <code>{uid}</code>\n"
+                            f"➕ <b>Tambah:</b> {days} Hari\n"
+                            f"📅 <b>Expired Baru:</b> {exp_str}\n"
+                            f"━━━━━━━━━━━━━━━━━━\n"
+                            f"✅ <i>Transaksi Berhasil Dicatat.</i>"
+                        ),
                         parse_mode='HTML'
                     )
                 except: pass
@@ -4192,9 +4213,9 @@ async def callback_handler(update, context):
             final_expiry = datetime(2030, 12, 31, 23, 59, 59, tzinfo=TZ_JAKARTA)
             success_msg = f"🚀 <b>PIC {target_uid} DIAKTIFKAN</b>\n━━━━━━━━━━━━━━━\n✅ Akses Enterprise s/d 2030"
         else:
-            final_expiry = now + timedelta(days=3)
+            final_expiry = now + timedelta(days=1)  # UPDATE: Trial menjadi 1 hari
             exp_display = final_expiry.strftime('%d %b %Y')
-            success_msg = f"✅ <b>User {target_uid} DIAKTIFKAN</b>\n━━━━━━━━━━━━━━━\n🎁 Trial: 3 Hari (s/d {exp_display})"
+            success_msg = f"✅ <b>User {target_uid} DIAKTIFKAN</b>\n━━━━━━━━━━━━━━━\n🎁 Trial: 1 Hari/24 Jam (s/d {exp_display})"
         
         # 1. Update Database
         supabase.table('users').update({
@@ -4228,13 +4249,13 @@ async def callback_handler(update, context):
             except: pass
 
         else:
-            # PESAN UNTUK MATEL (Trial 3 Hari - Full HTML)
+            # PESAN UNTUK MATEL (Trial 1 Hari / 24 Jam - Full HTML)
             nama_user = target_user.get('nama_lengkap', 'Mitra')
             msg_mitra = (
                 f"🦅 <b>SELAMAT BERGABUNG DI ONE ASPAL BOT</b> 🦅\n\n"
                 f"Halo, <b>{nama_user}</b>! Akun Anda telah <b>DISETUJUI</b> ✅.\n\n"
                 f"🎁 <b>BONUS PENDAFTARAN:</b>\n"
-                f"Anda mendapatkan akses <b>TRIAL GRATIS 3 HARI</b>.\n"
+                f"Anda mendapatkan akses <b>TRIAL GRATIS 24 JAM</b> (1 Hari).\n"
                 f"📅 <b>Aktif s/d:</b> {exp_display}\n\n"
                 f"Fitur kami dirancang <b>Super Cepat</b> ⚡ dan <b>Hemat Kuota</b> 📉 untuk menunjang kinerja Anda di lapangan.\n\n"
                 f"🔎 <b>CARA PENCARIAN:</b>\n"
