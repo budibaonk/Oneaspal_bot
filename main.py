@@ -4070,11 +4070,6 @@ async def stop_upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text("⚠️ **Menghentikan proses...** (Tunggu sebentar)")
     return ConversationHandler.END
 
-async def cancel(update, context): 
-    context.user_data.clear()
-    await update.message.reply_text("🚫 Batal.", reply_markup=ReplyKeyboardRemove())
-    return ConversationHandler.END
-
 # --- MASTER CALLBACK HANDLER (CLEAN VERSION) ---
 async def callback_handler(update, context):
     query = update.callback_query
