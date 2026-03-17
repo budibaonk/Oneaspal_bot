@@ -3176,13 +3176,18 @@ async def stop_upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     return ConversationHandler.END
 
-async def cancel(update, context): 
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE): 
+    # 1. Bersihkan semua memori User Data
+    context.user_data.clear()
+    
+    # 2. Hapus file sampah jika ada proses upload yang nyangkut
     path = context.user_data.get('upload_path')
     if path and os.path.exists(path): 
         try: os.remove(path)
         except: pass
-    context.user_data.clear()
-    await update.message.reply_text("🚫 Batal.", reply_markup=ReplyKeyboardRemove())
+        
+    # 3. Kirim konfirmasi
+    await update.message.reply_text("🚫 **PROSES DIBATALKAN & MEMORI DIRESET.**\nSistem kembali ke posisi netral.", reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
     return ConversationHandler.END
 
 # ==============================================================================
@@ -4561,6 +4566,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('setinfo', set_info)) 
     app.add_handler(CommandHandler('delinfo', del_info)) 
     app.add_handler(CommandHandler('start', start))
+    app.add_handler(CommandHandler('cancel', cancel)) # <--- TAMBAHAN: RESET GLOBAL
     app.add_handler(CommandHandler('cekkuota', cek_kuota))
     app.add_handler(CommandHandler('infobayar', info_bayar))
     app.add_handler(CommandHandler('buktibayar', panduan_buktibayar)) # Fallback command
