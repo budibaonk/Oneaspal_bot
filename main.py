@@ -652,21 +652,25 @@ VAL_REJECT_REASON = 25
 # ##############################################################################
 
 async def post_init(application: Application):
-    await application.bot.set_my_commands([
-        ("start", "🔄 Restart / Menu"),
-        ("cekkuota", "💳 Cek Masa Aktif"),
-        ("stop", "⛔ Stop Proses Upload"),
-        ("infobayar", "💰 Perpanjang Langganan"),
-        ("tambah", "➕ Input Manual"),
-        ("lapor", "🗑️ Lapor Unit Selesai"),
-        ("register", "📝 Daftar Mitra"),
-        ("admin", "📩 Hubungi Admin"),
-        ("panduan", "📖 Buku Panduan"),
-        ("bagikan", "🚀 Bagikan Bot"), # <--- Tambahkan Baris Ini
-        ("dashboard", "🏢 Buka Command Center"), # <--- TAMBAHAN BARU
-        ("reset_dashboard", "🔒 Reset Sesi Dashboard") # <--- TAMBAHAN BARU
-    ])
-    print("✅ [INIT] Command List Updated!")
+    try:
+        await application.bot.set_my_commands([
+            ("start", "🔄 Restart / Menu"),
+            ("cekkuota", "💳 Cek Masa Aktif"),
+            ("stop", "⛔ Stop Proses Upload"),
+            ("infobayar", "💰 Perpanjang Langganan"),
+            ("tambah", "➕ Input Manual"),
+            ("lapor", "🗑️ Lapor Unit Selesai"),
+            ("register", "📝 Daftar Mitra"),
+            ("admin", "📩 Hubungi Admin"),
+            ("panduan", "📖 Buku Panduan"),
+            ("bagikan", "🚀 Bagikan Bot"),
+            ("dashboard", "🏢 Buka Command Center"),
+            ("reset_dashboard", "🔒 Reset Sesi Dashboard")
+        ], read_timeout=20, connect_timeout=20) # <--- TAMBAHAN NAPAS 20 DETIK
+        print("✅ [INIT] Command List Updated!")
+    except Exception as e:
+        print(f"⚠️ [WARNING] Gagal set menu saat startup karena jaringan Telegram lemot: {e}")
+        print("✅ [INIT] Bot tetap dilanjutkan tanpa set menu!")
 
 def get_user(user_id):
     try:
@@ -4461,7 +4465,7 @@ if __name__ == '__main__':
     from telegram.ext import ApplicationBuilder
 
     print("🚀 ONEASPAL BOT v6.60 (FINAL FIX) STARTING...")
-    app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
+    app = ApplicationBuilder().token(TOKEN).read_timeout(30).write_timeout(30).connect_timeout(30).post_init(post_init).build()
     
     # ==========================================================================
     # 1. STOP COMMAND (EMERGENCY)
