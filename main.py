@@ -4627,10 +4627,4 @@ if __name__ == '__main__':
     
     print("⏰ Jadwal Cleanup Otomatis: AKTIF (Jam 03:00 WIB)")
     print("🚀 ONEASPAL BOT v6.60 (READY TO SERVE) RUNNING...")
-    app.run_polling(
-        drop_pending_updates=True,   # <--- JURUS MUTLAK: Buang semua pesan/antrean lama yang nyangkut
-        read_timeout=30,             # <--- Perpanjang napas jaringan
-        write_timeout=30,
-        connect_timeout=30,
-        pool_timeout=30
-    )
+    app.run_polling(drop_pending_updates=True)
