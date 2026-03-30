@@ -3744,24 +3744,38 @@ async def handle_message(update, context):
     text = update.message.text
     if text == "🔄 SINKRONISASI DATA": return await upload_start(update, context)
     if text == "📂 DATABASE SAYA": return await cek_kuota(update, context)
+    
     u = get_user(update.effective_user.id)
     if not u: return await update.message.reply_text("⛔ **AKSES DITOLAK**\nSilakan ketik /register.", parse_mode='Markdown')
     if u['status'] != 'active': return await update.message.reply_text("⏳ **AKUN PENDING**\nTunggu Admin.", parse_mode='Markdown')
+    
     is_active, reason = check_subscription_access(u)
     if not is_active:
         if reason == "EXPIRED": return await update.message.reply_text("⛔ **MASA AKTIF HABIS**\nSilakan ketik /infobayar untuk perpanjang.", parse_mode='Markdown')
         elif reason == "DAILY_LIMIT": return await update.message.reply_text("⛔ **BATAS HARIAN TERCAPAI**\nAnda telah mencapai limit cek hari ini. Reset otomatis jam 00:00.", parse_mode='Markdown')
+    
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     kw = re.sub(r'[^a-zA-Z0-9]', '', text.upper())
     if len(kw) < 3: return await update.message.reply_text("⚠️ Minimal 3 karakter.")
+    
     try:
-        res = supabase.table('kendaraan').select("*").or_(f"nopol.ilike.%{kw}%,noka.eq.{kw},nosin.eq.{kw}").limit(20).execute()
+        # === [OPERASI BYPASS ASYNCIO] ===
+        # Kita bungkus tugas berat pencarian database ke dalam fungsi terpisah
+        def cari_kendaraan_db():
+            return supabase.table('kendaraan').select("*").or_(f"nopol.ilike.%{kw}%,noka.eq.{kw},nosin.eq.{kw}").limit(20).execute()
+        
+        # Eksekusi pencarian di "jalur/thread lain" agar bot tetap bisa bernapas
+        res = await asyncio.to_thread(cari_kendaraan_db)
+        # ================================
+        
         data_found = res.data
         if not data_found: return await update.message.reply_text(f"❌ <b>TIDAK DITEMUKAN</b>\n<code>{kw}</code>", parse_mode='HTML')
+        
         final_result = None; exact_match = False
         for item in data_found:
             clean_db_nopol = re.sub(r'[^a-zA-Z0-9]', '', item['nopol']).upper()
             if clean_db_nopol == kw: final_result = item; exact_match = True; break
+            
         # [UPDATE v10.9: LOGIKA WAJIB KONFIRMASI (ANTI FALSE-POSITIVE)]
         if exact_match:
             # Jika 100% sama persis (B2345ABC = B2345ABC), langsung keluar datanya
@@ -3770,7 +3784,10 @@ async def handle_message(update, context):
             # Jika tidak sama persis (Meskipun HANYA ADA 1 DATA KEMIRIPAN), 
             # TETAP paksa keluar Tombol Konfirmasi agar Matel verifikasi visual.
             await show_multi_choice(update, context, data_found, kw)
-    except Exception as e: logger.error(f"Search error: {e}"); await update.message.reply_text("❌ Error DB.")
+            
+    except Exception as e: 
+        logger.error(f"Search error: {e}")
+        await update.message.reply_text("❌ Error DB.")
 
 async def show_unit_detail_original(update, context, d, u):
     # --- LOGIKA CERDAS: DETEKSI VERSI DATA ---
