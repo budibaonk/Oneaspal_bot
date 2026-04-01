@@ -3436,8 +3436,8 @@ async def register_confirm(update, context):
         expiry_dt = datetime(2030, 12, 31, 23, 59, 59, tzinfo=TZ_JAKARTA)
         quota_init = 999999 
     else:
-        # MATEL: Trial 1 Hari (24 Jam)
-        expiry_dt = now + timedelta(days=1)
+        # MATEL: Trial 3 Hari (72 Jam)
+        expiry_dt = now + timedelta(days=3)
         quota_init = 1000   # Kuota trial tetap 1000 pencarian, tapi waktunya dipepet   
 
     expiry_str = expiry_dt.isoformat()
@@ -3504,7 +3504,7 @@ async def register_confirm(update, context):
             f"📍 <b>Area:</b> {clean_text(d['r_kota'])}\n"
             f"📱 <b>HP/WA:</b> {wa_link}\n"
             f"📧 <b>Email:</b> {clean_text(d['r_email'])}\n"
-            f"⏳ <b>Masa Aktif:</b> {'UNLIMITED (PIC)' if role_db=='pic' else '1 HARI (TRIAL)'}\n"
+            f"⏳ <b>Masa Aktif:</b> {'UNLIMITED (PIC)' if role_db=='pic' else '3 HARI (TRIAL)'}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"{sub_info}\n"
         )
@@ -4234,9 +4234,9 @@ async def callback_handler(update, context):
             final_expiry = datetime(2030, 12, 31, 23, 59, 59, tzinfo=TZ_JAKARTA)
             success_msg = f"🚀 <b>PIC {target_uid} DIAKTIFKAN</b>\n━━━━━━━━━━━━━━━\n✅ Akses Enterprise s/d 2030"
         else:
-            final_expiry = now + timedelta(days=1)  # UPDATE: Trial menjadi 1 hari
+            final_expiry = now + timedelta(days=3)  # UPDATE: Trial menjadi 3 hari
             exp_display = final_expiry.strftime('%d %b %Y')
-            success_msg = f"✅ <b>User {target_uid} DIAKTIFKAN</b>\n━━━━━━━━━━━━━━━\n🎁 Trial: 1 Hari/24 Jam (s/d {exp_display})"
+            success_msg = f"✅ <b>User {target_uid} DIAKTIFKAN</b>\n━━━━━━━━━━━━━━━\n🎁 Trial: 3 Hari/72 Jam (s/d {exp_display})"
         
         # 1. Update Database
         supabase.table('users').update({
@@ -4270,13 +4270,13 @@ async def callback_handler(update, context):
             except: pass
 
         else:
-            # PESAN UNTUK MATEL (Trial 1 Hari / 24 Jam - Full HTML)
+            # PESAN UNTUK MATEL (Trial 3 Hari / 72 Jam - Full HTML)
             nama_user = target_user.get('nama_lengkap', 'Mitra')
             msg_mitra = (
                 f"🦅 <b>SELAMAT BERGABUNG DI ONE ASPAL BOT</b> 🦅\n\n"
                 f"Halo, <b>{nama_user}</b>! Akun Anda telah <b>DISETUJUI</b> ✅.\n\n"
                 f"🎁 <b>BONUS PENDAFTARAN:</b>\n"
-                f"Anda mendapatkan akses <b>TRIAL GRATIS 24 JAM</b> (1 Hari).\n"
+                f"Anda mendapatkan akses <b>TRIAL GRATIS 72 JAM</b> (3 Hari).\n"
                 f"📅 <b>Aktif s/d:</b> {exp_display}\n\n"
                 f"Fitur kami dirancang <b>Super Cepat</b> ⚡ dan <b>Hemat Kuota</b> 📉 untuk menunjang kinerja Anda di lapangan.\n\n"
                 f"🔎 <b>CARA PENCARIAN:</b>\n"
