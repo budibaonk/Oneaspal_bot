@@ -3144,15 +3144,38 @@ async def upload_leasing_user(update, context):
     nm = update.message.text
     if nm == "❌ BATAL": return await cancel(update, context)
     
-    u = get_user(update.effective_user.id)
+    # 1. Definisikan user_id terlebih dahulu
+    user_id = update.effective_user.id
+    u = get_user(user_id)
     file_id = context.user_data.get('upload_file_id')
     
-    # Forward ke Admin
-    caption = f"📥 **UPLOAD MITRA**\n👤 {u['nama_lengkap']}\n🏦 {nm}"
+    # 2. EKSTRAKSI DATA DARI VARIABEL 'u' (Ini yang hilang di kode Anda)
+    # Jika 'u' bernilai None (user belum terdaftar), fallback ke default
+    if u:
+        nama = u.get('nama_lengkap', update.effective_user.first_name)
+        no_hp = u.get('no_hp', 'Tidak ada data')
+        agency = u.get('agency', 'Tidak ada data')
+    else:
+        nama = update.effective_user.first_name
+        no_hp = 'Tidak ada data'
+        agency = 'Tidak ada data'
+    
+    # 3. Sekarang variabelnya sudah ada isinya, aman masuk ke caption
+    caption = (
+        f"📥 **UPLOAD MITRA**\n"
+        f"👤 Nama: {nama}\n"
+        f"🆔 ID: `{user_id}`\n"
+        f"🏢 Agency: {agency}\n"
+        f"📞 No HP: {no_hp}\n"
+        f"🏦 Leasing: {nm}\n\n"
+        f"💡 *Balas cepat: Copy ID di atas, ketik /balas [ID] [Pesan]*"
+    )
+    
     try:
         # Kirim ke ADMIN_ID utama
         if 'ADMIN_ID' in globals() and ADMIN_ID != 0:
-            await context.bot.send_document(ADMIN_ID, file_id, caption=caption)
+            # 4. TAMBAHKAN parse_mode='Markdown' agar fitur copy ID berfungsi
+            await context.bot.send_document(ADMIN_ID, file_id, caption=caption, parse_mode='Markdown')
     except: pass
 
     await update.message.reply_text("✅ Terkirim ke Admin.", reply_markup=ReplyKeyboardRemove())
