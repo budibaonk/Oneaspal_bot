@@ -1373,59 +1373,59 @@ async def rekap_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # 5. RENDER TAMPILAN (FORMAT LENGKAP)
         if not target_data:
-             return await status_msg.edit_text(f"🔍 **HASIL PENCARIAN KOSONG**\n\nKonteks: {header_context}\nKeyword: {keyword}\n\n_Tidak ada data yang cocok hari ini._", parse_mode='Markdown')
+             return await status_msg.edit_text(f"🔍 <b>HASIL PENCARIAN KOSONG</b>\n\nKonteks: {clean_text(header_context)}\nKeyword: {clean_text(keyword)}\n\n<i>Tidak ada data yang cocok hari ini.</i>", parse_mode='HTML')
 
         # === TAMPILAN DETAIL (BERLAKU UNTUK ADMIN, PIC, DAN KORLAP) ===
         if mode_tampilan == "DETAIL":
             rpt = (
-                f"📋 **RINCIAN TEMUAN HARIAN**\n"
-                f"🔍 **Filter:** {header_context}\n"
-                f"📅 **Tanggal:** {now.strftime('%d %b %Y')}\n"
-                f"🔥 **Total:** {len(target_data)} Unit\n"
+                f"📋 <b>RINCIAN TEMUAN HARIAN</b>\n"
+                f"🔍 <b>Filter:</b> {clean_text(header_context)}\n"
+                f"📅 <b>Tanggal:</b> {now.strftime('%d %b %Y')}\n"
+                f"🔥 <b>Total:</b> {len(target_data)} Unit\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
             )
             body = ""
             for i, d in enumerate(target_data):
-                nopol = d.get('nopol', '-')
-                unit = d.get('unit', '-')
-                matel = d.get('nama_matel', 'Anonim')
-                leasing_lbl = d.get('leasing', '-')
-                pt_lbl = d.get('nama_pt', '-')
+                nopol = clean_text(d.get('nopol', '-'))
+                unit = clean_text(d.get('unit', '-'))
+                matel = clean_text(d.get('nama_matel', 'Anonim'))
+                leasing_lbl = clean_text(d.get('leasing', '-'))
+                pt_lbl = clean_text(d.get('nama_pt', '-'))
                 
                 # --- FORMAT BARIS LENGKAP (ADMIN/PIC/KORLAP SAMA) ---
                 # Baris 1: Nomor Urut | Plat Nomor | Nama Unit
-                row = f"{i+1}. **{nopol}** | {unit}\n"
+                row = f"{i+1}. <b>{nopol}</b> | {unit}\n"
                 # Baris 2: Nama Matel | Nama PT/Agency | Nama Leasing
                 row += f"   👤 {matel} | 🏢 {pt_lbl} | 🏦 {leasing_lbl}\n"
                 # ----------------------------------------------------
                 
                 if len(rpt + body + row) > 3800:
-                    body += "\n...(Data terpotong, terlalu banyak)..."
+                    body += "\n<i>...(Data terpotong, terlalu banyak)...</i>"
                     break
                 body += row
             
-            await status_msg.edit_text(rpt + body, parse_mode='Markdown')
+            await status_msg.edit_text(rpt + body, parse_mode='HTML')
 
         else:
             # TAMPILAN SUMMARY (HANYA MUNCUL JIKA ADMIN KETIK /REKAP TANPA KEYWORD)
             stats = {}
             for x in target_data:
-                k = x.get('leasing', 'UNKNOWN')
+                k = clean_text(x.get('leasing', 'UNKNOWN'))
                 stats[k] = stats.get(k, 0) + 1
             sorted_stats = sorted(stats.items(), key=lambda item: item[1], reverse=True)
             
             rpt = (
-                f"📊 **REKAP STATISTIK HARIAN**\n"
-                f"🏢 **Level:** {header_context}\n"
-                f"📅 **Tanggal:** {now.strftime('%d %b %Y')}\n"
-                f"🔥 **TOTAL GLOBAL:** {len(target_data)} Unit\n"
+                f"📊 <b>REKAP STATISTIK HARIAN</b>\n"
+                f"🏢 <b>Level:</b> {clean_text(header_context)}\n"
+                f"📅 <b>Tanggal:</b> {now.strftime('%d %b %Y')}\n"
+                f"🔥 <b>TOTAL GLOBAL:</b> {len(target_data)} Unit\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
             )
             for k, count in sorted_stats:
-                rpt += f"🔹 **{k}:** {count} Unit\n"
+                rpt += f"🔹 <b>{k}:</b> {count} Unit\n"
             
-            rpt += "\n💡 *Gunakan /cekagency [Nama PT] untuk detail.*"
-            await status_msg.edit_text(rpt, parse_mode='Markdown')
+            rpt += "\n💡 <i>Gunakan /cekagency [Nama PT] untuk detail.</i>"
+            await status_msg.edit_text(rpt, parse_mode='HTML')
 
     except Exception as e:
         logger.error(f"Master Rekap Error: {e}")
