@@ -40,7 +40,8 @@ import requests # Modul untuk berbicara dengan API Cloudflare
 
 
 # --- KONFIGURASI KEAMANAN CLOUDFLARE ---
-CF_TURNSTILE_SECRET_KEY = "0x4AAAAAADRa-y5iz_S4M3eDUzZdQnxte78"
+# Mengambil kunci dari brankas Environment Variables Railway
+CF_TURNSTILE_SECRET_KEY = os.environ.get("CF_TURNSTILE_SECRET_KEY")
 # ---------------------------------------
 # ==========================================================================
 # 1. Inisialisasi Flask untuk Landing Page & PIC Dashboard
