@@ -150,6 +150,7 @@
             .grid, .feat-grid { grid-template-columns: 1fr; }
         }
     </style>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 </head>
 <body>
 
@@ -261,6 +262,8 @@
                     <label>Inquiry Details</label>
                     <textarea name="message" rows="4" placeholder="How can we help your institution?" required></textarea>
                 </div>
+                <div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-theme="dark" style="margin-bottom: 20px; display: flex; justify-content: center;"></div>
+
                 <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">
                     Submit Official Inquiry
                 </button>

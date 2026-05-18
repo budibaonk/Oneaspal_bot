@@ -36,7 +36,12 @@ from flask import make_response, redirect
 from flask import Flask, render_template, request, redirect
 import threading
 import asyncio
+import requests # Modul untuk berbicara dengan API Cloudflare
 
+
+# --- KONFIGURASI KEAMANAN CLOUDFLARE ---
+CF_TURNSTILE_SECRET_KEY = "1x0000000000000000000000000000000AA"
+# ---------------------------------------
 # ==========================================================================
 # 1. Inisialisasi Flask untuk Landing Page & PIC Dashboard
 # ==========================================================================
@@ -51,6 +56,29 @@ def home():
 
 @app_web.route('/send-inquiry', methods=['POST'])
 def send_inquiry():
+    # --- 1. TANGKAP TOKEN DARI TURNSTILE ---
+    turnstile_response = request.form.get('cf-turnstile-response')
+    
+    # --- 2. VERIFIKASI KE SERVER CLOUDFLARE ---
+    if not turnstile_response:
+        return "⛔ Verifikasi Keamanan Gagal: Harap tunggu kotak keamanan termuat atau matikan adblocker Anda.", 400
+        
+    verify_url = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+    payload = {
+        "secret": CF_TURNSTILE_SECRET_KEY,
+        "response": turnstile_response
+    }
+    
+    try:
+        cf_request = requests.post(verify_url, data=payload)
+        cf_result = cf_request.json()
+        if not cf_result.get("success"):
+            return "⛔ Verifikasi Keamanan Gagal: Terdeteksi aktivitas robot.", 403
+    except Exception as e:
+        print(f"Turnstile Error: {e}")
+        return "⚠️ Terjadi kesalahan pada sistem keamanan (Cloudflare timeout).", 500
+
+    # --- 3. JIKA LOLOS (MANUSIA ASLI), LANJUTKAN PROSES ---
     name = request.form.get('name')
     company = request.form.get('company')
     phone = request.form.get('phone')
@@ -92,7 +120,7 @@ def send_inquiry():
     except Exception as e:
         print(f"❌ Error: {e}")
 
-    # Response setelah submit
+    # Response setelah submit sukses
     return """
     <body style="background:#0a0e14; color:white; font-family:sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; text-align:center; padding:20px;">
         <div>
